@@ -1,5 +1,6 @@
 (() => {
   // src/config/selectors.js
+  var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
   var NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
@@ -10,6 +11,8 @@
     ".googleusercontent.com",
     ".usercontent.google.com",
     ".googlevideo.com",
+    ".gvt1.com",
+    ".ggpht.com",
     ".google.com"
   ]);
   var BATCHEXECUTE = Object.freeze({
@@ -96,10 +99,13 @@
     BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
     BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
     BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
-    SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES"
+    SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+    EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
+    EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
   });
   var RUNTIME_MESSAGE = Object.freeze({
     ENSURE_SUBTITLES: "NOTEBOOKLM_SUBTITLES_ENSURE",
+    STAGE_AUDIO_CHUNK: "NOTEBOOKLM_SUBTITLES_STAGE_AUDIO_CHUNK",
     GET_CACHED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_GET_CACHED",
     SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
     TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
@@ -174,7 +180,7 @@
   }
 
   // src/lib/batchexecute.js
-  var FIFE_NOTEBOOKLM_TOKEN_RE = /\/notebooklm\/([A-Za-z0-9_-]{16,})/;
+  var FIFE_NOTEBOOKLM_TOKEN_RE = /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
   function isTrustedGoogleMediaUrl(rawUrl) {
     if (typeof rawUrl !== "string" || !rawUrl) return false;
     let parsed;
@@ -201,6 +207,9 @@
     }
     try {
       const u = new URL(rawUrl);
+      if (u.protocol === "blob:") return null;
+      const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
+      if (idParam) return idParam;
       const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
       return `${u.hostname}${cleanPath}`;
     } catch {
@@ -1565,6 +1574,18 @@ ${blocks.join("\n\n")}
   // src/content/content.js
   var MAX_AUTO_RETRIES = 2;
   var RETRY_BASE_DELAY_MS = 1800;
+  var PAGE_EXTRACT_TIMEOUT_MS = 9e4;
+  function uint8ToBase64(bytes) {
+    let s = "";
+    const CHUNK = 32768;
+    for (let i = 0; i < bytes.byteLength; i += CHUNK) {
+      s += String.fromCharCode.apply(
+        null,
+        bytes.subarray(i, Math.min(bytes.byteLength, i + CHUNK))
+      );
+    }
+    return btoa(s);
+  }
   function initContentCoordinator({
     win = globalThis.window,
     doc = globalThis.document,
@@ -1582,9 +1603,11 @@ ${blocks.join("\n\n")}
     const retryCounts = /* @__PURE__ */ new Map();
     const controllers = /* @__PURE__ */ new WeakMap();
     const trackedVideos = /* @__PURE__ */ new Set();
+    const pendingPageExtractions = /* @__PURE__ */ new Map();
     let awaitingCreatedArtifact = false;
     let cachedKeysSet = /* @__PURE__ */ new Set();
     let currentSettings = { ...DEFAULT_SETTINGS };
+    let extractReqSeq = 0;
     function currentNotebookId() {
       const m = String(win.location?.pathname || "").match(NOTEBOOK_URL_ID_REGEX);
       return m ? m[1] : null;
@@ -1619,6 +1642,89 @@ ${blocks.join("\n\n")}
         }
       });
     }
+    function openKeepaliveHeartbeat() {
+      if (!runtime?.connect) return () => {
+      };
+      let port = null;
+      let timer = null;
+      try {
+        port = runtime.connect({ name: KEEPALIVE_PORT_NAME });
+        port.onDisconnect?.addListener(() => {
+          port = null;
+        });
+        timer = setInterval(() => {
+          try {
+            port?.postMessage({ ping: Date.now() });
+          } catch {
+          }
+        }, 15e3);
+      } catch {
+      }
+      return () => {
+        if (timer) clearInterval(timer);
+        try {
+          port?.disconnect();
+        } catch {
+        }
+      };
+    }
+    function requestPageAudioExtraction({ candidateUrls = [], videoCurrentSrc = "" } = {}) {
+      if (!win?.postMessage || !win.location?.origin || win.location.origin === "null") {
+        return Promise.resolve({ ok: false, error: "Page bridge unavailable" });
+      }
+      const requestId = `req_${Date.now()}_${++extractReqSeq}`;
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pendingPageExtractions.delete(requestId);
+          resolve({ ok: false, error: "In-page extraction timed out" });
+        }, PAGE_EXTRACT_TIMEOUT_MS);
+        pendingPageExtractions.set(requestId, (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        });
+        try {
+          win.postMessage(
+            {
+              source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+              type: PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST,
+              payload: {
+                requestId,
+                candidateUrls,
+                videoCurrentSrc
+              }
+            },
+            win.location.origin
+          );
+        } catch (err) {
+          clearTimeout(timer);
+          pendingPageExtractions.delete(requestId);
+          resolve({ ok: false, error: err?.message || String(err) });
+        }
+      });
+    }
+    function discoverResourceTimingMediaUrl() {
+      try {
+        const entries = win.performance?.getEntriesByType?.("resource") || [];
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const url = entries[i]?.name || "";
+          if (isTrustedGoogleMediaUrl(url) && (entries[i].initiatorType === "video" || /\/notebooklm\/|videoplayback|=m(?:18|22|140)/i.test(url))) {
+            return url;
+          }
+        }
+      } catch {
+      }
+      return null;
+    }
+    function inferTitleNearVideo(video) {
+      const dialog = video?.closest?.('[role="dialog"], .video-player, [class*="video"]');
+      const heading = dialog?.querySelector?.("h1, h2, h3, .artifact-title, [class*='title']");
+      const rawHeading = heading?.textContent?.trim();
+      if (rawHeading && rawHeading.length >= 3 && rawHeading.length <= 140) {
+        return rawHeading;
+      }
+      const cleanDocTitle = doc.title?.replace(/\s*[-–|]\s*(?:NotebookLM|Gemini Notebook).*$/i, "").trim();
+      return cleanDocTitle || "Video Overview";
+    }
     async function refreshLocalState() {
       try {
         const [settings, keys] = await Promise.all([
@@ -1645,44 +1751,51 @@ ${blocks.join("\n\n")}
       const src = video?.currentSrc || video?.src || "";
       const token = extractMediaToken(src);
       if (token && artifactsByToken.has(token)) {
-        return artifactsByToken.get(token);
+        return { ...artifactsByToken.get(token), videoCurrentSrc: src };
       }
       const notebookId = currentNotebookId();
       const readyCandidates = [...artifactsById.values()].filter(
         (a) => a.status === "ready" && a.mediaUrl && (!notebookId || !a.notebookId || a.notebookId === notebookId)
       );
       if (readyCandidates.length === 1) {
-        return readyCandidates[0];
+        return { ...readyCandidates[0], videoCurrentSrc: src };
       }
       if (readyCandidates.length > 1) {
         const container = video.closest('[role="dialog"], .video-player, [class*="video"]') || doc.body;
         const containerText = (container?.textContent || "").toLowerCase();
         for (const candidate of readyCandidates) {
           if (candidate.title && containerText.includes(candidate.title.toLowerCase())) {
-            return candidate;
+            return { ...candidate, videoCurrentSrc: src };
           }
         }
         if (Number.isFinite(video.duration) && video.duration > 0) {
           const byDuration = readyCandidates.find(
             (c) => c.durationSeconds && Math.abs(c.durationSeconds - video.duration) <= 3
           );
-          if (byDuration) return byDuration;
+          if (byDuration) return { ...byDuration, videoCurrentSrc: src };
         }
-        return readyCandidates[0];
+        return { ...readyCandidates[0], videoCurrentSrc: src };
       }
-      if (isTrustedGoogleMediaUrl(src)) {
+      const perfUrl = discoverResourceTimingMediaUrl();
+      const bestUrl = isTrustedGoogleMediaUrl(src) ? src : perfUrl || (src.startsWith("blob:") ? src : "");
+      if (bestUrl) {
+        const title = inferTitleNearVideo(video);
+        const dur = Number.isFinite(video.duration) ? Math.round(video.duration) : 0;
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+        const fallbackToken = extractMediaToken(bestUrl);
         return {
-          artifactId: null,
+          artifactId: fallbackToken ? null : `dom:${notebookId || "nb"}:${slug || "video"}:${dur}`,
           notebookId,
-          title: doc.title?.replace(/\s*-\s*NotebookLM.*$/i, "") || "Video Overview",
+          title,
           typeCode: 3,
           status: "ready",
           language: null,
           durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
-          mediaUrl: src,
-          mediaToken: token,
-          audioVariantUrls: [],
-          videoVariantUrls: [src]
+          mediaUrl: bestUrl,
+          progressiveUrl: isTrustedGoogleMediaUrl(src) ? src : perfUrl,
+          mediaToken: fallbackToken,
+          mediaVariants: [bestUrl, perfUrl].filter(Boolean),
+          videoCurrentSrc: src
         };
       }
       return null;
@@ -1707,6 +1820,32 @@ ${blocks.join("\n\n")}
         }
       }
       return matched;
+    }
+    async function stageExtractedChunksToWorker(pageExtraction) {
+      const stagedJobId = `stage_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      for (let i = 0; i < pageExtraction.chunks.length; i++) {
+        const ch = pageExtraction.chunks[i];
+        const bytes = new Uint8Array(ch.buffer);
+        const res = await sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.STAGE_AUDIO_CHUNK,
+          stagedJobId,
+          index: i,
+          totalChunks: pageExtraction.chunks.length,
+          originalBytes: pageExtraction.originalBytes,
+          extractedBytes: pageExtraction.extractedBytes,
+          chunk: {
+            base64: uint8ToBase64(bytes),
+            mimeType: ch.mimeType,
+            fileName: ch.fileName,
+            startOffsetSec: ch.startOffsetSec || 0,
+            durationSec: ch.durationSec || null
+          }
+        });
+        if (!res?.ok) {
+          return null;
+        }
+      }
+      return stagedJobId;
     }
     async function requestSubtitlesForArtifact(artifact, { trigger = "player_open", force = false } = {}) {
       if (!artifact) return;
@@ -1761,16 +1900,58 @@ ${blocks.join("\n\n")}
         kind: "working",
         durationMs: 0
       });
-      const response = await sendRuntimeMessage({
-        type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
-        force,
-        artifact: {
+      const closeKeepalive = openKeepaliveHeartbeat();
+      let response = null;
+      try {
+        const candidateUrls = [
+          artifact.progressiveUrl,
+          artifact.mediaUrl,
+          ...Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : []
+        ].filter(Boolean);
+        const pageAudio = await requestPageAudioExtraction({
+          candidateUrls,
+          videoCurrentSrc: artifact.videoCurrentSrc || ""
+        });
+        let stagedJobId = null;
+        let mergedArtifact = {
           ...artifact,
           cacheKey: key,
           notebookId: artifact.notebookId || currentNotebookId()
+        };
+        if (pageAudio?.ok && Array.isArray(pageAudio.chunks) && pageAudio.chunks.length > 0) {
+          const origMb = (pageAudio.originalBytes / 1048576).toFixed(1);
+          const extMb = (pageAudio.extractedBytes / 1048576).toFixed(1);
+          for (const c of matchingCtrls) {
+            c.setStatus("working", "Transcribing\u2026");
+          }
+          showToastIfEnabled({
+            title: "Audio extracted \xB7 Transcribing\u2026",
+            detail: `${origMb} MB video -> ${extMb} MB audio`,
+            kind: "working",
+            durationMs: 0
+          });
+          stagedJobId = await stageExtractedChunksToWorker(pageAudio);
+        } else if (Array.isArray(pageAudio?.discoveredMediaUrls) && pageAudio.discoveredMediaUrls.length > 0) {
+          const extra = pageAudio.discoveredMediaUrls;
+          if (!isTrustedGoogleMediaUrl(mergedArtifact.mediaUrl) && extra[0]) {
+            mergedArtifact.mediaUrl = extra[0];
+          }
+          mergedArtifact.mediaVariants = [
+            ...mergedArtifact.mediaVariants || [],
+            ...extra
+          ];
         }
-      });
-      inFlightKeys.delete(key);
+        response = await sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+          force,
+          stagedJobId,
+          pageFetchError: pageAudio?.ok ? null : pageAudio?.error || null,
+          artifact: mergedArtifact
+        });
+      } finally {
+        closeKeepalive();
+        inFlightKeys.delete(key);
+      }
       if (response?.ok && response.entry?.cues?.length > 0) {
         retryCounts.delete(key);
         exhaustedKeys.delete(key);
@@ -1787,8 +1968,10 @@ ${blocks.join("\n\n")}
       }
       const errMsg = response?.error || "Subtitle generation failed.";
       const prevRetries = retryCounts.get(key) || 0;
-      const isAuthOrConfigError = /no stt api key|missing api key|401|403/i.test(errMsg);
-      if (!force && !isAuthOrConfigError && prevRetries < MAX_AUTO_RETRIES) {
+      const isNonRetryableError = /no stt api key|missing api key|401|403|reload this notebooklm tab/i.test(
+        errMsg
+      );
+      if (!force && !isNonRetryableError && prevRetries < MAX_AUTO_RETRIES) {
         const nextAttempt = prevRetries + 1;
         retryCounts.set(key, nextAttempt);
         const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, prevRetries);
@@ -1808,7 +1991,7 @@ ${blocks.join("\n\n")}
         title: "Could not generate subtitles",
         detail: errMsg,
         kind: "error",
-        durationMs: 6500
+        durationMs: 7500
       });
     }
     function applyCuesToMatchingPlayers(entry) {
@@ -1939,7 +2122,7 @@ ${blocks.join("\n\n")}
             for (const video of trackedVideos) {
               const resolved = resolveArtifactForVideo(video);
               if (resolved && resolved.artifactId === art.artifactId) {
-                requestSubtitlesForArtifact(art, {
+                requestSubtitlesForArtifact(resolved, {
                   trigger: "player_open",
                   force: false
                 });
@@ -1955,8 +2138,17 @@ ${blocks.join("\n\n")}
         return;
       }
       const msg = event.data;
-      if (msg && msg.source === PAGE_MESSAGE.BRIDGE_SOURCE_PAGE && msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
+      if (!msg || msg.source !== PAGE_MESSAGE.BRIDGE_SOURCE_PAGE) return;
+      if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
         handleBatchexecuteMessage(msg.payload);
+        return;
+      }
+      if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE) {
+        const resolver = pendingPageExtractions.get(msg.payload?.requestId);
+        if (resolver) {
+          pendingPageExtractions.delete(msg.payload.requestId);
+          resolver(msg.payload);
+        }
       }
     });
     runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
@@ -2030,7 +2222,7 @@ ${blocks.join("\n\n")}
             const ctx = new AudioCtx();
             const decoded = await ctx.decodeAudioData(bytes.buffer.slice(0));
             await ctx.close();
-            const targetRate = 16e3;
+            const targetRate = decoded.duration > 600 ? 12e3 : 16e3;
             const length = Math.max(1, Math.ceil(decoded.duration * targetRate));
             const offline = new win.OfflineAudioContext(1, length, targetRate);
             const src = offline.createBufferSource();
@@ -2039,24 +2231,14 @@ ${blocks.join("\n\n")}
             src.start(0);
             const rendered = await offline.startRendering();
             const samples = rendered.getChannelData(0);
-            const wavChunks = slicePcmIntoWavChunks(samples, targetRate);
-            const encodedChunks = wavChunks.map((ch, idx) => {
-              let s = "";
-              const CHUNK = 32768;
-              for (let i = 0; i < ch.bytes.length; i += CHUNK) {
-                s += String.fromCharCode.apply(
-                  null,
-                  ch.bytes.subarray(i, i + CHUNK)
-                );
-              }
-              return {
-                base64: btoa(s),
-                mimeType: "audio/wav",
-                fileName: ch.fileName || `chunk-${idx + 1}.wav`,
-                startOffsetSec: ch.startOffsetSec,
-                durationSec: ch.durationSec
-              };
-            });
+            const wavChunks = slicePcmIntoWavChunks(samples, targetRate, 14 * 1024 * 1024);
+            const encodedChunks = wavChunks.map((ch, idx) => ({
+              base64: uint8ToBase64(ch.bytes),
+              mimeType: "audio/wav",
+              fileName: ch.fileName || `chunk-${idx + 1}.wav`,
+              startOffsetSec: ch.startOffsetSec,
+              durationSec: ch.durationSec
+            }));
             sendResponse?.({ ok: true, chunks: encodedChunks });
           } catch (err) {
             sendResponse?.({ ok: false, error: err?.message || String(err) });

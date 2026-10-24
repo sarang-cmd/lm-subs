@@ -184,17 +184,36 @@ export async function transcribeSingleChunk({
       err.message = safeMsg;
       throw err;
     }
-    throw new ProviderHttpError(safeMsg, {
-      status: err?.status || 0,
-      provider: spec.id,
-    });
+    const endpointHost = (() => {
+      try {
+        return new URL(
+          spec.id === "custom" ? customBaseUrl || spec.endpoint : spec.endpoint
+        ).hostname;
+      } catch {
+        return spec.id;
+      }
+    })();
+    throw new ProviderHttpError(
+      `${spec.id} network error (${endpointHost}): ${safeMsg}`,
+      {
+        status: err?.status || 0,
+        provider: spec.id,
+      }
+    );
   } finally {
     clearTimeout(timer);
   }
 }
 
 function isRetryableSingleProviderStatus(status) {
-  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+  return (
+    status === 0 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
 }
 
 /**

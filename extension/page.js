@@ -9,6 +9,8 @@
     ".googleusercontent.com",
     ".usercontent.google.com",
     ".googlevideo.com",
+    ".gvt1.com",
+    ".ggpht.com",
     ".google.com"
   ]);
   var BATCHEXECUTE = Object.freeze({
@@ -95,10 +97,13 @@
     BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
     BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
     BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
-    SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES"
+    SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+    EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
+    EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
   });
   var RUNTIME_MESSAGE = Object.freeze({
     ENSURE_SUBTITLES: "NOTEBOOKLM_SUBTITLES_ENSURE",
+    STAGE_AUDIO_CHUNK: "NOTEBOOKLM_SUBTITLES_STAGE_AUDIO_CHUNK",
     GET_CACHED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_GET_CACHED",
     SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
     TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
@@ -108,9 +113,380 @@
     TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO"
   });
 
+  // src/lib/audio-extract.js
+  var FOURCC_Encoder = new TextEncoder();
+  function fourCC(bytes, offset) {
+    return String.fromCharCode(
+      bytes[offset],
+      bytes[offset + 1],
+      bytes[offset + 2],
+      bytes[offset + 3]
+    );
+  }
+  function makeBox(type, payloadParts) {
+    let payloadLen = 0;
+    for (const part of payloadParts) {
+      payloadLen += part.byteLength;
+    }
+    const total = 8 + payloadLen;
+    const out = new Uint8Array(total);
+    const view = new DataView(out.buffer);
+    view.setUint32(0, total, false);
+    const typeBytes = FOURCC_Encoder.encode(type.slice(0, 4).padEnd(4, " "));
+    out.set(typeBytes.subarray(0, 4), 4);
+    let cursor = 8;
+    for (const part of payloadParts) {
+      out.set(part, cursor);
+      cursor += part.byteLength;
+    }
+    return out;
+  }
+  function readIsoBoxes(bytes, start = 0, end = bytes.byteLength) {
+    const boxes = [];
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let pos = start;
+    while (pos + 8 <= end) {
+      const size32 = view.getUint32(pos, false);
+      const type = fourCC(bytes, pos + 4);
+      let headerSize = 8;
+      let boxSize = size32;
+      if (size32 === 1) {
+        if (pos + 16 > end) break;
+        const hi = view.getUint32(pos + 8, false);
+        const lo = view.getUint32(pos + 12, false);
+        boxSize = hi * 4294967296 + lo;
+        headerSize = 16;
+      } else if (size32 === 0) {
+        boxSize = end - pos;
+      }
+      if (boxSize < headerSize || pos + boxSize > end) {
+        break;
+      }
+      boxes.push({
+        type,
+        offset: pos,
+        size: boxSize,
+        headerSize,
+        dataOffset: pos + headerSize,
+        endOffset: pos + boxSize
+      });
+      pos += boxSize;
+    }
+    return boxes;
+  }
+  function parseStsc(bytes, box) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (box.dataOffset + 8 > box.endOffset) return [];
+    const count = view.getUint32(box.dataOffset + 4, false);
+    const entries = [];
+    let cursor = box.dataOffset + 8;
+    for (let i = 0; i < count && cursor + 12 <= box.endOffset; i++) {
+      entries.push({
+        firstChunk: view.getUint32(cursor, false),
+        samplesPerChunk: view.getUint32(cursor + 4, false),
+        sampleDescIndex: view.getUint32(cursor + 8, false)
+      });
+      cursor += 12;
+    }
+    return entries;
+  }
+  function parseStsz(bytes, box) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (box.dataOffset + 12 > box.endOffset) {
+      return { constantSize: 0, sampleCount: 0, sizes: [] };
+    }
+    const constantSize = view.getUint32(box.dataOffset + 4, false);
+    const sampleCount = view.getUint32(box.dataOffset + 8, false);
+    const sizes = [];
+    if (constantSize === 0) {
+      let cursor = box.dataOffset + 12;
+      for (let i = 0; i < sampleCount && cursor + 4 <= box.endOffset; i++) {
+        sizes.push(view.getUint32(cursor, false));
+        cursor += 4;
+      }
+    }
+    return { constantSize, sampleCount, sizes };
+  }
+  function parseChunkOffsets(bytes, stcoBox, co64Box) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const offsets = [];
+    if (stcoBox && stcoBox.dataOffset + 8 <= stcoBox.endOffset) {
+      const count = view.getUint32(stcoBox.dataOffset + 4, false);
+      let cursor = stcoBox.dataOffset + 8;
+      for (let i = 0; i < count && cursor + 4 <= stcoBox.endOffset; i++) {
+        offsets.push(view.getUint32(cursor, false));
+        cursor += 4;
+      }
+      return offsets;
+    }
+    if (co64Box && co64Box.dataOffset + 8 <= co64Box.endOffset) {
+      const count = view.getUint32(co64Box.dataOffset + 4, false);
+      let cursor = co64Box.dataOffset + 8;
+      for (let i = 0; i < count && cursor + 8 <= co64Box.endOffset; i++) {
+        const hi = view.getUint32(cursor, false);
+        const lo = view.getUint32(cursor + 4, false);
+        offsets.push(hi * 4294967296 + lo);
+        cursor += 8;
+      }
+    }
+    return offsets;
+  }
+  function buildStcoBox(offsets) {
+    const payload = new Uint8Array(8 + offsets.length * 4);
+    const view = new DataView(payload.buffer);
+    view.setUint32(0, 0, false);
+    view.setUint32(4, offsets.length, false);
+    for (let i = 0; i < offsets.length; i++) {
+      view.setUint32(8 + i * 4, offsets[i] >>> 0, false);
+    }
+    return makeBox("stco", [payload]);
+  }
+  function buildM4aFtypBox() {
+    const payload = new Uint8Array(20);
+    const view = new DataView(payload.buffer);
+    payload.set(FOURCC_Encoder.encode("M4A "), 0);
+    view.setUint32(4, 0, false);
+    payload.set(FOURCC_Encoder.encode("M4A "), 8);
+    payload.set(FOURCC_Encoder.encode("mp42"), 12);
+    payload.set(FOURCC_Encoder.encode("isom"), 16);
+    return makeBox("ftyp", [payload]);
+  }
+  function validateMediaPayload(inputBuffer, contentType = "") {
+    const bytes = inputBuffer instanceof Uint8Array ? inputBuffer : new Uint8Array(inputBuffer || 0);
+    if (bytes.byteLength === 0) {
+      throw new Error("Media download returned 0 bytes.");
+    }
+    const ct = String(contentType || "").toLowerCase();
+    if (ct.includes("text/html")) {
+      throw new Error(
+        "Received HTML instead of media stream. Refresh your NotebookLM tab so Google's media session cookie renews."
+      );
+    }
+    const headAscii = String.fromCharCode(
+      ...bytes.subarray(0, Math.min(32, bytes.byteLength))
+    ).trimStart().toLowerCase();
+    if (headAscii.startsWith("<!doctype") || headAscii.startsWith("<html")) {
+      throw new Error(
+        "Received an HTML document instead of video/audio bytes. Refresh NotebookLM and try again."
+      );
+    }
+    return bytes;
+  }
+  function extractAudioTrackFromMp4(inputBuffer) {
+    const bytes = inputBuffer instanceof Uint8Array ? inputBuffer : new Uint8Array(inputBuffer || 0);
+    if (bytes.byteLength < 32) return null;
+    const topBoxes = readIsoBoxes(bytes, 0, bytes.byteLength);
+    const moovBox = topBoxes.find((b) => b.type === "moov");
+    if (!moovBox) return null;
+    const moovChildren = readIsoBoxes(bytes, moovBox.dataOffset, moovBox.endOffset);
+    const mvhdBox = moovChildren.find((b) => b.type === "mvhd");
+    if (!mvhdBox) return null;
+    const trakBoxes = moovChildren.filter((b) => b.type === "trak");
+    if (trakBoxes.length === 0) return null;
+    let soundTrak = null;
+    let hasVideoTrak = false;
+    for (const trak of trakBoxes) {
+      const trakChildren = readIsoBoxes(bytes, trak.dataOffset, trak.endOffset);
+      const mdia = trakChildren.find((b) => b.type === "mdia");
+      if (!mdia) continue;
+      const mdiaChildren = readIsoBoxes(bytes, mdia.dataOffset, mdia.endOffset);
+      const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+      if (!hdlr || hdlr.dataOffset + 12 > hdlr.endOffset) continue;
+      const handlerSubtype = fourCC(bytes, hdlr.dataOffset + 8);
+      if (handlerSubtype === "vide") {
+        hasVideoTrak = true;
+      } else if (handlerSubtype === "soun" && !soundTrak) {
+        const minf = mdiaChildren.find((b) => b.type === "minf");
+        if (!minf) continue;
+        const minfChildren = readIsoBoxes(bytes, minf.dataOffset, minf.endOffset);
+        const stbl = minfChildren.find((b) => b.type === "stbl");
+        if (!stbl) continue;
+        const stblChildren = readIsoBoxes(bytes, stbl.dataOffset, stbl.endOffset);
+        soundTrak = {
+          trak,
+          trakChildren,
+          mdia,
+          mdiaChildren,
+          minf,
+          minfChildren,
+          stbl,
+          stblChildren
+        };
+      }
+    }
+    if (!soundTrak) return null;
+    const stscBox = soundTrak.stblChildren.find((b) => b.type === "stsc");
+    const stszBox = soundTrak.stblChildren.find((b) => b.type === "stsz");
+    const stcoBox = soundTrak.stblChildren.find((b) => b.type === "stco");
+    const co64Box = soundTrak.stblChildren.find((b) => b.type === "co64");
+    if (!stscBox || !stszBox || !stcoBox && !co64Box) {
+      return null;
+    }
+    const stsc = parseStsc(bytes, stscBox);
+    const stsz = parseStsz(bytes, stszBox);
+    const origOffsets = parseChunkOffsets(bytes, stcoBox, co64Box);
+    if (stsc.length === 0 || stsz.sampleCount === 0 || origOffsets.length === 0) {
+      return null;
+    }
+    const chunkSlices = [];
+    const relativeChunkOffsets = [];
+    let sampleCursor = 0;
+    let stscIdx = 0;
+    let totalAudioBytes = 0;
+    for (let c = 0; c < origOffsets.length; c++) {
+      const chunkNum1Based = c + 1;
+      while (stscIdx + 1 < stsc.length && stsc[stscIdx + 1].firstChunk <= chunkNum1Based) {
+        stscIdx++;
+      }
+      const samplesInChunk = stsc[stscIdx].samplesPerChunk;
+      let chunkByteLen = 0;
+      if (stsz.constantSize > 0) {
+        chunkByteLen = samplesInChunk * stsz.constantSize;
+        sampleCursor += samplesInChunk;
+      } else {
+        if (sampleCursor + samplesInChunk > stsz.sizes.length) {
+          return null;
+        }
+        for (let s = 0; s < samplesInChunk; s++) {
+          chunkByteLen += stsz.sizes[sampleCursor++];
+        }
+      }
+      const startByte = origOffsets[c];
+      const endByte = startByte + chunkByteLen;
+      if (startByte < 0 || chunkByteLen < 0 || endByte > bytes.byteLength) {
+        return null;
+      }
+      relativeChunkOffsets.push(totalAudioBytes);
+      chunkSlices.push(bytes.subarray(startByte, endByte));
+      totalAudioBytes += chunkByteLen;
+    }
+    if (totalAudioBytes === 0 || totalAudioBytes > 2147483647) {
+      return null;
+    }
+    const rebuildMoovWithOffsets = (chunkAbsOffsets) => {
+      const newStco = buildStcoBox(chunkAbsOffsets);
+      const stblParts = [];
+      for (const child of soundTrak.stblChildren) {
+        if (child.type === "stco" || child.type === "co64") continue;
+        stblParts.push(bytes.subarray(child.offset, child.endOffset));
+      }
+      stblParts.push(newStco);
+      const newStbl = makeBox("stbl", stblParts);
+      const minfParts = soundTrak.minfChildren.map(
+        (child) => child.type === "stbl" ? newStbl : bytes.subarray(child.offset, child.endOffset)
+      );
+      const newMinf = makeBox("minf", minfParts);
+      const mdiaParts = soundTrak.mdiaChildren.map(
+        (child) => child.type === "minf" ? newMinf : bytes.subarray(child.offset, child.endOffset)
+      );
+      const newMdia = makeBox("mdia", mdiaParts);
+      const trakParts = soundTrak.trakChildren.map(
+        (child) => child.type === "mdia" ? newMdia : bytes.subarray(child.offset, child.endOffset)
+      );
+      const newTrak = makeBox("trak", trakParts);
+      const mvhdSlice = bytes.subarray(mvhdBox.offset, mvhdBox.endOffset);
+      return makeBox("moov", [mvhdSlice, newTrak]);
+    };
+    const ftypBytes = buildM4aFtypBox();
+    const placeholderMoov = rebuildMoovWithOffsets(
+      new Array(origOffsets.length).fill(0)
+    );
+    const mdatPayloadStart = ftypBytes.byteLength + placeholderMoov.byteLength + 8;
+    const finalAbsOffsets = relativeChunkOffsets.map(
+      (rel) => mdatPayloadStart + rel
+    );
+    const finalMoov = rebuildMoovWithOffsets(finalAbsOffsets);
+    const mdatTotalSize = 8 + totalAudioBytes;
+    const outputSize = ftypBytes.byteLength + finalMoov.byteLength + mdatTotalSize;
+    const out = new Uint8Array(outputSize);
+    const outView = new DataView(out.buffer);
+    let pos = 0;
+    out.set(ftypBytes, pos);
+    pos += ftypBytes.byteLength;
+    out.set(finalMoov, pos);
+    pos += finalMoov.byteLength;
+    outView.setUint32(pos, mdatTotalSize, false);
+    out.set(FOURCC_Encoder.encode("mdat"), pos + 4);
+    pos += 8;
+    for (const slice of chunkSlices) {
+      out.set(slice, pos);
+      pos += slice.byteLength;
+    }
+    return {
+      bytes: out,
+      mimeType: "audio/mp4",
+      fileName: "audio.m4a",
+      strippedVideo: hasVideoTrak,
+      originalBytes: bytes.byteLength,
+      extractedBytes: out.byteLength,
+      chunkCount: origOffsets.length
+    };
+  }
+  function encodeMonoWav16Bit(float32Samples, sampleRate = 16e3) {
+    const numSamples = float32Samples.length;
+    const dataBytes = numSamples * 2;
+    const buffer = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buffer);
+    const out = new Uint8Array(buffer);
+    out.set(FOURCC_Encoder.encode("RIFF"), 0);
+    view.setUint32(4, 36 + dataBytes, true);
+    out.set(FOURCC_Encoder.encode("WAVE"), 8);
+    out.set(FOURCC_Encoder.encode("fmt "), 12);
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    out.set(FOURCC_Encoder.encode("data"), 36);
+    view.setUint32(40, dataBytes, true);
+    let offset = 44;
+    for (let i = 0; i < numSamples; i++) {
+      const clamped = Math.max(-1, Math.min(1, float32Samples[i]));
+      const int16 = clamped < 0 ? clamped * 32768 : clamped * 32767;
+      view.setInt16(offset, int16, true);
+      offset += 2;
+    }
+    return out;
+  }
+  function slicePcmIntoWavChunks(float32Samples, sampleRate = 16e3, maxChunkBytes = 18 * 1024 * 1024) {
+    const usablePayloadBytes = Math.max(4096, maxChunkBytes - 44);
+    const maxSamplesPerChunk = Math.floor(usablePayloadBytes / 2);
+    const totalSamples = float32Samples.length;
+    if (totalSamples === 0) {
+      return [
+        {
+          bytes: encodeMonoWav16Bit(new Float32Array(0), sampleRate),
+          mimeType: "audio/wav",
+          fileName: "audio-chunk-1.wav",
+          startOffsetSec: 0,
+          durationSec: 0
+        }
+      ];
+    }
+    const chunks = [];
+    let cursor = 0;
+    let index = 1;
+    while (cursor < totalSamples) {
+      const end = Math.min(totalSamples, cursor + maxSamplesPerChunk);
+      const slice = float32Samples.subarray(cursor, end);
+      chunks.push({
+        bytes: encodeMonoWav16Bit(slice, sampleRate),
+        mimeType: "audio/wav",
+        fileName: `audio-chunk-${index}.wav`,
+        startOffsetSec: cursor / sampleRate,
+        durationSec: slice.length / sampleRate
+      });
+      cursor = end;
+      index++;
+    }
+    return chunks;
+  }
+
   // src/lib/batchexecute.js
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  var FIFE_NOTEBOOKLM_TOKEN_RE = /\/notebooklm\/([A-Za-z0-9_-]{16,})/;
+  var FIFE_NOTEBOOKLM_TOKEN_RE = /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
   function isBatchExecuteUrl(url) {
     if (typeof url !== "string" || !url) return false;
     return BATCHEXECUTE.PATH_SUBSTRINGS.some((sub) => url.includes(sub));
@@ -141,6 +517,9 @@
     }
     try {
       const u = new URL(rawUrl);
+      if (u.protocol === "blob:") return null;
+      const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
+      if (idParam) return idParam;
       const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
       return `${u.hostname}${cleanPath}`;
     } catch {
@@ -156,8 +535,10 @@
     if (isTrustedGoogleMediaUrl(mediaUrl) && FIFE_NOTEBOOKLM_TOKEN_RE.test(mediaUrl)) {
       const base = mediaUrl.replace(/=(?:m\d+(?:-dv)?|mm,[a-z]+)$/i, "");
       if (base !== mediaUrl) {
-        pushUnique(`${base}=m140-dv`);
+        pushUnique(`${base}=m140`);
         pushUnique(`${base}=m18`);
+        pushUnique(`${base}=m22`);
+        pushUnique(`${base}=m140-dv`);
         pushUnique(`${base}=m22-dv`);
       }
     }
@@ -260,10 +641,12 @@
     let progressiveUrl = null;
     let language = null;
     let durationSeconds = null;
+    const discoveredMp4Urls = [];
     if (Array.isArray(videoBlock)) {
       const progCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
       if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
         progressiveUrl = progCandidate;
+        discoveredMp4Urls.push(progCandidate);
       }
       const genOpts = videoBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
       if (Array.isArray(genOpts) && typeof genOpts[1] === "string" && genOpts[1]) {
@@ -272,6 +655,7 @@
       const dlCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
       if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
         mediaUrl = dlCandidate;
+        discoveredMp4Urls.push(dlCandidate);
       }
       const mediaList = videoBlock[BATCHEXECUTE.VIDEO_META_POS.MEDIA_LIST];
       if (Array.isArray(mediaList)) {
@@ -282,12 +666,16 @@
           const kind = entry[1];
           const mime = entry[2];
           if (!isTrustedGoogleMediaUrl(url)) continue;
-          if (mime === "video/mp4" && kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD) {
-            mediaUrl = url;
-            break;
-          }
-          if (mime === "video/mp4" && !fallbackMp4) {
-            fallbackMp4 = url;
+          if (mime === "video/mp4") {
+            if (!discoveredMp4Urls.includes(url)) discoveredMp4Urls.push(url);
+            if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
+              progressiveUrl = url;
+            }
+            if (kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD) {
+              mediaUrl = url;
+            } else if (!fallbackMp4) {
+              fallbackMp4 = url;
+            }
           }
         }
         if (!mediaUrl && fallbackMp4) {
@@ -306,6 +694,11 @@
     }
     const looksLikeArtifactRow = UUID_RE.test(artifactId) || Boolean(mediaUrl) || Array.isArray(row[BATCHEXECUTE.ROW_POS.SOURCES]);
     if (!looksLikeArtifactRow) return null;
+    const primarySeed = progressiveUrl || mediaUrl;
+    const variants = primarySeed ? deriveGoogleMediaVariants(primarySeed) : [];
+    for (const extra of discoveredMp4Urls) {
+      if (!variants.includes(extra)) variants.push(extra);
+    }
     return {
       artifactId,
       title,
@@ -315,7 +708,7 @@
       language,
       mediaUrl,
       progressiveUrl: progressiveUrl || mediaUrl,
-      mediaVariants: mediaUrl ? deriveGoogleMediaVariants(mediaUrl) : [],
+      mediaVariants: variants,
       mediaToken: extractMediaToken(mediaUrl || progressiveUrl || ""),
       durationSeconds
     };
@@ -382,31 +775,273 @@
 
   // src/page/inject.js
   var GUARD_FLAG = "__notebooklmSubtitlesMainHooked__";
+  var MAX_INLINE_M4A_BYTES = 20 * 1024 * 1024;
+  var MAX_WAV_CHUNK_BYTES = 14 * 1024 * 1024;
   function installMainWorldObserver(win = globalThis) {
     if (!win || win[GUARD_FLAG]) return;
     win[GUARD_FLAG] = true;
     let rpcOverrides = {};
-    win.addEventListener("message", (event) => {
-      if (event.source !== win) return;
-      const msg = event.data;
-      if (msg && msg.source === PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT && msg.type === PAGE_MESSAGE.SYNC_RPC_OVERRIDES && msg.rpcOverrides && typeof msg.rpcOverrides === "object") {
-        rpcOverrides = { ...msg.rpcOverrides };
-      }
-    });
-    function emitPayload(payload) {
+    const nativeFetch = typeof win.fetch === "function" ? win.fetch.bind(win) : null;
+    const trackedMediaBlobs = /* @__PURE__ */ new Map();
+    if (win.URL && typeof win.URL.createObjectURL === "function") {
+      const origCreateObjectURL = win.URL.createObjectURL.bind(win.URL);
+      win.URL.createObjectURL = function patchedCreateObjectURL(obj) {
+        const url = origCreateObjectURL(obj);
+        try {
+          if (typeof Blob !== "undefined" && obj instanceof Blob && (obj.size > 65536 || /^(?:video|audio)\//i.test(obj.type || ""))) {
+            if (trackedMediaBlobs.size >= 4) {
+              const oldestKey = trackedMediaBlobs.keys().next().value;
+              trackedMediaBlobs.delete(oldestKey);
+            }
+            trackedMediaBlobs.set(url, obj);
+          }
+        } catch {
+        }
+        return url;
+      };
+    }
+    function getTargetOrigin() {
+      return win.location && win.location.origin && win.location.origin !== "null" ? win.location.origin : "*";
+    }
+    function postToContent(type, payload, transfer = []) {
       try {
-        const targetOrigin = win.location && win.location.origin && win.location.origin !== "null" ? win.location.origin : "*";
         win.postMessage(
           {
             source: PAGE_MESSAGE.BRIDGE_SOURCE_PAGE,
-            type: PAGE_MESSAGE.BATCH_ARTIFACTS,
+            type,
             payload
           },
-          targetOrigin
+          getTargetOrigin(),
+          transfer
         );
       } catch {
       }
     }
+    function discoverPerformanceMediaUrls() {
+      const found = [];
+      try {
+        const entries = win.performance?.getEntriesByType?.("resource") || [];
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const e = entries[i];
+          const url = e?.name || "";
+          if (!isTrustedGoogleMediaUrl(url)) continue;
+          const looksLikeMedia = e.initiatorType === "video" || e.initiatorType === "media" || /\/notebooklm\/|videoplayback|=m(?:18|22|140)/i.test(url);
+          if (looksLikeMedia && !found.includes(url)) {
+            found.push(url);
+          }
+        }
+      } catch {
+      }
+      return found;
+    }
+    async function decodeBytesToWavChunks(mediaBytes) {
+      const AudioCtx = win.AudioContext || win.webkitAudioContext;
+      const OfflineCtx = win.OfflineAudioContext || win.webkitOfflineAudioContext;
+      if (!AudioCtx || !OfflineCtx) {
+        throw new Error("WebAudio decoder unavailable in this browser context.");
+      }
+      const ctx = new AudioCtx();
+      let decoded;
+      try {
+        const copy = mediaBytes.buffer.slice(
+          mediaBytes.byteOffset,
+          mediaBytes.byteOffset + mediaBytes.byteLength
+        );
+        decoded = await ctx.decodeAudioData(copy);
+      } finally {
+        try {
+          await ctx.close();
+        } catch {
+        }
+      }
+      const sampleRate = decoded.duration > 600 ? 12e3 : 16e3;
+      const totalSamples = Math.max(1, Math.ceil(decoded.duration * sampleRate));
+      const offline = new OfflineCtx(1, totalSamples, sampleRate);
+      const source = offline.createBufferSource();
+      source.buffer = decoded;
+      source.connect(offline.destination);
+      source.start(0);
+      const rendered = await offline.startRendering();
+      const pcm = rendered.getChannelData(0);
+      return slicePcmIntoWavChunks(pcm, sampleRate, MAX_WAV_CHUNK_BYTES);
+    }
+    async function fetchSingleCandidateInPage(url) {
+      if (typeof url !== "string" || !url) {
+        throw new Error("Empty media URL");
+      }
+      if (url.startsWith("blob:")) {
+        const tracked = trackedMediaBlobs.get(url);
+        if (tracked) {
+          const buf2 = new Uint8Array(await tracked.arrayBuffer());
+          return {
+            bytes: validateMediaPayload(buf2, tracked.type || "video/mp4"),
+            contentType: tracked.type || "video/mp4"
+          };
+        }
+        if (!nativeFetch) throw new Error("fetch unavailable");
+        const blobRes = await nativeFetch(url);
+        if (!blobRes.ok) throw new Error(`blob HTTP ${blobRes.status}`);
+        const ct = blobRes.headers?.get?.("content-type") || "video/mp4";
+        const buf = new Uint8Array(await blobRes.arrayBuffer());
+        return {
+          bytes: validateMediaPayload(buf, ct),
+          contentType: ct
+        };
+      }
+      if (!isTrustedGoogleMediaUrl(url)) {
+        throw new Error("Untrusted media URL");
+      }
+      if (!nativeFetch) {
+        throw new Error("fetch unavailable");
+      }
+      let lastErr = null;
+      for (const credentialsMode of ["include", "omit"]) {
+        try {
+          const res = await nativeFetch(url, {
+            method: "GET",
+            credentials: credentialsMode
+          });
+          if (!res.ok) {
+            lastErr = new Error(`HTTP ${res.status}`);
+            continue;
+          }
+          const ct = res.headers?.get?.("content-type") || "";
+          const buf = new Uint8Array(await res.arrayBuffer());
+          return {
+            bytes: validateMediaPayload(buf, ct),
+            contentType: ct
+          };
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr || new Error("In-page media fetch failed");
+    }
+    async function handleExtractAudioRequest({
+      requestId,
+      candidateUrls = [],
+      videoCurrentSrc = ""
+    } = {}) {
+      const discoveredMediaUrls = discoverPerformanceMediaUrls();
+      const expanded = [];
+      const pushUrl = (u) => {
+        if (typeof u === "string" && u && !expanded.includes(u)) {
+          expanded.push(u);
+        }
+      };
+      if (videoCurrentSrc && videoCurrentSrc.startsWith("blob:")) {
+        pushUrl(videoCurrentSrc);
+      }
+      for (const u of candidateUrls) {
+        for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
+        pushUrl(u);
+      }
+      if (videoCurrentSrc && isTrustedGoogleMediaUrl(videoCurrentSrc)) {
+        for (const v of deriveGoogleMediaVariants(videoCurrentSrc)) pushUrl(v);
+        pushUrl(videoCurrentSrc);
+      }
+      for (const u of discoveredMediaUrls) {
+        for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
+        pushUrl(u);
+      }
+      let downloaded = null;
+      let lastError = "No downloadable media stream matched in page.";
+      for (const url of expanded) {
+        try {
+          downloaded = await fetchSingleCandidateInPage(url);
+          break;
+        } catch (err) {
+          let host = "media";
+          try {
+            host = new URL(url).hostname || "media";
+          } catch {
+            host = url.startsWith("blob:") ? "blob" : "media";
+          }
+          lastError = `${host}: ${err?.message || String(err)}`;
+        }
+      }
+      if (!downloaded) {
+        postToContent(PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE, {
+          requestId,
+          ok: false,
+          error: lastError,
+          discoveredMediaUrls
+        });
+        return;
+      }
+      const originalBytes = downloaded.bytes.byteLength;
+      try {
+        const extracted = extractAudioTrackFromMp4(downloaded.bytes);
+        if (extracted && extracted.bytes && extracted.extractedBytes <= MAX_INLINE_M4A_BYTES) {
+          const cleanCopy = extracted.bytes.slice();
+          postToContent(
+            PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE,
+            {
+              requestId,
+              ok: true,
+              originalBytes,
+              extractedBytes: cleanCopy.byteLength,
+              chunks: [
+                {
+                  buffer: cleanCopy.buffer,
+                  mimeType: "audio/mp4",
+                  fileName: "overview-audio.m4a",
+                  startOffsetSec: 0,
+                  durationSec: null
+                }
+              ]
+            },
+            [cleanCopy.buffer]
+          );
+          return;
+        }
+        const wavChunks = await decodeBytesToWavChunks(downloaded.bytes);
+        const transferList = [];
+        let totalExtracted = 0;
+        const serializedChunks = wavChunks.map((ch) => {
+          const cleanCopy = ch.bytes.slice();
+          totalExtracted += cleanCopy.byteLength;
+          transferList.push(cleanCopy.buffer);
+          return {
+            buffer: cleanCopy.buffer,
+            mimeType: ch.mimeType,
+            fileName: ch.fileName,
+            startOffsetSec: ch.startOffsetSec,
+            durationSec: ch.durationSec
+          };
+        });
+        postToContent(
+          PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE,
+          {
+            requestId,
+            ok: true,
+            originalBytes,
+            extractedBytes: totalExtracted,
+            chunks: serializedChunks
+          },
+          transferList
+        );
+      } catch (err) {
+        postToContent(PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE, {
+          requestId,
+          ok: false,
+          error: `Audio decode error: ${err?.message || String(err)}`,
+          discoveredMediaUrls
+        });
+      }
+    }
+    win.addEventListener("message", (event) => {
+      if (event.source !== win) return;
+      const msg = event.data;
+      if (!msg || msg.source !== PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT) return;
+      if (msg.type === PAGE_MESSAGE.SYNC_RPC_OVERRIDES && msg.rpcOverrides && typeof msg.rpcOverrides === "object") {
+        rpcOverrides = { ...msg.rpcOverrides };
+        return;
+      }
+      if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST) {
+        handleExtractAudioRequest(msg.payload);
+      }
+    });
     function inspectTransaction(requestBody, responseText) {
       try {
         const reqMeta = parseBatchExecuteRequest(requestBody, rpcOverrides);
@@ -416,7 +1051,7 @@
         })) : [];
         const isCreateVideoRequest = Boolean(reqMeta?.isVideoCreate);
         if (isCreateVideoRequest || artifacts.length > 0) {
-          emitPayload({
+          postToContent(PAGE_MESSAGE.BATCH_ARTIFACTS, {
             isCreateVideoRequest,
             notebookId: reqMeta?.notebookId || null,
             artifacts,
@@ -427,7 +1062,7 @@
       }
     }
     if (typeof win.fetch === "function") {
-      const nativeFetch = win.fetch;
+      const origFetch = win.fetch;
       win.fetch = function patchedFetch(input, init) {
         let url = "";
         let reqBody = "";
@@ -439,7 +1074,7 @@
         } catch {
           url = "";
         }
-        const promise = Reflect.apply(nativeFetch, this, arguments);
+        const promise = Reflect.apply(origFetch, this, arguments);
         if (isBatchExecuteUrl(url)) {
           promise.then((res) => {
             if (!res || typeof res.clone !== "function") return;

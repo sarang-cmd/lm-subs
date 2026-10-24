@@ -10,12 +10,13 @@
 
 export const MESSAGE_NS = "nlm-subtitles";
 export const MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
+export const KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
 
 export const NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
 
 /**
- * Both canonical hosts serving Google NotebookLM (personal + Workspace
- * post-July-2026 "Gemini Notebook" alias).
+ * Canonical hosts serving Google NotebookLM (personal + Workspace
+ * "Gemini Notebook" aliases).
  */
 export const NOTEBOOKLM_HOSTS = Object.freeze([
   "notebooklm.google.com",
@@ -24,13 +25,16 @@ export const NOTEBOOKLM_HOSTS = Object.freeze([
 ]);
 
 /**
- * Trusted Google media CDN domain suffixes allowed when fetching Video Overview
- * streams in the background service worker (SSRF guard).
+ * Trusted Google media & redirect CDN domain suffixes allowed when fetching
+ * Video Overview streams (SSRF guard). Includes `.usercontent.google.com`,
+ * `.googlevideo.com`, `.gvt1.com`, and `.ggpht.com` used by FIFE 302 redirects.
  */
 export const TRUSTED_GOOGLE_MEDIA_DOMAINS = Object.freeze([
   ".googleusercontent.com",
   ".usercontent.google.com",
   ".googlevideo.com",
+  ".gvt1.com",
+  ".ggpht.com",
   ".google.com",
 ]);
 
@@ -131,6 +135,8 @@ export const PAGE_MESSAGE = Object.freeze({
   BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
   BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
   SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+  EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
+  EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE",
 });
 
 /**
@@ -139,6 +145,7 @@ export const PAGE_MESSAGE = Object.freeze({
  */
 export const RUNTIME_MESSAGE = Object.freeze({
   ENSURE_SUBTITLES: "NOTEBOOKLM_SUBTITLES_ENSURE",
+  STAGE_AUDIO_CHUNK: "NOTEBOOKLM_SUBTITLES_STAGE_AUDIO_CHUNK",
   GET_CACHED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_GET_CACHED",
   SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
   TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
