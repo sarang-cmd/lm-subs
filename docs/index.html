@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subtitles for NotebookLM — Audio-Only BYOK Captions &amp; .SRT Export</title>
+    <meta
+      name="description"
+      content="Open-source Chrome Manifest V3 extension that adds automatic synchronized subtitles and .SRT/.VTT export to Google NotebookLM Video Overviews via client-side audio extraction and 12 BYOK STT providers."
+    />
+    <meta property="og:title" content="Subtitles for NotebookLM" />
+    <meta
+      property="og:description"
+      content="Automatic synchronized captions & .SRT/.VTT export for Google NotebookLM Video Overviews. Strips 92% of video weight client-side; supports Groq, Mistral, Gemini, Deepgram, and 8 more BYOK providers."
+    />
+    <meta property="og:image" content="assets/banner-social-1280x640.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <a class="brand-link" href="#top">
+          <img src="assets/logo.svg" alt="Subtitles for NotebookLM mark" />
+          <span>Subtitles for NotebookLM</span>
+        </a>
+        <nav class="nav-links">
+          <a class="hide-sm" href="#simulator">Live Simulator</a>
+          <a class="hide-sm" href="#providers">12 Providers</a>
+          <a class="hide-sm" href="#architecture">Architecture</a>
+          <a class="hide-sm" href="#install">Install</a>
+          <button id="theme-toggle" type="button" class="btn btn-sm" aria-label="Toggle color theme">
+            Dark
+          </button>
+          <a class="btn btn-sm btn-primary" href="releases/notebooklm-subtitles-v0.1.0.zip" download>
+            Download .ZIP
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="wrap">
+          <div class="eyebrow">
+            <span class="eyebrow-dot"></span>
+            <span>Open-Source Manifest V3 Extension · notebooklm.google.com &amp; notebook.google.com</span>
+          </div>
+          <h1>Synchronized subtitles &amp; .SRT export for NotebookLM Video Overviews.</h1>
+          <p class="hero-lead">
+            Google NotebookLM generates narrated Video Overviews without closed captions or subtitle downloads.
+            This extension strips the compact AAC audio track locally in JavaScript, transcribes it through your
+            own free-tier Groq, Mistral, or Gemini API key, and injects crisp synchronized captions directly into the player.
+          </p>
+
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="releases/notebooklm-subtitles-v0.1.0.zip" download>
+              Download Unpacked v0.1.0 (.zip · 78 KB)
+            </a>
+            <a class="btn" href="#simulator">Try Interactive Simulator</a>
+            <a class="btn" href="https://github.com/sarang-cmd/notebooklm-subtitles" target="_blank" rel="noopener noreferrer">
+              View Source on GitHub ↗
+            </a>
+          </div>
+
+          <div class="badge-strip">
+            <img src="assets/badges/manifest-v3.svg" alt="Chrome Manifest V3" />
+            <img src="assets/badges/providers.svg" alt="12 BYOK STT Providers" />
+            <img src="assets/badges/audio-extract.svg" alt="-92% .m4a Audio Extraction" />
+            <img src="assets/badges/tests.svg" alt="23 / 23 Tests Passing" />
+            <img src="assets/badges/telemetry.svg" alt="Zero Telemetry" />
+            <img src="assets/badges/license.svg" alt="MIT License" />
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-cell">
+              <div class="metric-val">-92.6%</div>
+              <div class="metric-lbl">Payload reduction (58 MB MP4 → 4.3 MB .m4a)</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-val">12</div>
+              <div class="metric-lbl">BYOK Speech-to-Text providers + failover queue</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-val">0 KB</div>
+              <div class="metric-lbl">WASM / runtime npm bloat (pure ISO-BMFF JS)</div>
+            </div>
+            <div class="metric-cell">
+              <div class="metric-val">0</div>
+              <div class="metric-lbl">Backend servers, analytics, or telemetry calls</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Interactive Pipeline + Player Simulator -->
+      <section id="simulator" class="section">
+        <div class="wrap">
+          <div class="section-header">
+            <div class="section-kicker">Interactive Demo</div>
+            <h2 class="section-title">Experience the Audio-Only Extraction &amp; Queue Failover Pipeline</h2>
+            <p class="section-desc">
+              Run a simulated NotebookLM Studio Video Overview lifecycle below. Toggle HTTP 429 rate-limiting on Groq
+              to watch the priority queue fail over to Mistral Voxtral automatically, then test the player HUD controls.
+            </p>
+          </div>
+
+          <div class="sim-shell">
+            <div class="sim-panel">
+              <button id="sim-run-btn" type="button" class="btn btn-primary" style="width: 100%">
+                Simulate Video Overview Generation
+              </button>
+
+              <label class="sim-check">
+                <input id="sim-failover-toggle" type="checkbox" checked />
+                <span>
+                  <strong>Simulate Groq HTTP 429 rate limit</strong><br />
+                  <span style="color: var(--ink-muted); font-size: 12px">
+                    Demonstrates automatic queue failover to #2 Mistral (voxtral-mini-transcribe-3)
+                  </span>
+                </span>
+              </label>
+
+              <div id="sim-log" class="sim-log" aria-live="polite"></div>
+            </div>
+
+            <div class="sim-player">
+              <div class="sim-player-top">
+                <span class="sim-video-tag">notebooklm.google.com · Studio Video Overview</span>
+                <div class="sim-hud">
+                  <button id="sim-cc-btn" type="button" data-active="true" title="Toggle captions">CC</button>
+                  <button id="sim-font-down" type="button" title="Smaller captions">A-</button>
+                  <button id="sim-font-up" type="button" title="Larger captions">A+</button>
+                  <button id="sim-offset-down" type="button" title="Shift -0.25s">-0.25s</button>
+                  <button id="sim-offset-lbl" type="button" title="Reset offset">0.00s</button>
+                  <button id="sim-offset-up" type="button" title="Shift +0.25s">+0.25s</button>
+                  <button id="sim-dl-srt" type="button" style="color: #4ade80">.SRT</button>
+                  <button id="sim-dl-vtt" type="button">.VTT</button>
+                </div>
+              </div>
+
+              <div class="sim-slide">
+                <div id="sim-slide-kicker" class="sim-slide-kicker">SECTION 01 · CONSENSUS SAFETY</div>
+                <h3 id="sim-slide-title" class="sim-slide-title">Distributed Consensus &amp; Raft</h3>
+                <p id="sim-slide-sub" class="sim-slide-sub">
+                  How replicated state machines stay consistent across node failures using term-numbered leader election.
+                </p>
+              </div>
+
+              <div>
+                <div class="sim-caption-wrap">
+                  <div id="sim-caption" class="sim-caption"></div>
+                </div>
+                <div class="sim-scrubber">
+                  <button id="sim-play-btn" type="button" class="btn btn-sm" style="background: #1d2229; color: #f9fafb; border-color: #343c49">
+                    Play
+                  </button>
+                  <input id="sim-range" type="range" min="0" max="20" step="0.1" value="1.2" aria-label="Playback timeline" />
+                  <span id="sim-time" class="sim-time">00:01 / 00:20</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 12 BYOK Providers Matrix -->
+      <section id="providers" class="section">
+        <div class="wrap">
+          <div class="section-header">
+            <div class="section-kicker">Bring Your Own Key</div>
+            <h2 class="section-title">12 Supported Speech-to-Text Providers &amp; Free Tiers</h2>
+            <p class="section-desc">
+              Save keys for as many providers as you like and order them in a priority queue. Most users pair
+              <strong>#1 Groq</strong> with <strong>#2 Mistral</strong> for fast, zero-cost daily captioning.
+            </p>
+          </div>
+
+          <div class="filter-row" role="tablist" aria-label="Filter STT providers">
+            <button class="filter-pill" data-filter="all" data-active="true" type="button">All 12 Providers</button>
+            <button class="filter-pill" data-filter="recurring-free" type="button">Recurring Free Tier (No Card)</button>
+            <button class="filter-pill" data-filter="signup-credit" type="button">Free Signup Credits</button>
+            <button class="filter-pill" data-filter="local" type="button">Local / Self-Hosted</button>
+          </div>
+
+          <div class="table-card">
+            <table class="prov-table">
+              <thead>
+                <tr>
+                  <th>Queue Default</th>
+                  <th>Default Model</th>
+                  <th>Free Tier / Pricing</th>
+                  <th>Timestamp Granularity</th>
+                </tr>
+              </thead>
+              <tbody id="prov-tbody">
+                <tr data-cat="recurring-free">
+                  <td><strong>#1 Groq</strong></td>
+                  <td class="mono">whisper-large-v3-turbo</td>
+                  <td><span class="tag-free">Free · No Card</span> 8 hrs audio/day, 20 RPM, 25 MB cap</td>
+                  <td>Word + Segment</td>
+                </tr>
+                <tr data-cat="recurring-free">
+                  <td><strong>#2 Mistral (Voxtral)</strong></td>
+                  <td class="mono">voxtral-mini-transcribe-3</td>
+                  <td><span class="tag-free">Free Studio Tier</span> Experiment plan (no card), 48 MB cap</td>
+                  <td>Segment + Speaker ID</td>
+                </tr>
+                <tr data-cat="recurring-free">
+                  <td><strong>#3 Google Gemini</strong></td>
+                  <td class="mono">gemini-2.5-flash</td>
+                  <td><span class="tag-free">Free AI Studio</span> Daily free quota + single-pass translation</td>
+                  <td>Direct SubRip (.srt)</td>
+                </tr>
+                <tr data-cat="signup-credit">
+                  <td><strong>#4 Deepgram</strong></td>
+                  <td class="mono">nova-3</td>
+                  <td><span class="tag-credit">$200 Free Credit</span> No card (~700+ hours of batch audio)</td>
+                  <td>Word + Utterance</td>
+                </tr>
+                <tr data-cat="signup-credit">
+                  <td><strong>#5 AssemblyAI</strong></td>
+                  <td class="mono">universal</td>
+                  <td><span class="tag-credit">$50 Free Credit</span> No card (~330 hours Universal-2)</td>
+                  <td>Word (ms precision)</td>
+                </tr>
+                <tr data-cat="signup-credit">
+                  <td><strong>#6 Gladia</strong></td>
+                  <td class="mono">solaria-1</td>
+                  <td><span class="tag-credit">€50 Free Credit</span> ~80+ hours pre-recorded audio</td>
+                  <td>Native SRT + Utterance</td>
+                </tr>
+                <tr data-cat="recurring-free">
+                  <td><strong>#7 Cloudflare Workers AI</strong></td>
+                  <td class="mono">@cf/openai/whisper-large-v3-turbo</td>
+                  <td><span class="tag-free">10k Neurons/day</span> Free daily Cloudflare allowance</td>
+                  <td>Word + WebVTT</td>
+                </tr>
+                <tr data-cat="recurring-free">
+                  <td><strong>#8 ElevenLabs</strong></td>
+                  <td class="mono">scribe_v2</td>
+                  <td><span class="tag-free">10k Credits/mo</span> ~30 min/month free on Scribe v2</td>
+                  <td>Word (90+ languages)</td>
+                </tr>
+                <tr data-cat="recurring-free">
+                  <td><strong>#9 Hugging Face</strong></td>
+                  <td class="mono">openai/whisper-large-v3-turbo</td>
+                  <td><span class="tag-free">Free HF Token</span> Monthly Serverless Inference credits</td>
+                  <td>Chunk timestamps</td>
+                </tr>
+                <tr data-cat="signup-credit">
+                  <td><strong>#10 OpenRouter</strong></td>
+                  <td class="mono">mistralai/voxtral-mini-transcribe</td>
+                  <td>Unified BYOK router across Voxtral &amp; Whisper models</td>
+                  <td>Segment</td>
+                </tr>
+                <tr data-cat="signup-credit">
+                  <td><strong>#11 OpenAI Whisper</strong></td>
+                  <td class="mono">whisper-1</td>
+                  <td>Pay-as-you-go ($0.006 / minute)</td>
+                  <td>Word + Segment</td>
+                </tr>
+                <tr data-cat="local">
+                  <td><strong>#12 Local / Custom URL</strong></td>
+                  <td class="mono">Systran/faster-whisper-small</td>
+                  <td><span class="tag-free">100% Free Local</span> speaches, faster-whisper-server, whisper.cpp</td>
+                  <td>Verbose JSON / SRT</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Architecture Deep Dive -->
+      <section id="architecture" class="section">
+        <div class="wrap">
+          <div class="section-header">
+            <div class="section-kicker">Engineering &amp; Security</div>
+            <h2 class="section-title">Three-World Manifest V3 Architecture</h2>
+            <p class="section-desc">
+              Designed around strict privilege separation: page-context RPC hooks never touch storage, UI pages never
+              read raw API keys, and full video binaries never leave your browser.
+            </p>
+          </div>
+
+          <div class="arch-frame">
+            <img src="assets/architecture.svg" alt="Three-world MV3 architecture diagram" />
+          </div>
+
+          <div class="cards-3">
+            <div class="info-card">
+              <h3>1. Passive batchexecute Hook</h3>
+              <p>
+                <code>page.js</code> observes <code>XMLHttpRequest</code> and <code>fetch</code> responses from
+                <code>/_/LabsTailwindUi/data/batchexecute</code> (<code>R7cb6c</code> create &amp; <code>gArtLc</code> poll)
+                without mutating or delaying NotebookLM's own streams.
+              </p>
+            </div>
+            <div class="info-card">
+              <h3>2. Pure-JS ISO-BMFF Audio Remuxer</h3>
+              <p>
+                <code>audio-extract.js</code> parses MP4 boxes (<code>moov</code>, <code>trak</code>, <code>stbl</code>),
+                strips the heavy H.264 <code>vide</code> track, and recalculates <code>stco</code> offsets into a valid
+                4–7 MB <code>.m4a</code> in ~12 ms — without bundling 30 MB of <code>ffmpeg.wasm</code>.
+              </p>
+            </div>
+            <div class="info-card">
+              <h3>3. Dual Shadow-DOM + PiP Captions</h3>
+              <p>
+                <code>player-overlay.js</code> renders balanced 2-line captions inside a closed ShadowRoot for inline &amp;
+                fullscreen playback while syncing a programmatic <code>VTTCue</code> track for OS Picture-in-Picture.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Authentic Screenshots -->
+      <section class="section">
+        <div class="wrap">
+          <div class="section-header">
+            <div class="section-kicker">Interface Overview</div>
+            <h2 class="section-title">Clean, Restrained Studio Integration</h2>
+            <p class="section-desc">
+              Built to feel like a native part of NotebookLM Studio — zero clutter, high-contrast captions, and instant export.
+            </p>
+          </div>
+
+          <div class="shot-grid">
+            <figure class="shot-card">
+              <img src="assets/screenshots/01-player-subtitles.png" alt="Synchronized Video Overview player captions and HUD" loading="lazy" />
+              <figcaption>In-player synchronized 2-line captions, timing offset controls, and 1-click .SRT/.VTT export.</figcaption>
+            </figure>
+            <figure class="shot-card">
+              <img src="assets/screenshots/02-audio-extraction-failover.png" alt="Audio extraction and multi-provider failover pipeline" loading="lazy" />
+              <figcaption>3-stage client-side audio extraction (-92.6% size reduction) and HTTP 429 queue failover.</figcaption>
+            </figure>
+            <figure class="shot-card">
+              <img src="assets/screenshots/03-toolbar-popup.png" alt="Toolbar popup quick setup" loading="lazy" />
+              <figcaption>Toolbar popup with active failover queue indicator, 1-click connection test, and manual trigger.</figcaption>
+            </figure>
+            <figure class="shot-card">
+              <img src="assets/screenshots/04-settings-queue.png" alt="Full settings and priority queue page" loading="lazy" />
+              <figcaption>Reorderable 12-provider BYOK failover queue and 35-video LRU subtitle export vault.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- Installation -->
+      <section id="install" class="section" style="border-bottom: none">
+        <div class="wrap">
+          <div class="section-header">
+            <div class="section-kicker">60-Second Setup</div>
+            <h2 class="section-title">Install Unpacked in Chrome, Brave, Arc, or Edge</h2>
+            <p class="section-desc">
+              No build step required when using the prebuilt release archive.
+            </p>
+          </div>
+
+          <div class="install-steps">
+            <div class="step-box">
+              <div class="step-num">STEP 01</div>
+              <h3>Download &amp; Unzip</h3>
+              <p>
+                Download <a href="releases/notebooklm-subtitles-v0.1.0.zip" download>notebooklm-subtitles-v0.1.0.zip</a>
+                and extract the <code>notebooklm-subtitles</code> folder.
+              </p>
+            </div>
+            <div class="step-box">
+              <div class="step-num">STEP 02</div>
+              <h3>Load Unpacked</h3>
+              <p>
+                Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, and click
+                <strong>Load unpacked</strong> on the extracted folder.
+              </p>
+            </div>
+            <div class="step-box">
+              <div class="step-num">STEP 03</div>
+              <h3>Paste Free API Key</h3>
+              <p>
+                Click the toolbar icon and save a free <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq</a>
+                and/or <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer">Mistral</a> key.
+              </p>
+            </div>
+            <div class="step-box">
+              <div class="step-num">STEP 04</div>
+              <h3>Open NotebookLM</h3>
+              <p>
+                Generate or open any Studio <strong>Video Overview</strong> — synchronized subtitles appear automatically.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <div>
+          <strong>Subtitles for NotebookLM</strong> · MIT License · Independent open-source project (not affiliated with Google LLC).
+        </div>
+        <div style="display: flex; gap: 18px">
+          <a href="privacy-policy.html">Privacy Policy</a>
+          <a href="https://github.com/sarang-cmd/notebooklm-subtitles" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="site.js"></script>
+  </body>
+</html>

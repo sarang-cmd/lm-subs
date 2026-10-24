@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Subtitles for NotebookLM</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="popup-body">
+    <header class="header">
+      <div class="brand">
+        <span id="brand-icon-slot"></span>
+        <div>
+          <h1 class="brand-title">Subtitles for NotebookLM</h1>
+          <p class="brand-sub">Audio-only BYOK captions · v0.1.0</p>
+        </div>
+      </div>
+      <label class="switch" title="Enable automatic subtitles on NotebookLM">
+        <input id="enabled-toggle" type="checkbox" checked />
+      </label>
+    </header>
+
+    <div id="queue-summary" class="queue-pill">
+      <span>Failover queue: <strong id="queue-summary-text">None configured</strong></span>
+      <button id="open-queue-btn" type="button" class="btn btn-sm">Queue</button>
+    </div>
+
+    <section class="card">
+      <div class="field">
+        <label class="field-label" for="provider-select">
+          <span>Speech-to-Text Provider</span>
+          <span id="key-presence-badge" class="badge">Not set</span>
+        </label>
+        <select id="provider-select"></select>
+        <div id="provider-tier-hint" class="hint"></div>
+      </div>
+
+      <div id="custom-url-field" class="field" style="display: none">
+        <label class="field-label" for="custom-url-input">Local / Custom Endpoint</label>
+        <input
+          id="custom-url-input"
+          type="url"
+          placeholder="http://localhost:8000/v1"
+          autocomplete="off"
+        />
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="api-key-input">
+          <span id="key-label-text">API Key</span>
+          <a id="get-key-link" class="link" href="#" target="_blank" rel="noopener noreferrer">Get free key ↗</a>
+        </label>
+        <div class="row">
+          <input
+            id="api-key-input"
+            type="password"
+            placeholder="gsk_..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="save-key-btn" type="button" class="btn btn-primary">Save</button>
+          <button id="test-key-btn" type="button" class="btn">Test</button>
+        </div>
+        <div id="key-feedback" class="status-line"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2 class="section-title">Current NotebookLM Tab</h2>
+        <span id="tab-badge" class="badge">Checking…</span>
+      </div>
+      <div id="tab-description" class="hint" style="margin-top: 0; margin-bottom: 8px">
+        Open a NotebookLM notebook to generate or export Video Overview subtitles.
+      </div>
+      <div class="row">
+        <button id="generate-now-btn" type="button" class="btn btn-primary" style="flex: 1" disabled>
+          Generate Subtitles Now
+        </button>
+        <button id="download-latest-srt-btn" type="button" class="btn" style="display: none">
+          .SRT
+        </button>
+      </div>
+    </section>
+
+    <section id="last-status-card" class="card" style="display: none">
+      <div class="section-head" style="margin-bottom: 4px">
+        <h2 class="section-title">Latest Transcription</h2>
+        <span id="last-status-badge" class="badge">Idle</span>
+      </div>
+      <div id="last-status-title" style="font-weight: 600; font-size: 12.5px"></div>
+      <div id="last-status-meta" class="hint"></div>
+    </section>
+
+    <footer class="footer-bar">
+      <span>12 providers · Audio-only extraction</span>
+      <button id="open-options-btn" type="button" class="btn btn-sm">Full Settings</button>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
