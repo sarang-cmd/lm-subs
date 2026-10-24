@@ -96,6 +96,15 @@ async function initOptions() {
   const rpcPollInput = document.getElementById("rpc-poll-input");
   const saveRpcBtn = document.getElementById("save-rpc-btn");
 
+  const optDebugMode = document.getElementById("opt-debug-mode");
+  const optPermBadge = document.getElementById("opt-perm-badge");
+  const optGrantPermsBtn = document.getElementById("opt-grant-perms-btn");
+  const optRefreshDebugBtn = document.getElementById("opt-refresh-debug-btn");
+  const optCopyDebugBtn = document.getElementById("opt-copy-debug-btn");
+  const optClearDebugBtn = document.getElementById("opt-clear-debug-btn");
+  const debugLogViewer = document.getElementById("debug-log-viewer");
+  let missingOriginsForOptions = [];
+
   let [settings, presenceMap, cacheList] = await Promise.all([
     getSettings(),
     getSavedKeyPresenceMap(),
@@ -111,6 +120,7 @@ async function initOptions() {
 
   function populateForm() {
     optEnabled.checked = settings.enabled;
+    if (optDebugMode) optDebugMode.checked = Boolean(settings.debugMode);
     optAutoGenerate.checked = settings.autoOnGenerate;
     optAutoExisting.checked = settings.autoOnExistingVideos;
     optShowToast.checked = settings.showToast;
@@ -475,6 +485,76 @@ async function initOptions() {
     settings = await saveSettings({ rpcOverrides });
     flashSavedPill();
   });
+
+  async function refreshDiagnosticsPanel() {
+    if (!debugLogViewer) return;
+    const report = await sendRuntime({
+      type: RUNTIME_MESSAGE.GET_DEBUG_REPORT,
+    });
+    if (!report?.ok) {
+      debugLogViewer.textContent =
+        report?.error || "Unable to fetch diagnostic report from Service Worker.";
+      return;
+    }
+
+    missingOriginsForOptions = report.missingOrigins || [];
+    if (optPermBadge) {
+      if (report.permissionsOk) {
+        optPermBadge.textContent = "Google CDN Perms: OK";
+        optPermBadge.className = "badge badge-saved";
+        if (optGrantPermsBtn) optGrantPermsBtn.style.display = "none";
+      } else {
+        optPermBadge.textContent = "Permissions Withheld";
+        optPermBadge.className = "badge badge-err";
+        if (optGrantPermsBtn) optGrantPermsBtn.style.display = "inline-flex";
+      }
+    }
+
+    debugLogViewer.textContent = report.reportText || "(empty)";
+  }
+
+  optDebugMode?.addEventListener("change", async () => {
+    settings = await saveSettings({ debugMode: optDebugMode.checked });
+    flashSavedPill();
+    await refreshDiagnosticsPanel();
+  });
+
+  optGrantPermsBtn?.addEventListener("click", async () => {
+    if (!chrome.permissions?.request || missingOriginsForOptions.length === 0) return;
+    try {
+      await chrome.permissions.request({ origins: missingOriginsForOptions });
+      await refreshDiagnosticsPanel();
+    } catch {
+      // Ignore
+    }
+  });
+
+  optRefreshDebugBtn?.addEventListener("click", () => {
+    refreshDiagnosticsPanel();
+  });
+
+  optCopyDebugBtn?.addEventListener("click", async () => {
+    const report = await sendRuntime({
+      type: RUNTIME_MESSAGE.GET_DEBUG_REPORT,
+    });
+    const text = report?.reportText || "";
+    try {
+      await navigator.clipboard.writeText(text);
+      optCopyDebugBtn.textContent = "Copied!";
+    } catch {
+      optCopyDebugBtn.textContent = "Copy Failed";
+    }
+    setTimeout(() => {
+      optCopyDebugBtn.textContent = "Copy Redacted Debug Report";
+    }, 1600);
+  });
+
+  optClearDebugBtn?.addEventListener("click", async () => {
+    await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS });
+    await refreshDiagnosticsPanel();
+  });
+
+  refreshDiagnosticsPanel();
 }
 
 document.addEventListener("DOMContentLoaded", initOptions);

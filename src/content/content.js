@@ -1,19 +1,24 @@
 /**
- * Isolated-World Content Script Coordinator (`src/content/content.js` -> `extension/content.js`).
+ * Content Script Coordinator (`src/content/content.js` -> `extension/content.js`).
  *
- * Bridges:
- * 1. `page.js` (`MAIN` world observer & first-party audio extractor) -> artifact metadata + compact audio
- * 2. `<video>` DOM lifecycle (`MutationObserver` + media events) -> `VideoSubtitleController`
- * 3. `service-worker.js` (`STAGE_AUDIO_CHUNK`, `ENSURE_SUBTITLES`, keepalive port, settings updates)
- *
- * Security invariants:
- * - Never accesses raw API keys (secret key reads live strictly in the Service Worker).
- * - Validates `event.source === window` and `event.origin === location.origin` on bridge messages.
+ * Runs at `document_start` in Chrome's isolated world on `notebook.google.com` and
+ * `notebooklm.google.com`:
+ * 1. Attaches its `window.postMessage` bridge listener synchronously at `document_start`
+ *    and performs a `REQUEST_PAGE_STATE` handshake with `page.js` so zero early
+ *    `batchexecute` RPCs or SSR `AF_initDataCallback` rows are missed on refresh (`Ctrl+R`).
+ * 2. Discovers `<video>` elements across light DOM, open Shadow DOMs, and capture-phase
+ *    media events (`play`, `loadedmetadata`, `canplay`) inside Angular Material `Lot dialog`.
+ * 3. Uses `page.js` only for in-memory `blob:` extraction (`blobOnly: true`) + `STAGE_AUDIO_CHUNK`,
+ *    and routes all Google CDN media downloads directly to `service-worker.js` (`ENSURE_SUBTITLES`),
+ *    avoiding cross-origin CORS failures and stalls.
+ * 4. Powers the live Shadow-DOM `DebugDrawer` and centralized diagnostic timeline when
+ *    `settings.debugMode` is enabled.
  */
 
 import {
   DOM_SELECTORS,
   KEEPALIVE_PORT_NAME,
+  MESSAGE_NAMESPACE,
   NOTEBOOK_URL_ID_REGEX,
   PAGE_MESSAGE,
   RUNTIME_MESSAGE,
@@ -21,7 +26,10 @@ import {
 import { slicePcmIntoWavChunks } from "../lib/audio-extract.js";
 import {
   extractMediaToken,
+  isNotebookLmHost,
+  isThumbnailOrManifestUrl,
   isTrustedGoogleMediaUrl,
+  summarizeMediaUrlForDebug,
 } from "../lib/batchexecute.js";
 import {
   resolveSubtitleCacheKey,
@@ -29,16 +37,17 @@ import {
 } from "../lib/decide.js";
 import {
   DEFAULT_SETTINGS,
-  getCachedKeysList,
   getSettings,
+  sanitizeDebugMessage,
   saveSettings,
 } from "../lib/storage.js";
+import { DebugDrawer } from "./debug-drawer.js";
 import { VideoSubtitleController } from "./player-overlay.js";
 import { createToastManager } from "./toast.js";
 
-const MAX_AUTO_RETRIES = 2;
-const RETRY_BASE_DELAY_MS = 1800;
-const PAGE_EXTRACT_TIMEOUT_MS = 90000;
+const GUARD_FLAG = "__notebooklmSubtitlesContentLoaded__";
+const BLOB_EXTRACT_TIMEOUT_MS = 4000;
+const MAX_WAV_CHUNK_BYTES = 14 * 1024 * 1024;
 
 function uint8ToBase64(bytes) {
   let s = "";
@@ -52,62 +61,98 @@ function uint8ToBase64(bytes) {
   return btoa(s);
 }
 
-export function initContentCoordinator({
+function base64ToUint8(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function waitForBody(doc, callback) {
+  if (doc?.body) {
+    callback();
+    return;
+  }
+  const check = () => {
+    if (doc?.body) {
+      doc.removeEventListener?.("DOMContentLoaded", check);
+      callback();
+    }
+  };
+  doc?.addEventListener?.("DOMContentLoaded", check);
+  setTimeout(check, 250);
+}
+
+/**
+ * Recursively collects `<video>` elements across light DOM and open ShadowRoots
+ * (up to depth 6) so custom Web Component players inside `Lot dialog` are discovered.
+ */
+export function collectVideosDeep(root, out = [], depth = 0) {
+  if (!root || depth > 6) return out;
+
+  try {
+    if (root.tagName === "VIDEO" && !out.includes(root)) {
+      out.push(root);
+    }
+    if (typeof root.querySelectorAll === "function") {
+      const videos = root.querySelectorAll(DOM_SELECTORS.VIDEO_ELEMENT);
+      for (const v of videos) {
+        if (!out.includes(v)) out.push(v);
+      }
+      const allEls = root.querySelectorAll("*");
+      for (const el of allEls) {
+        if (el.shadowRoot) {
+          collectVideosDeep(el.shadowRoot, out, depth + 1);
+        }
+      }
+    }
+  } catch {
+    // Ignore detached nodes
+  }
+
+  return out;
+}
+
+export async function initContentCoordinator({
   win = globalThis.window,
   doc = globalThis.document,
   runtime = globalThis.chrome?.runtime,
-  storageArea = globalThis.chrome?.storage?.local,
+  storage = globalThis.chrome?.storage,
 } = {}) {
-  if (!win || !doc || win.__notebooklmSubtitlesContentActive__) return null;
-  win.__notebooklmSubtitlesContentActive__ = true;
+  if (!win || !doc || !runtime) return null;
+  if (!isNotebookLmHost(win.location?.hostname || "")) return null;
+  if (win[GUARD_FLAG]) return win[GUARD_FLAG];
 
-  const toast = createToastManager(doc);
   const artifactsById = new Map();
   const artifactsByToken = new Map();
-  const generatingArtifactIds = new Set();
+  const pendingGeneratedVideoIds = new Set();
+  const cachedKeys = new Set();
   const inFlightKeys = new Set();
   const exhaustedKeys = new Set();
-  const retryCounts = new Map();
-  const controllers = new WeakMap();
-  const trackedVideos = new Set();
-  const pendingPageExtractions = new Map();
+  const controllers = new Map(); // HTMLVideoElement -> { video, controller, artifactId, cacheKey, inFlight }
+  const pendingPageRequests = new Map();
+  let pageReqSeq = 1;
+  let createIntentTimestamp = 0;
+  let lastActiveVideo = null;
+  let permissionsOk = true;
+  let settings = { ...DEFAULT_SETTINGS };
 
-  let awaitingCreatedArtifact = false;
-  let cachedKeysSet = new Set();
-  let currentSettings = { ...DEFAULT_SETTINGS };
-  let extractReqSeq = 0;
-
-  function currentNotebookId() {
-    const m = String(win.location?.pathname || "").match(NOTEBOOK_URL_ID_REGEX);
-    return m ? m[1] : null;
-  }
-
-  function syncRpcOverridesToPage() {
-    if (!currentSettings.rpcOverrides) return;
-    try {
-      win.postMessage(
-        {
-          source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
-          type: PAGE_MESSAGE.SYNC_RPC_OVERRIDES,
-          rpcOverrides: currentSettings.rpcOverrides,
-        },
-        win.location.origin
-      );
-    } catch {
-      // Ignore
-    }
-  }
+  let toast = null;
+  let debugDrawer = null;
+  const localDebugBuffer = [];
+  let keepalivePort = null;
+  let keepaliveTimer = null;
 
   function sendRuntimeMessage(message) {
-    if (!runtime?.sendMessage) return Promise.resolve(null);
     return new Promise((resolve) => {
       try {
         runtime.sendMessage(message, (res) => {
-          if (runtime.lastError) {
-            resolve({ ok: false, error: runtime.lastError.message });
+          const err = globalThis.chrome?.runtime?.lastError;
+          if (err) {
+            resolve({ ok: false, error: err.message });
             return;
           }
-          resolve(res || null);
+          resolve(res || { ok: false, error: "No response from background worker" });
         });
       } catch (err) {
         resolve({ ok: false, error: err?.message || String(err) });
@@ -115,60 +160,199 @@ export function initContentCoordinator({
     });
   }
 
-  /**
-   * Opens a heartbeat port to keep the MV3 Service Worker alive across multi-minute
-   * Video Overview downloads & transcriptions (`08:24`+ videos).
-   */
-  function openKeepaliveHeartbeat() {
-    if (!runtime?.connect) return () => {};
-    let port = null;
-    let timer = null;
+  function startKeepalive() {
+    if (keepalivePort || !runtime?.connect) return;
     try {
-      port = runtime.connect({ name: KEEPALIVE_PORT_NAME });
-      port.onDisconnect?.addListener(() => {
-        port = null;
-      });
-      timer = setInterval(() => {
-        try {
-          port?.postMessage({ ping: Date.now() });
-        } catch {
-          // Ignore disconnected port
+      keepalivePort = runtime.connect({ name: KEEPALIVE_PORT_NAME });
+      keepalivePort.onDisconnect.addListener(() => {
+        keepalivePort = null;
+        if (keepaliveTimer) {
+          clearInterval(keepaliveTimer);
+          keepaliveTimer = null;
         }
-      }, 15000);
+      });
+      keepaliveTimer = setInterval(() => {
+        try {
+          keepalivePort?.postMessage({ ping: Date.now() });
+        } catch {
+          // Ignore
+        }
+      }, 20000);
     } catch {
-      // Non-fatal in test mocks
+      // Ignore
     }
-    return () => {
-      if (timer) clearInterval(timer);
+  }
+
+  function stopKeepaliveIfIdle() {
+    if (inFlightKeys.size > 0) return;
+    if (keepaliveTimer) {
+      clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
+    }
+    if (keepalivePort) {
       try {
-        port?.disconnect();
+        keepalivePort.disconnect();
       } catch {
         // Ignore
       }
-    };
+      keepalivePort = null;
+    }
   }
 
-  /**
-   * Requests first-party media fetch + `.m4a`/`.wav` audio extraction from `page.js`
-   * (`MAIN` world), preserving NotebookLM's `Origin`, `Referer`, and partitioned cookies.
-   */
-  function requestPageAudioExtraction({ candidateUrls = [], videoCurrentSrc = "" } = {}) {
-    if (!win?.postMessage || !win.location?.origin || win.location.origin === "null") {
-      return Promise.resolve({ ok: false, error: "Page bridge unavailable" });
+  function recordDebug(layer, event, detail, level = "info") {
+    const entry = {
+      ts: new Date().toISOString(),
+      layer,
+      event,
+      detail: sanitizeDebugMessage(detail),
+      level,
+    };
+    localDebugBuffer.push(entry);
+    if (localDebugBuffer.length > 80) localDebugBuffer.shift();
+
+    if (debugDrawer) {
+      debugDrawer.pushEntry(entry);
+      debugDrawer.updateSummary({
+        artifacts: artifactsById.size,
+        videos: controllers.size,
+        permissionsOk,
+      });
     }
 
-    const requestId = `req_${Date.now()}_${++extractReqSeq}`;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        pendingPageExtractions.delete(requestId);
-        resolve({ ok: false, error: "In-page extraction timed out" });
-      }, PAGE_EXTRACT_TIMEOUT_MS);
+    if (settings.debugMode) {
+      sendRuntimeMessage({
+        type: RUNTIME_MESSAGE.APPEND_DEBUG_LOG,
+        entry,
+      }).catch(() => {});
+    }
+  }
 
-      pendingPageExtractions.set(requestId, (result) => {
-        clearTimeout(timer);
-        resolve(result);
+  function syncDebugDrawerLifecycle() {
+    if (!settings.debugMode) {
+      if (debugDrawer) {
+        debugDrawer.destroy();
+        debugDrawer = null;
+      }
+      return;
+    }
+
+    waitForBody(doc, () => {
+      if (!settings.debugMode || debugDrawer) return;
+      debugDrawer = new DebugDrawer({
+        doc,
+        onForceScan: () => {
+          recordDebug("CONTENT", "manual.scan", "Manual scan & state replay requested");
+          requestPageStateSnapshot();
+          scanForVideos();
+          const target = pickTargetVideoEntry();
+          if (target) {
+            ensureSubtitlesForEntry(target, { force: true, trigger: "manual" });
+          } else {
+            recordDebug(
+              "CONTENT",
+              "manual.scan",
+              "No active <video> element in DOM yet — open a Studio Video Overview player",
+              "error"
+            );
+          }
+        },
+        onCopyReport: async () => {
+          const res = await sendRuntimeMessage({
+            type: RUNTIME_MESSAGE.GET_DEBUG_REPORT,
+            tabContext: buildTabDiagnosticSnapshot(),
+          });
+          const text =
+            res?.reportText || JSON.stringify(buildTabDiagnosticSnapshot(), null, 2);
+          try {
+            await win.navigator?.clipboard?.writeText(text);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        onClear: () => {
+          localDebugBuffer.length = 0;
+          sendRuntimeMessage({ type: RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS }).catch(
+            () => {}
+          );
+        },
       });
+      debugDrawer.mount();
+      debugDrawer.setEntries(localDebugBuffer);
+      debugDrawer.updateSummary({
+        artifacts: artifactsById.size,
+        videos: controllers.size,
+        status: pickTargetVideoEntry()?.controller?.statusState || "idle",
+        permissionsOk,
+      });
+    });
+  }
 
+  function ensureToast() {
+    if (!toast && doc.body) {
+      toast = createToastManager(doc);
+    }
+    return toast;
+  }
+
+  function showToast(title, detail = "", kind = "info", durationMs = 3800) {
+    if (!settings.showToast || !settings.enabled) return;
+    waitForBody(doc, () => {
+      ensureToast()?.show({ title, detail, kind, durationMs });
+    });
+  }
+
+  function hideToast() {
+    toast?.hide?.();
+  }
+
+  function getPostOrigin() {
+    return win.location?.origin && win.location.origin !== "null"
+      ? win.location.origin
+      : "*";
+  }
+
+  function syncRpcOverridesToPage() {
+    try {
+      win.postMessage(
+        {
+          source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+          type: PAGE_MESSAGE.SYNC_RPC_OVERRIDES,
+          rpcOverrides: settings.rpcOverrides || {},
+        },
+        getPostOrigin()
+      );
+    } catch {
+      // Ignore
+    }
+  }
+
+  function requestPageStateSnapshot() {
+    try {
+      win.postMessage(
+        {
+          source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+          type: PAGE_MESSAGE.REQUEST_PAGE_STATE,
+        },
+        getPostOrigin()
+      );
+    } catch {
+      // Ignore
+    }
+  }
+
+  function requestPageBlobExtraction({ videoCurrentSrc }) {
+    return new Promise((resolve) => {
+      const requestId = `extract_${Date.now()}_${pageReqSeq++}`;
+      const timer = setTimeout(() => {
+        pendingPageRequests.delete(requestId);
+        resolve({
+          ok: false,
+          error: "Timed out reading in-memory Blob stream.",
+        });
+      }, BLOB_EXTRACT_TIMEOUT_MS);
+
+      pendingPageRequests.set(requestId, { resolve, timer });
       try {
         win.postMessage(
           {
@@ -176,206 +360,138 @@ export function initContentCoordinator({
             type: PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST,
             payload: {
               requestId,
-              candidateUrls,
+              candidateUrls: [],
               videoCurrentSrc,
+              blobOnly: true,
             },
           },
-          win.location.origin
+          getPostOrigin()
         );
       } catch (err) {
         clearTimeout(timer);
-        pendingPageExtractions.delete(requestId);
+        pendingPageRequests.delete(requestId);
         resolve({ ok: false, error: err?.message || String(err) });
       }
     });
   }
 
-  function discoverResourceTimingMediaUrl() {
+  function getNotebookIdFromUrl() {
+    const match = (win.location?.pathname || "").match(NOTEBOOK_URL_ID_REGEX);
+    return match ? match[1] : null;
+  }
+
+  function getNotebookTitleFallback() {
+    return (doc.title || "NotebookLM Video Overview")
+      .replace(/\s*[-–|]\s*(?:NotebookLM|Gemini Notebook).*$/i, "")
+      .trim() || "NotebookLM Video Overview";
+  }
+
+  function isLikelySilentCardPreviewVideo(video) {
+    try {
+      const src = video.currentSrc || video.src || "";
+      if (src && isThumbnailOrManifestUrl(src)) {
+        const insideDialog = Boolean(
+          video.closest?.(
+            '[role="dialog"], .cdk-overlay-container, mat-dialog-container'
+          )
+        );
+        if (!insideDialog) return true;
+      }
+      if (
+        video.muted &&
+        video.loop &&
+        video.videoWidth > 0 &&
+        video.videoWidth <= 520 &&
+        !video.controls
+      ) {
+        return true;
+      }
+    } catch {
+      // Ignore
+    }
+    return false;
+  }
+
+  function matchArtifactForVideo(video) {
+    const src = video.currentSrc || video.src || "";
+    const token = extractMediaToken(src);
+    if (token && artifactsByToken.has(token)) {
+      return artifactsByToken.get(token);
+    }
+
+    const readyList = [...artifactsById.values()].filter(
+      (a) =>
+        a.status === "ready" &&
+        (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length)
+    );
+
+    if (readyList.length === 1) {
+      return readyList[0];
+    }
+
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      let best = null;
+      let bestDiff = Infinity;
+      for (const art of readyList) {
+        if (typeof art.durationSeconds === "number") {
+          const diff = Math.abs(art.durationSeconds - video.duration);
+          if (diff < 3.0 && diff < bestDiff) {
+            best = art;
+            bestDiff = diff;
+          }
+        }
+      }
+      if (best) return best;
+    }
+
+    return readyList[readyList.length - 1] || null;
+  }
+
+  function discoverResourceTimingMediaUrls() {
+    const urls = [];
     try {
       const entries = win.performance?.getEntriesByType?.("resource") || [];
       for (let i = entries.length - 1; i >= 0; i--) {
-        const url = entries[i]?.name || "";
+        const e = entries[i];
+        const url = e?.name || "";
+        if (!isTrustedGoogleMediaUrl(url)) continue;
+        if (e.initiatorType === "img" || e.initiatorType === "css") continue;
+        if (isThumbnailOrManifestUrl(url)) continue;
+
         if (
-          isTrustedGoogleMediaUrl(url) &&
-          (entries[i].initiatorType === "video" ||
-            /\/notebooklm\/|videoplayback|=m(?:18|22|140)/i.test(url))
+          e.initiatorType === "video" ||
+          e.initiatorType === "audio" ||
+          e.initiatorType === "media" ||
+          /videoplayback|=m(?:18|22|37|140)(?:-dv)?(?:$|\?)/i.test(url)
         ) {
-          return url;
+          if (!urls.includes(url)) urls.push(url);
         }
       }
     } catch {
       // Ignore
     }
-    return null;
+    return urls;
   }
 
-  function inferTitleNearVideo(video) {
-    const dialog = video?.closest?.('[role="dialog"], .video-player, [class*="video"]');
-    const heading = dialog?.querySelector?.("h1, h2, h3, .artifact-title, [class*='title']");
-    const rawHeading = heading?.textContent?.trim();
-    if (rawHeading && rawHeading.length >= 3 && rawHeading.length <= 140) {
-      return rawHeading;
-    }
-    const cleanDocTitle = doc.title
-      ?.replace(/\s*[-–|]\s*(?:NotebookLM|Gemini Notebook).*$/i, "")
-      .trim();
-    return cleanDocTitle || "Video Overview";
-  }
-
-  async function refreshLocalState() {
-    try {
-      const [settings, keys] = await Promise.all([
-        getSettings(storageArea),
-        getCachedKeysList(storageArea),
-      ]);
-      currentSettings = settings;
-      cachedKeysSet = new Set(keys);
-      syncRpcOverridesToPage();
-      for (const video of trackedVideos) {
-        controllers.get(video)?.setSettings({
-          fontSize: currentSettings.fontSize,
-          subtitleOffsetSec: currentSettings.subtitleOffsetSec,
-        });
-      }
-    } catch {
-      // Storage unavailable during extension reload
-    }
-  }
-
-  function showToastIfEnabled(opts) {
-    if (!currentSettings.showToast && opts?.kind !== "error") return;
-    toast.show(opts);
-  }
-
-  /**
-   * Resolves the best artifact metadata for a `<video>` element.
-   */
-  function resolveArtifactForVideo(video) {
-    const src = video?.currentSrc || video?.src || "";
-    const token = extractMediaToken(src);
-    if (token && artifactsByToken.has(token)) {
-      return { ...artifactsByToken.get(token), videoCurrentSrc: src };
-    }
-
-    const notebookId = currentNotebookId();
-    const readyCandidates = [...artifactsById.values()].filter(
-      (a) =>
-        a.status === "ready" &&
-        a.mediaUrl &&
-        (!notebookId || !a.notebookId || a.notebookId === notebookId)
-    );
-
-    if (readyCandidates.length === 1) {
-      return { ...readyCandidates[0], videoCurrentSrc: src };
-    }
-
-    if (readyCandidates.length > 1) {
-      const container =
-        video.closest('[role="dialog"], .video-player, [class*="video"]') ||
-        doc.body;
-      const containerText = (container?.textContent || "").toLowerCase();
-      for (const candidate of readyCandidates) {
-        if (
-          candidate.title &&
-          containerText.includes(candidate.title.toLowerCase())
-        ) {
-          return { ...candidate, videoCurrentSrc: src };
-        }
-      }
-      if (Number.isFinite(video.duration) && video.duration > 0) {
-        const byDuration = readyCandidates.find(
-          (c) =>
-            c.durationSeconds &&
-            Math.abs(c.durationSeconds - video.duration) <= 3
-        );
-        if (byDuration) return { ...byDuration, videoCurrentSrc: src };
-      }
-      return { ...readyCandidates[0], videoCurrentSrc: src };
-    }
-
-    // Fallback when extension was loaded/reloaded on an already-open NotebookLM tab
-    const perfUrl = discoverResourceTimingMediaUrl();
-    const bestUrl = isTrustedGoogleMediaUrl(src)
-      ? src
-      : perfUrl || (src.startsWith("blob:") ? src : "");
-
-    if (bestUrl) {
-      const title = inferTitleNearVideo(video);
-      const dur = Number.isFinite(video.duration) ? Math.round(video.duration) : 0;
-      const slug = title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .slice(0, 40);
-      const fallbackToken = extractMediaToken(bestUrl);
-      return {
-        artifactId: fallbackToken
-          ? null
-          : `dom:${notebookId || "nb"}:${slug || "video"}:${dur}`,
-        notebookId,
-        title,
-        typeCode: 3,
-        status: "ready",
-        language: null,
-        durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
-        mediaUrl: bestUrl,
-        progressiveUrl: isTrustedGoogleMediaUrl(src) ? src : perfUrl,
-        mediaToken: fallbackToken,
-        mediaVariants: [bestUrl, perfUrl].filter(Boolean),
-        videoCurrentSrc: src,
-      };
-    }
-
-    return null;
-  }
-
-  function findControllersMatching({ cacheKey, artifactId, mediaToken }) {
-    const matched = [];
-    for (const video of trackedVideos) {
-      if (!doc.contains(video)) {
-        trackedVideos.delete(video);
-        continue;
-      }
-      const ctrl = controllers.get(video);
-      if (!ctrl) continue;
-      const art = resolveArtifactForVideo(video);
-      const vKey = resolveSubtitleCacheKey({
-        artifactId: art?.artifactId,
-        mediaToken: art?.mediaToken || extractMediaToken(video.currentSrc || video.src),
-        mediaUrl: art?.mediaUrl || video.currentSrc || video.src,
-      });
-      if (
-        (cacheKey && vKey === cacheKey) ||
-        (artifactId && art?.artifactId === artifactId) ||
-        (mediaToken && art?.mediaToken === mediaToken)
-      ) {
-        matched.push(ctrl);
-      }
-    }
-    return matched;
-  }
-
-  /**
-   * Stages pre-extracted audio chunks to the Service Worker one chunk at a time
-   * so multi-chunk recordings never approach Chrome's 64 MB single-message IPC cap.
-   */
-  async function stageExtractedChunksToWorker(pageExtraction) {
-    const stagedJobId = `stage_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    for (let i = 0; i < pageExtraction.chunks.length; i++) {
-      const ch = pageExtraction.chunks[i];
+  async function stageBlobChunksToServiceWorker(blobResult) {
+    const stagedJobId = `blob_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const totalChunks = blobResult.chunks.length;
+    for (let i = 0; i < totalChunks; i++) {
+      const ch = blobResult.chunks[i];
       const bytes = new Uint8Array(ch.buffer);
       const res = await sendRuntimeMessage({
         type: RUNTIME_MESSAGE.STAGE_AUDIO_CHUNK,
         stagedJobId,
         index: i,
-        totalChunks: pageExtraction.chunks.length,
-        originalBytes: pageExtraction.originalBytes,
-        extractedBytes: pageExtraction.extractedBytes,
+        totalChunks,
+        originalBytes: blobResult.originalBytes,
+        extractedBytes: blobResult.extractedBytes,
         chunk: {
           base64: uint8ToBase64(bytes),
           mimeType: ch.mimeType,
           fileName: ch.fileName,
-          startOffsetSec: ch.startOffsetSec || 0,
-          durationSec: ch.durationSec || null,
+          startOffsetSec: ch.startOffsetSec,
+          durationSec: ch.durationSec,
         },
       });
       if (!res?.ok) {
@@ -385,515 +501,959 @@ export function initContentCoordinator({
     return stagedJobId;
   }
 
-  async function requestSubtitlesForArtifact(
-    artifact,
-    { trigger = "player_open", force = false } = {}
-  ) {
-    if (!artifact) return;
-
-    const cacheKey = resolveSubtitleCacheKey({
-      artifactId: artifact.artifactId,
-      mediaToken: artifact.mediaToken,
-      mediaUrl: artifact.mediaUrl,
-    });
-
-    // 1. Check cache first unless forced regeneration
-    if (!force && cacheKey) {
-      const cachedRes = await sendRuntimeMessage({
-        type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
-        cacheKey,
-        artifactId: artifact.artifactId,
-        mediaToken: artifact.mediaToken,
-      });
-      if (cachedRes?.ok && cachedRes.entry?.cues?.length > 0) {
-        cachedKeysSet.add(cacheKey);
-        applyCuesToMatchingPlayers(cachedRes.entry);
-        return;
+  async function decodeBase64MediaToWavFallback(base64Media) {
+    const AudioCtx = win.AudioContext || win.webkitAudioContext;
+    const OfflineCtx = win.OfflineAudioContext || win.webkitOfflineAudioContext;
+    if (!AudioCtx || !OfflineCtx) {
+      throw new Error("WebAudio unavailable for WAV fallback.");
+    }
+    const raw = base64ToUint8(base64Media);
+    const ctx = new AudioCtx();
+    let decoded;
+    try {
+      const copy = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+      decoded = await ctx.decodeAudioData(copy);
+    } finally {
+      try {
+        await ctx.close();
+      } catch {
+        // Ignore
       }
     }
+    const sampleRate = decoded.duration > 600 ? 12000 : 16000;
+    const totalSamples = Math.max(1, Math.ceil(decoded.duration * sampleRate));
+    const offline = new OfflineCtx(1, totalSamples, sampleRate);
+    const src = offline.createBufferSource();
+    src.buffer = decoded;
+    src.connect(offline.destination);
+    src.start(0);
+    const rendered = await offline.startRendering();
+    const wavChunks = slicePcmIntoWavChunks(
+      rendered.getChannelData(0),
+      sampleRate,
+      MAX_WAV_CHUNK_BYTES
+    );
+    return wavChunks.map((c) => ({
+      base64: uint8ToBase64(c.bytes),
+      mimeType: c.mimeType,
+      fileName: c.fileName,
+      startOffsetSec: c.startOffsetSec,
+      durationSec: c.durationSec,
+    }));
+  }
 
-    // 2. Evaluate pure decision gate
+  async function ensureSubtitlesForEntry(
+    entry,
+    { force = false, trigger = "player_open" } = {}
+  ) {
+    if (!entry || entry.inFlight) return;
+    const { video, controller } = entry;
+    lastActiveVideo = video;
+
+    let artifact = matchArtifactForVideo(video);
+    if (!artifact) {
+      requestPageStateSnapshot();
+      artifact = matchArtifactForVideo(video);
+    }
+
+    const rawSrc = video.currentSrc || video.src || "";
+    const timingUrls = discoverResourceTimingMediaUrls();
+
+    const mediaVariants = [];
+    const pushVariant = (u) => {
+      if (
+        typeof u === "string" &&
+        isTrustedGoogleMediaUrl(u) &&
+        !mediaVariants.includes(u)
+      ) {
+        mediaVariants.push(u);
+      }
+    };
+
+    if (artifact?.directAudioUrl) pushVariant(artifact.directAudioUrl);
+    if (Array.isArray(artifact?.mediaVariants)) {
+      for (const v of artifact.mediaVariants) pushVariant(v);
+    }
+    if (artifact?.progressiveUrl && !isThumbnailOrManifestUrl(artifact.progressiveUrl)) {
+      pushVariant(artifact.progressiveUrl);
+    }
+    if (artifact?.mediaUrl && !isThumbnailOrManifestUrl(artifact.mediaUrl)) {
+      pushVariant(artifact.mediaUrl);
+    }
+    if (isTrustedGoogleMediaUrl(rawSrc) && !isThumbnailOrManifestUrl(rawSrc)) {
+      pushVariant(rawSrc);
+    }
+    for (const u of timingUrls) pushVariant(u);
+
+    const primaryMediaUrl =
+      mediaVariants[0] ||
+      artifact?.progressiveUrl ||
+      artifact?.mediaUrl ||
+      (isTrustedGoogleMediaUrl(rawSrc) ? rawSrc : "") ||
+      (rawSrc.startsWith("blob:") ? rawSrc : "");
+
+    const isBlobSrc = rawSrc.startsWith("blob:");
+
+    if (!primaryMediaUrl) {
+      recordDebug(
+        "CONTENT",
+        "ensure.waiting_url",
+        `Waiting for media URL (artifacts=${artifactsById.size}, src=${summarizeMediaUrlForDebug(rawSrc)})`
+      );
+      return;
+    }
+
+    const artifactId = artifact?.artifactId || null;
+    const mediaToken =
+      artifact?.mediaToken || extractMediaToken(primaryMediaUrl) || null;
+    const title = artifact?.title || getNotebookTitleFallback();
+    const isNewlyGenerated = Boolean(
+      artifactId && pendingGeneratedVideoIds.has(artifactId)
+    );
+    const effectiveTrigger = force
+      ? "manual"
+      : isNewlyGenerated
+        ? "generate"
+        : trigger;
+
     const decision = shouldGenerateSubtitles({
-      settings: currentSettings,
-      trigger,
+      settings,
+      trigger: effectiveTrigger,
       force,
-      typeCode: artifact.typeCode ?? 3,
-      status: artifact.status || "ready",
-      title: artifact.title || "",
-      artifactId: artifact.artifactId,
-      mediaToken: artifact.mediaToken,
-      mediaUrl: artifact.mediaUrl,
-      cachedKeys: cachedKeysSet,
+      status: "ready",
+      title,
+      artifactId:
+        artifactId ||
+        (!mediaToken && isBlobSrc
+          ? `blob_${Math.round((video.duration || 1) * 10)}`
+          : null),
+      mediaToken,
+      mediaUrl: primaryMediaUrl,
+      cachedKeys,
       inFlightKeys,
       exhaustedKeys,
     });
 
-    if (!decision.allow || !decision.cacheKey) {
-      return;
-    }
-
-    const key = decision.cacheKey;
-    inFlightKeys.add(key);
-
-    const matchingCtrls = findControllersMatching({
-      cacheKey: key,
-      artifactId: artifact.artifactId,
-      mediaToken: artifact.mediaToken,
-    });
-    for (const c of matchingCtrls) {
-      c.setStatus("working", "Extracting audio…");
-    }
-
-    showToastIfEnabled({
-      title: "Generating Video Overview subtitles…",
-      detail: artifact.title || "Extracting compact audio track",
-      kind: "working",
-      durationMs: 0,
-    });
-
-    const closeKeepalive = openKeepaliveHeartbeat();
-    let response = null;
-
-    try {
-      // Layer 1: First-party in-page fetch + `.m4a`/`.wav` slimming (carries exact Google session & Referer)
-      const candidateUrls = [
-        artifact.progressiveUrl,
-        artifact.mediaUrl,
-        ...(Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : []),
-      ].filter(Boolean);
-
-      const pageAudio = await requestPageAudioExtraction({
-        candidateUrls,
-        videoCurrentSrc: artifact.videoCurrentSrc || "",
-      });
-
-      let stagedJobId = null;
-      let mergedArtifact = {
-        ...artifact,
-        cacheKey: key,
-        notebookId: artifact.notebookId || currentNotebookId(),
-      };
-
-      if (pageAudio?.ok && Array.isArray(pageAudio.chunks) && pageAudio.chunks.length > 0) {
-        const origMb = (pageAudio.originalBytes / 1048576).toFixed(1);
-        const extMb = (pageAudio.extractedBytes / 1048576).toFixed(1);
-        for (const c of matchingCtrls) {
-          c.setStatus("working", "Transcribing…");
-        }
-        showToastIfEnabled({
-          title: "Audio extracted · Transcribing…",
-          detail: `${origMb} MB video -> ${extMb} MB audio`,
-          kind: "working",
-          durationMs: 0,
+    if (!decision.allow) {
+      // If cached in memory/SW, make sure this `<video>` controller has the cues mounted!
+      if (decision.reason === "already_cached" && controller.cues.length === 0) {
+        const cached = await sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
+          cacheKey: decision.cacheKey,
+          artifactId,
+          mediaToken,
         });
-        stagedJobId = await stageExtractedChunksToWorker(pageAudio);
-      } else if (Array.isArray(pageAudio?.discoveredMediaUrls) && pageAudio.discoveredMediaUrls.length > 0) {
-        const extra = pageAudio.discoveredMediaUrls;
-        if (!isTrustedGoogleMediaUrl(mergedArtifact.mediaUrl) && extra[0]) {
-          mergedArtifact.mediaUrl = extra[0];
-        }
-        mergedArtifact.mediaVariants = [
-          ...(mergedArtifact.mediaVariants || []),
-          ...extra,
-        ];
-      }
-
-      // Layer 2: Dispatch to Service Worker (transcribes staged audio or performs CORS-bypass fetch)
-      response = await sendRuntimeMessage({
-        type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
-        force,
-        stagedJobId,
-        pageFetchError: pageAudio?.ok ? null : pageAudio?.error || null,
-        artifact: mergedArtifact,
-      });
-    } finally {
-      closeKeepalive();
-      inFlightKeys.delete(key);
-    }
-
-    if (response?.ok && response.entry?.cues?.length > 0) {
-      retryCounts.delete(key);
-      exhaustedKeys.delete(key);
-      cachedKeysSet.add(key);
-      applyCuesToMatchingPlayers(response.entry);
-
-      const providerBadge = response.entry.failoverUsed
-        ? `${response.entry.provider} (failover)`
-        : response.entry.provider;
-      showToastIfEnabled({
-        title: `Subtitles ready · ${response.entry.cues.length} cues`,
-        detail: `Transcribed via ${providerBadge}`,
-        kind: "success",
-        durationMs: 4200,
-      });
-      return;
-    }
-
-    const errMsg = response?.error || "Subtitle generation failed.";
-    const prevRetries = retryCounts.get(key) || 0;
-    const isNonRetryableError =
-      /no stt api key|missing api key|401|403|reload this notebooklm tab/i.test(
-        errMsg
-      );
-
-    if (!force && !isNonRetryableError && prevRetries < MAX_AUTO_RETRIES) {
-      const nextAttempt = prevRetries + 1;
-      retryCounts.set(key, nextAttempt);
-      const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, prevRetries);
-      for (const c of matchingCtrls) {
-        c.setStatus("working", `Retrying (${nextAttempt}/${MAX_AUTO_RETRIES})…`);
-      }
-      setTimeout(() => {
-        requestSubtitlesForArtifact(artifact, { trigger, force: false });
-      }, delayMs);
-      return;
-    }
-
-    exhaustedKeys.add(key);
-    for (const c of matchingCtrls) {
-      c.setStatus("error", "Subtitle error");
-    }
-    showToastIfEnabled({
-      title: "Could not generate subtitles",
-      detail: errMsg,
-      kind: "error",
-      durationMs: 7500,
-    });
-  }
-
-  function applyCuesToMatchingPlayers(entry) {
-    if (!entry?.cues?.length) return;
-    const matched = findControllersMatching({
-      cacheKey: entry.cacheKey,
-      artifactId: entry.artifactId,
-      mediaToken: entry.mediaToken,
-    });
-    for (const ctrl of matched) {
-      ctrl.setCues(entry.cues, {
-        title: entry.title,
-        language: entry.language,
-      });
-    }
-  }
-
-  function attachControllerToVideo(video) {
-    if (!video || controllers.has(video)) return;
-    trackedVideos.add(video);
-
-    const ctrl = new VideoSubtitleController(video, {
-      doc,
-      initialFontSize: currentSettings.fontSize,
-      initialOffsetSec: currentSettings.subtitleOffsetSec,
-      onRequestGenerate: ({ force } = {}) => {
-        const art = resolveArtifactForVideo(video);
-        if (!art) {
-          showToastIfEnabled({
-            title: "Waiting for Video Overview stream",
-            detail: "Press Play once so NotebookLM loads the video source.",
-            kind: "info",
-            durationMs: 4000,
+        if (cached?.ok && cached.entry?.cues?.length > 0) {
+          controller.setCues(cached.entry.cues, {
+            title: cached.entry.title || title,
+            language: cached.entry.language || "en",
           });
+          recordDebug(
+            "CONTENT",
+            "ensure.cache_mount",
+            `Mounted ${cached.entry.cues.length} cached cues on <video>`,
+            "ok"
+          );
           return;
         }
-        requestSubtitlesForArtifact(art, {
-          trigger: "manual",
+      }
+      recordDebug(
+        "CONTENT",
+        "ensure.skipped",
+        `Decision gate skipped (${decision.reason}) for "${title.slice(0, 38)}"`
+      );
+      return;
+    }
+
+    const cacheKey = decision.cacheKey;
+    entry.inFlight = true;
+    entry.artifactId = artifactId;
+    entry.cacheKey = cacheKey;
+    inFlightKeys.add(cacheKey);
+    startKeepalive();
+
+    controller.setStatus("working", "Generating subtitles…");
+    debugDrawer?.updateSummary({ status: "working" });
+
+    recordDebug(
+      "CONTENT",
+      "ensure.start",
+      `Pipeline started for "${title.slice(0, 34)}" (key=${cacheKey.slice(
+        0,
+        22
+      )}, variants=${mediaVariants.length}, blob=${isBlobSrc})`
+    );
+
+    try {
+      // 1. Check LRU cache in Service Worker first unless forced
+      if (!force) {
+        const cachedRes = await sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
+          cacheKey,
+          artifactId,
+          mediaToken,
+        });
+        if (cachedRes?.ok && cachedRes.entry?.cues?.length > 0) {
+          cachedKeys.add(cacheKey);
+          controller.setCues(cachedRes.entry.cues, {
+            title: cachedRes.entry.title || title,
+            language: cachedRes.entry.language || artifact?.language || "en",
+          });
+          debugDrawer?.updateSummary({
+            status: `ready (${cachedRes.entry.cues.length} cached)`,
+          });
+          recordDebug(
+            "CONTENT",
+            "ensure.cache_hit",
+            `Loaded ${cachedRes.entry.cues.length} cached cues (${cachedRes.entry.provider})`,
+            "ok"
+          );
+          showToast(
+            "Loaded cached subtitles",
+            `${cachedRes.entry.cues.length} cues · ${title}`,
+            "success",
+            2600
+          );
+          return;
+        }
+      }
+
+      showToast(
+        "Extracting audio from Video Overview…",
+        title,
+        "working",
+        0
+      );
+
+      // 2. If `<video>` uses an in-memory `blob:` URL created via `URL.createObjectURL(Blob)`,
+      //    extract audio directly in `page.js` and stage via `STAGE_AUDIO_CHUNK`.
+      let stagedJobId = null;
+      if (isBlobSrc) {
+        const blobResult = await requestPageBlobExtraction({
+          videoCurrentSrc: rawSrc,
+        });
+        if (
+          blobResult?.ok &&
+          Array.isArray(blobResult.chunks) &&
+          blobResult.chunks.length > 0
+        ) {
+          stagedJobId = await stageBlobChunksToServiceWorker(blobResult);
+          if (stagedJobId) {
+            recordDebug(
+              "CONTENT",
+              "blob.staged",
+              `Staged ${Math.round((blobResult.extractedBytes || 0) / 1024)} KB in-memory audio to Service Worker`,
+              "ok"
+            );
+          }
+        }
+      }
+
+      // 3. Dispatch `ENSURE_SUBTITLES` to Service Worker
+      recordDebug(
+        "CONTENT",
+        "ensure.sw_dispatch",
+        `Sending ENSURE_SUBTITLES to Service Worker (variants=${mediaVariants.length}, staged=${Boolean(
+          stagedJobId
+        )})`
+      );
+
+      const res = await sendRuntimeMessage({
+        type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+        stagedJobId,
+        force: Boolean(force),
+        artifact: {
+          cacheKey,
+          artifactId,
+          notebookId: artifact?.notebookId || getNotebookIdFromUrl(),
+          mediaToken,
+          title,
+          language: artifact?.language || null,
+          mediaUrl: primaryMediaUrl,
+          progressiveUrl:
+            (artifact?.progressiveUrl &&
+              !isThumbnailOrManifestUrl(artifact.progressiveUrl) &&
+              artifact.progressiveUrl) ||
+            primaryMediaUrl,
+          mediaVariants,
+          durationSeconds:
+            artifact?.durationSeconds ||
+            (Number.isFinite(video.duration) ? video.duration : null),
+        },
+      });
+
+      if (!res?.ok || !res.entry?.cues?.length) {
+        if (res?.missingPermissions) {
+          permissionsOk = false;
+          debugDrawer?.updateSummary({ permissionsOk: false });
+        }
+        exhaustedKeys.add(cacheKey);
+        throw new Error(res?.error || "Subtitle generation failed.");
+      }
+
+      const saved = res.entry;
+      cachedKeys.add(cacheKey);
+      exhaustedKeys.delete(cacheKey);
+      if (artifactId) pendingGeneratedVideoIds.delete(artifactId);
+
+      controller.setCues(saved.cues, {
+        title: saved.title || title,
+        language: saved.language || artifact?.language || "en",
+      });
+      debugDrawer?.updateSummary({ status: `ready (${saved.cues.length} cues)` });
+
+      const ratioDetail =
+        saved.extractedBytes && saved.originalBytes
+          ? ` · ${(saved.extractedBytes / 1048576).toFixed(1)} MB audio`
+          : "";
+      recordDebug(
+        "CONTENT",
+        "ensure.ok",
+        `Rendered ${saved.cues.length} cues via ${saved.provider || "AI"}${ratioDetail}`,
+        "ok"
+      );
+
+      showToast(
+        res.cached
+          ? `Loaded cached subtitles (${saved.cues.length} cues)`
+          : `Subtitles ready (${saved.cues.length} cues)`,
+        `${saved.provider || "AI"}${ratioDetail} · ${saved.title || title}`,
+        "success",
+        4000
+      );
+    } catch (err) {
+      const msg = err?.message || String(err);
+      controller.setStatus("error", "Subtitle error");
+      debugDrawer?.updateSummary({ status: "error" });
+      recordDebug("CONTENT", "ensure.error", msg, "error");
+      showToast("Subtitle generation failed", msg, "error", 6200);
+    } finally {
+      entry.inFlight = false;
+      inFlightKeys.delete(cacheKey);
+      stopKeepaliveIfIdle();
+    }
+  }
+
+  function bindVideoElement(video) {
+    if (!video || controllers.has(video)) return controllers.get(video) || null;
+    if (isLikelySilentCardPreviewVideo(video)) {
+      return null;
+    }
+
+    const entry = {
+      video,
+      controller: null,
+      artifactId: null,
+      cacheKey: null,
+      inFlight: false,
+    };
+
+    const controller = new VideoSubtitleController(video, {
+      doc,
+      initialFontSize: settings.fontSize,
+      initialOffsetSec: settings.subtitleOffsetSec,
+      onRequestGenerate: ({ force } = {}) => {
+        ensureSubtitlesForEntry(entry, {
           force: Boolean(force),
+          trigger: "manual",
         });
       },
-      onOffsetChange: (offsetSec) => {
-        currentSettings.subtitleOffsetSec = offsetSec;
-        saveSettings({ subtitleOffsetSec: offsetSec }, storageArea).catch(() => {});
-      },
       onFontSizeChange: (fontSize) => {
-        currentSettings.fontSize = fontSize;
-        saveSettings({ fontSize }, storageArea).catch(() => {});
+        settings.fontSize = fontSize;
+        saveSettings({ fontSize }).catch(() => {});
+      },
+      onOffsetChange: (subtitleOffsetSec) => {
+        settings.subtitleOffsetSec = subtitleOffsetSec;
+        saveSettings({ subtitleOffsetSec }).catch(() => {});
       },
       onImportSubtitles: (cues, fileName) => {
-        const art = resolveArtifactForVideo(video);
+        const artifact = matchArtifactForVideo(video);
+        const mediaUrl =
+          artifact?.mediaUrl || video.currentSrc || video.src || "";
+        const mediaToken = artifact?.mediaToken || extractMediaToken(mediaUrl);
         const cacheKey =
           resolveSubtitleCacheKey({
-            artifactId: art?.artifactId,
-            mediaToken: art?.mediaToken,
-            mediaUrl: art?.mediaUrl || video.currentSrc || video.src,
-          }) || `import:${Date.now()}`;
+            artifactId: artifact?.artifactId,
+            mediaToken,
+            mediaUrl,
+          }) || `import:${fileName}`;
+
         sendRuntimeMessage({
           type: RUNTIME_MESSAGE.SAVE_IMPORTED_SUBTITLES,
           entry: {
             cacheKey,
-            artifactId: art?.artifactId || null,
-            notebookId: art?.notebookId || currentNotebookId(),
-            mediaToken: art?.mediaToken || null,
-            title: art?.title || fileName.replace(/\.(srt|vtt)$/i, ""),
+            artifactId: artifact?.artifactId || null,
+            mediaToken: mediaToken || null,
+            title: artifact?.title || getNotebookTitleFallback(),
+            language: artifact?.language || "en",
             provider: "imported",
             model: fileName,
             cues,
           },
         });
-        showToastIfEnabled({
-          title: `Imported ${cues.length} subtitle cues`,
-          detail: fileName,
-          kind: "success",
-        });
+        cachedKeys.add(cacheKey);
+        showToast(
+          `Imported ${cues.length} cues`,
+          fileName,
+          "success",
+          3200
+        );
       },
     });
 
-    controllers.set(video, ctrl);
+    entry.controller = controller;
+    controllers.set(video, entry);
+    lastActiveVideo = video;
 
-    const tryBindVideo = () => {
-      const art = resolveArtifactForVideo(video);
-      if (art) {
-        requestSubtitlesForArtifact(art, { trigger: "player_open", force: false });
-      }
+    recordDebug(
+      "CONTENT",
+      "video.bound",
+      `Bound <video> overlay (mounted=${Boolean(
+        controller.host
+      )}, src=${summarizeMediaUrlForDebug(video.currentSrc || video.src || "")})`
+    );
+
+    const onMediaReady = () => {
+      lastActiveVideo = video;
+      controller._ensureMounted?.();
+      ensureSubtitlesForEntry(entry, { force: false, trigger: "player_open" });
     };
 
-    video.addEventListener("loadedmetadata", tryBindVideo);
-    video.addEventListener("play", tryBindVideo, { once: true });
+    video.addEventListener("loadedmetadata", onMediaReady);
+    video.addEventListener("play", onMediaReady);
+
     if (video.readyState >= 1 || video.currentSrc || video.src) {
-      tryBindVideo();
+      ensureSubtitlesForEntry(entry, { force: false, trigger: "player_open" });
+    }
+
+    return entry;
+  }
+
+  function scanForVideos() {
+    for (const [video, entry] of controllers.entries()) {
+      if (!video.isConnected) {
+        entry.controller.destroy();
+        controllers.delete(video);
+      } else {
+        entry.controller._ensureMounted?.();
+      }
+    }
+
+    const videos = collectVideosDeep(doc);
+    for (const video of videos) {
+      bindVideoElement(video);
     }
   }
 
-  function scanForVideos(root = doc) {
-    if (!root?.querySelectorAll) return;
-    const videos = root.querySelectorAll(DOM_SELECTORS.VIDEO_ELEMENT);
-    for (const v of videos) {
-      attachControllerToVideo(v);
-    }
-  }
-
-  function handleBatchexecuteMessage(payload) {
-    if (!payload || typeof payload !== "object") return;
-
-    if (payload.isCreateVideoRequest) {
-      awaitingCreatedArtifact = true;
-      showToastIfEnabled({
-        title: "Video Overview requested",
-        detail: "Subtitles will be generated automatically as soon as video rendering finishes.",
-        kind: "working",
-        durationMs: 5000,
-      });
+  function ingestArtifactsList(artifacts = [], isCreateVideoRequest = false) {
+    if (isCreateVideoRequest) {
+      createIntentTimestamp = Date.now();
+      showToast(
+        "Video Overview queued",
+        "Subtitles will generate automatically as soon as rendering finishes.",
+        "info",
+        4000
+      );
     }
 
-    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+    if (!Array.isArray(artifacts) || artifacts.length === 0) return;
+
+    let newlyReadyCount = 0;
     for (const art of artifacts) {
       if (!art?.artifactId) continue;
       const previous = artifactsById.get(art.artifactId);
+
+      if (
+        art.status === "initializing" ||
+        art.status === "processing" ||
+        (isCreateVideoRequest && !previous) ||
+        Date.now() - createIntentTimestamp < 45_000
+      ) {
+        pendingGeneratedVideoIds.add(art.artifactId);
+      }
+
       artifactsById.set(art.artifactId, art);
       if (art.mediaToken) {
         artifactsByToken.set(art.mediaToken, art);
       }
 
       if (
-        art.status === "processing" ||
-        art.status === "initializing" ||
-        art.status === "initialized"
+        art.status === "ready" &&
+        (art.mediaUrl || art.progressiveUrl || art.mediaVariants?.length) &&
+        previous?.status !== "ready"
       ) {
-        generatingArtifactIds.add(art.artifactId);
-        awaitingCreatedArtifact = false;
-        continue;
+        newlyReadyCount++;
+        recordDebug(
+          "CONTENT",
+          "artifact.ready",
+          `Artifact ${art.artifactId.slice(0, 8)} ready ("${(
+            art.title || "Untitled"
+          ).slice(0, 34)}") variants=${art.mediaVariants?.length || 0}`,
+          "ok"
+        );
       }
+    }
 
-      if (art.status === "ready" && art.mediaUrl) {
-        const wasGenerating =
-          generatingArtifactIds.has(art.artifactId) ||
-          (awaitingCreatedArtifact && !previous);
-        generatingArtifactIds.delete(art.artifactId);
-        if (wasGenerating) {
-          awaitingCreatedArtifact = false;
-          requestSubtitlesForArtifact(art, { trigger: "generate", force: false });
-        } else {
-          for (const video of trackedVideos) {
-            const resolved = resolveArtifactForVideo(video);
-            if (resolved && resolved.artifactId === art.artifactId) {
-              requestSubtitlesForArtifact(resolved, {
-                trigger: "player_open",
-                force: false,
-              });
-            }
-          }
+    if (debugDrawer) {
+      debugDrawer.updateSummary({
+        artifacts: artifactsById.size,
+        videos: controllers.size,
+      });
+    }
+
+    if (newlyReadyCount > 0) {
+      for (const entry of controllers.values()) {
+        if (entry.controller.cues.length === 0 && !entry.inFlight) {
+          ensureSubtitlesForEntry(entry, {
+            force: false,
+            trigger: "player_open",
+          });
+        }
+      }
+    }
+
+    // Background prewarm when a newly generated Video Overview transitions to `ready`
+    for (const art of artifacts) {
+      if (
+        art.status === "ready" &&
+        (art.mediaUrl || art.progressiveUrl || art.mediaVariants?.length) &&
+        pendingGeneratedVideoIds.has(art.artifactId)
+      ) {
+        const primaryUrl =
+          art.mediaVariants?.[0] || art.progressiveUrl || art.mediaUrl;
+        const decision = shouldGenerateSubtitles({
+          settings,
+          trigger: "generate",
+          force: false,
+          status: "ready",
+          title: art.title || getNotebookTitleFallback(),
+          artifactId: art.artifactId,
+          mediaToken: art.mediaToken,
+          mediaUrl: primaryUrl,
+          cachedKeys,
+          inFlightKeys,
+          exhaustedKeys,
+        });
+        if (decision.allow) {
+          pendingGeneratedVideoIds.delete(art.artifactId);
+          inFlightKeys.add(decision.cacheKey);
+          startKeepalive();
+          showToast(
+            "Video Overview ready — generating subtitles…",
+            art.title || "Untitled",
+            "working",
+            4500
+          );
+          sendRuntimeMessage({
+            type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+            force: false,
+            artifact: {
+              cacheKey: decision.cacheKey,
+              artifactId: art.artifactId,
+              notebookId: art.notebookId || getNotebookIdFromUrl(),
+              mediaToken: art.mediaToken,
+              title: art.title || getNotebookTitleFallback(),
+              language: art.language || null,
+              mediaUrl: primaryUrl,
+              progressiveUrl: art.progressiveUrl || primaryUrl,
+              mediaVariants: art.mediaVariants || [],
+              durationSeconds: art.durationSeconds || null,
+            },
+          })
+            .then((res) => {
+              if (res?.ok && res.entry?.cues?.length > 0) {
+                cachedKeys.add(decision.cacheKey);
+                showToast(
+                  `Subtitles ready (${res.entry.cues.length} cues)`,
+                  `Open "${art.title || "Video Overview"}" to watch with CC`,
+                  "success",
+                  4500
+                );
+                scanForVideos();
+              }
+            })
+            .finally(() => {
+              inFlightKeys.delete(decision.cacheKey);
+              stopKeepaliveIfIdle();
+            });
         }
       }
     }
   }
 
-  // Listen to MAIN-world bridge messages
+  function pickTargetVideoEntry() {
+    if (lastActiveVideo && controllers.has(lastActiveVideo)) {
+      return controllers.get(lastActiveVideo);
+    }
+    return [...controllers.values()].pop() || null;
+  }
+
+  function buildTabDiagnosticSnapshot() {
+    const videos = [];
+    for (const [video, entry] of controllers.entries()) {
+      videos.push({
+        connected: Boolean(video.isConnected),
+        overlayMounted: Boolean(entry.controller?.host?.isConnected),
+        status: entry.controller?.statusState || "idle",
+        cueCount: entry.controller?.cues?.length || 0,
+        duration: Number.isFinite(video.duration)
+          ? Math.round(video.duration * 10) / 10
+          : null,
+        readyState: video.readyState,
+        srcSummary: summarizeMediaUrlForDebug(video.currentSrc || video.src || ""),
+      });
+    }
+    const artifacts = [...artifactsById.values()].map((a) => ({
+      id: a.artifactId?.slice(0, 12),
+      status: a.status,
+      origin: a.origin || "rpc",
+      variantCount: a.mediaVariants?.length || 0,
+      mediaSummary: summarizeMediaUrlForDebug(
+        a.mediaVariants?.[0] || a.progressiveUrl || a.mediaUrl || ""
+      ),
+    }));
+    return {
+      host: win.location?.hostname || "",
+      pathname: win.location?.pathname || "",
+      artifactCount: artifacts.length,
+      videoCount: videos.length,
+      permissionsOk,
+      artifacts,
+      videos,
+    };
+  }
+
+  // 1. Attach `window.postMessage` listener IMMEDIATELY (synchronous at `document_start`)
   win.addEventListener("message", (event) => {
     if (event.source !== win) return;
-    if (
-      win.location?.origin &&
-      win.location.origin !== "null" &&
-      event.origin !== win.location.origin
-    ) {
-      return;
-    }
     const msg = event.data;
     if (!msg || msg.source !== PAGE_MESSAGE.BRIDGE_SOURCE_PAGE) return;
 
-    if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
-      handleBatchexecuteMessage(msg.payload);
+    if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE) {
+      const reqId = msg.payload?.requestId;
+      const pending = reqId ? pendingPageRequests.get(reqId) : null;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingPageRequests.delete(reqId);
+        pending.resolve(msg.payload);
+      }
       return;
     }
 
-    if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE) {
-      const resolver = pendingPageExtractions.get(msg.payload?.requestId);
-      if (resolver) {
-        pendingPageExtractions.delete(msg.payload.requestId);
-        resolver(msg.payload);
+    if (msg.type === PAGE_MESSAGE.PAGE_DEBUG_EVENT) {
+      const p = msg.payload || {};
+      recordDebug(p.layer || "PAGE", p.event || "event", p.detail || "");
+      if (p.event === "video.play") {
+        scanForVideos();
       }
+      return;
+    }
+
+    if (msg.type === PAGE_MESSAGE.PAGE_STATE_SNAPSHOT) {
+      const snap = msg.payload || {};
+      if (Array.isArray(snap.artifacts) && snap.artifacts.length > 0) {
+        ingestArtifactsList(snap.artifacts, false);
+      }
+      recordDebug(
+        "PAGE",
+        "state.snapshot",
+        `Synced ${snap.artifacts?.length || 0} artifact(s), ${
+          snap.rpcTrace?.length || 0
+        } RPC(s), ssrScanned=${Boolean(snap.ssrScanned)}`
+      );
+      return;
+    }
+
+    if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
+      ingestArtifactsList(
+        msg.payload?.artifacts || [],
+        Boolean(msg.payload?.isCreateVideoRequest)
+      );
     }
   });
 
-  // Listen to Service Worker progress & popup manual triggers
-  runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
+  // 2. Capture-phase media event listeners on `doc` catch `<video>` playback even inside
+  //    open Shadow DOMs (`event.composedPath()[0]`) inside Angular Material `Lot dialog`.
+  const handleCapturedMediaEvent = (event) => {
+    try {
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
+      const candidate = path[0] || event.target;
+      if (candidate && candidate.tagName === "VIDEO") {
+        const entry = bindVideoElement(candidate);
+        if (entry && (event.type === "play" || event.type === "loadedmetadata")) {
+          ensureSubtitlesForEntry(entry, {
+            force: false,
+            trigger: "player_open",
+          });
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  };
+  for (const mediaEvt of ["loadedmetadata", "canplay", "play"]) {
+    doc.addEventListener?.(mediaEvt, handleCapturedMediaEvent, true);
+  }
+
+  // 3. Keyboard shortcut (`C`) to toggle captions when not typing in an input
+  doc.addEventListener?.("keydown", (e) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key !== "c" && e.key !== "C") return;
+    const tag = (e.target?.tagName || "").toLowerCase();
+    if (
+      tag === "input" ||
+      tag === "textarea" ||
+      tag === "select" ||
+      e.target?.isContentEditable
+    ) {
+      return;
+    }
+    const active = pickTargetVideoEntry();
+    if (active) {
+      active.controller.toggleSubtitles();
+    }
+  });
+
+  // 4. Listen for Popup / Options / Service Worker runtime messages (`msg.type`)
+  runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
     if (!msg || typeof msg.type !== "string") return false;
+    if (!msg.type.startsWith(MESSAGE_NAMESPACE)) return false;
 
     if (msg.type === RUNTIME_MESSAGE.SUBTITLES_PROGRESS) {
-      const matched = findControllersMatching({
-        cacheKey: msg.cacheKey,
-        artifactId: msg.artifactId,
-        mediaToken: msg.mediaToken,
-      });
-      for (const c of matched) {
-        c.setStatus("working", msg.label || "Transcribing…");
+      const active = pickTargetVideoEntry();
+      if (active && active.inFlight) {
+        active.controller.setStatus("working", msg.label || "Transcribing…");
       }
       if (msg.label) {
-        showToastIfEnabled({
-          title: msg.label,
-          detail: msg.detail || "",
-          kind: "working",
-          durationMs: 0,
-        });
+        showToast(msg.label, msg.detail || "", "working", 0);
       }
-      sendResponse?.({ ok: true });
       return false;
     }
 
-    if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY && msg.entry) {
-      cachedKeysSet.add(msg.entry.cacheKey);
-      applyCuesToMatchingPlayers(msg.entry);
-      sendResponse?.({ ok: true });
-      return false;
+    if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {
+      decodeBase64MediaToWavFallback(msg.base64Media)
+        .then((chunks) => sendResponse({ ok: true, chunks }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
     }
 
     if (msg.type === RUNTIME_MESSAGE.GET_ACTIVE_TAB_STATE) {
-      const activeVideos = [...trackedVideos].filter((v) => doc.contains(v));
-      const primaryVideo = activeVideos[0] || null;
-      const art = primaryVideo
-        ? resolveArtifactForVideo(primaryVideo)
-        : [...artifactsById.values()].find((a) => a.status === "ready") || null;
-      sendResponse?.({
+      requestPageStateSnapshot();
+      scanForVideos();
+      const target = pickTargetVideoEntry();
+      const allArts = [...artifactsById.values()];
+      const readyArts = allArts.filter((a) => a.status === "ready");
+      const generatingArts = allArts.filter(
+        (a) => a.status === "initializing" || a.status === "processing"
+      );
+      const matched = target ? matchArtifactForVideo(target.video) : readyArts[readyArts.length - 1] || null;
+
+      sendResponse({
         ok: true,
-        hasVideoElement: activeVideos.length > 0,
-        readyArtifactCount: [...artifactsById.values()].filter(
-          (a) => a.status === "ready"
-        ).length,
-        generatingCount: generatingArtifactIds.size,
-        activeArtifact: art,
+        hasVideoElement: controllers.size > 0,
+        videoCount: controllers.size,
+        readyArtifactCount: readyArts.length,
+        generatingCount: generatingArts.length,
+        hasSubtitles: Boolean(target && target.controller.cues.length > 0),
+        activeArtifact: matched
+          ? { artifactId: matched.artifactId, title: matched.title }
+          : target
+            ? { title: target.controller.title || getNotebookTitleFallback() }
+            : null,
+        diagnostics: buildTabDiagnosticSnapshot(),
       });
       return false;
     }
 
     if (msg.type === RUNTIME_MESSAGE.TRIGGER_ACTIVE_VIDEO) {
-      const activeVideos = [...trackedVideos].filter((v) => doc.contains(v));
-      const primaryVideo = activeVideos[0] || null;
-      const art = primaryVideo
-        ? resolveArtifactForVideo(primaryVideo)
-        : [...artifactsById.values()].find((a) => a.status === "ready") || null;
-
-      if (!art) {
-        sendResponse?.({
-          ok: false,
-          error:
-            "No ready Video Overview found on this tab yet. Open or generate a Video Overview in Studio first.",
+      requestPageStateSnapshot();
+      scanForVideos();
+      const target = pickTargetVideoEntry();
+      if (!target) {
+        // If no `<video>` element is open yet, check if a ready Studio Video Overview exists to pre-caption!
+        const readyArt = [...artifactsById.values()]
+          .filter((a) => a.status === "ready" && (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length))
+          .pop();
+        if (!readyArt) {
+          sendResponse({
+            ok: false,
+            error: "Open a Video Overview in NotebookLM Studio first, then click Generate.",
+          });
+          return false;
+        }
+        const primaryUrl =
+          readyArt.mediaVariants?.[0] || readyArt.progressiveUrl || readyArt.mediaUrl;
+        const cacheKey = resolveSubtitleCacheKey({
+          artifactId: readyArt.artifactId,
+          mediaToken: readyArt.mediaToken,
+          mediaUrl: primaryUrl,
+        });
+        showToast(
+          "Generating subtitles in background…",
+          readyArt.title || "Video Overview",
+          "working",
+          0
+        );
+        sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+          force: Boolean(msg.force),
+          artifact: {
+            cacheKey,
+            artifactId: readyArt.artifactId,
+            notebookId: readyArt.notebookId || getNotebookIdFromUrl(),
+            mediaToken: readyArt.mediaToken,
+            title: readyArt.title || getNotebookTitleFallback(),
+            language: readyArt.language || null,
+            mediaUrl: primaryUrl,
+            progressiveUrl: readyArt.progressiveUrl || primaryUrl,
+            mediaVariants: readyArt.mediaVariants || [],
+            durationSeconds: readyArt.durationSeconds || null,
+          },
+        }).then((res) => {
+          if (res?.ok && res.entry?.cues?.length > 0) {
+            cachedKeys.add(cacheKey);
+            showToast(
+              `Subtitles ready (${res.entry.cues.length} cues)`,
+              `Open "${readyArt.title || "Video Overview"}" to watch with CC`,
+              "success",
+              4500
+            );
+          } else {
+            showToast(
+              "Subtitle generation failed",
+              res?.error || "Failed",
+              "error",
+              6000
+            );
+          }
+        });
+        sendResponse({
+          ok: true,
+          title: readyArt.title || getNotebookTitleFallback(),
         });
         return false;
       }
 
-      requestSubtitlesForArtifact(art, {
-        trigger: "manual",
+      const matched = matchArtifactForVideo(target.video);
+      const title =
+        matched?.title || target.controller.title || getNotebookTitleFallback();
+      ensureSubtitlesForEntry(target, {
         force: Boolean(msg.force),
+        trigger: "manual",
       });
-      sendResponse?.({ ok: true, started: true, title: art.title });
+      sendResponse({
+        ok: true,
+        title,
+        cueCount: target.controller.cues.length,
+      });
       return false;
-    }
-
-    if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {
-      (async () => {
-        try {
-          const bin = atob(msg.base64Media);
-          const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          const AudioCtx = win.AudioContext || win.webkitAudioContext;
-          const ctx = new AudioCtx();
-          const decoded = await ctx.decodeAudioData(bytes.buffer.slice(0));
-          await ctx.close();
-          const targetRate = decoded.duration > 600 ? 12000 : 16000;
-          const length = Math.max(1, Math.ceil(decoded.duration * targetRate));
-          const offline = new win.OfflineAudioContext(1, length, targetRate);
-          const src = offline.createBufferSource();
-          src.buffer = decoded;
-          src.connect(offline.destination);
-          src.start(0);
-          const rendered = await offline.startRendering();
-          const samples = rendered.getChannelData(0);
-          const wavChunks = slicePcmIntoWavChunks(samples, targetRate, 14 * 1024 * 1024);
-          const encodedChunks = wavChunks.map((ch, idx) => ({
-            base64: uint8ToBase64(ch.bytes),
-            mimeType: "audio/wav",
-            fileName: ch.fileName || `chunk-${idx + 1}.wav`,
-            startOffsetSec: ch.startOffsetSec,
-            durationSec: ch.durationSec,
-          }));
-          sendResponse?.({ ok: true, chunks: encodedChunks });
-        } catch (err) {
-          sendResponse?.({ ok: false, error: err?.message || String(err) });
-        }
-      })();
-      return true;
     }
 
     return false;
   });
 
-  globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
-    if (areaName === "local" && (changes.settings || changes.subtitleCache)) {
-      refreshLocalState();
-    }
-  });
-
-  const observer = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      for (const node of m.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.tagName === "VIDEO") {
-          attachControllerToVideo(node);
-        } else if (node.querySelectorAll) {
-          scanForVideos(node);
-        }
+  // 5. React live to Settings changes (including toggling Debug Mode without page reload)
+  try {
+    storage?.onChanged?.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes?.settings?.newValue) return;
+      settings = { ...settings, ...changes.settings.newValue };
+      syncRpcOverridesToPage();
+      syncDebugDrawerLifecycle();
+      for (const entry of controllers.values()) {
+        entry.controller.setSettings({
+          fontSize: settings.fontSize,
+          subtitleOffsetSec: settings.subtitleOffsetSec,
+        });
       }
-    }
-  });
+    });
+  } catch {
+    // Ignore restricted context
+  }
 
-  const start = async () => {
-    await refreshLocalState();
-    scanForVideos(doc);
-    if (doc.documentElement) {
-      observer.observe(doc.documentElement, {
-        childList: true,
-        subtree: true,
-      });
+  // 6. Load initial settings safely (`try/catch` guards restricted storage contexts)
+  try {
+    settings = await getSettings();
+  } catch {
+    settings = { ...DEFAULT_SETTINGS };
+  }
+
+  syncRpcOverridesToPage();
+  syncDebugDrawerLifecycle();
+  recordDebug(
+    "CONTENT",
+    "coordinator.ready",
+    `Initialized on ${win.location?.hostname}${win.location?.pathname || ""}`
+  );
+
+  // Request buffered state immediately AND again once DOM finishes loading
+  requestPageStateSnapshot();
+  if (doc.readyState === "loading") {
+    doc.addEventListener?.(
+      "DOMContentLoaded",
+      () => {
+        requestPageStateSnapshot();
+        scanForVideos();
+      },
+      { once: true }
+    );
+  }
+
+  // 7. Attach MutationObserver once `documentElement` exists
+  const attachObserver = () => {
+    const rootNode = doc.body || doc.documentElement;
+    if (!rootNode || typeof MutationObserver === "undefined") {
+      scanForVideos();
+      return null;
     }
+    let scanScheduled = false;
+    const obs = new MutationObserver(() => {
+      if (scanScheduled) return;
+      scanScheduled = true;
+      setTimeout(() => {
+        scanScheduled = false;
+        scanForVideos();
+      }, 60);
+    });
+    obs.observe(rootNode, { childList: true, subtree: true });
+    scanForVideos();
+    return obs;
   };
 
-  start();
+  let observer = attachObserver();
+  if (!observer && doc.readyState === "loading") {
+    doc.addEventListener?.(
+      "DOMContentLoaded",
+      () => {
+        observer = attachObserver();
+      },
+      { once: true }
+    );
+  }
 
-  return {
-    handleBatchexecuteMessage,
+  const api = {
     scanForVideos,
+    controllers,
     artifactsById,
+    requestPageStateSnapshot,
+    getDiagnostics: buildTabDiagnosticSnapshot,
+    hideToast,
+    destroy() {
+      observer?.disconnect();
+      debugDrawer?.destroy();
+      for (const entry of controllers.values()) {
+        entry.controller.destroy();
+      }
+      controllers.clear();
+    },
   };
+
+  win[GUARD_FLAG] = api;
+  return api;
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
-  initContentCoordinator();
+  initContentCoordinator().catch(() => {});
 }

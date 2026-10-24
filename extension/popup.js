@@ -91,6 +91,7 @@
     OVERLAY_HOST_ID: "nlm-subtitles-player-root",
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
+    DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
     TRACK_LABEL: "NotebookLM Auto-Subtitles"
   });
   var PAGE_MESSAGE = Object.freeze({
@@ -98,6 +99,9 @@
     BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
     BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
     SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+    REQUEST_PAGE_STATE: "NOTEBOOKLM_REQUEST_PAGE_STATE",
+    PAGE_STATE_SNAPSHOT: "NOTEBOOKLM_PAGE_STATE_SNAPSHOT",
+    PAGE_DEBUG_EVENT: "NOTEBOOKLM_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
     EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
   });
@@ -110,7 +114,10 @@
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
-    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO"
+    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
+    APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
+    GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
   });
 
   // src/lib/providers/registry.js
@@ -348,10 +355,12 @@
     API_KEYS: "apiKeys",
     SUBTITLE_CACHE: "subtitleCache",
     HISTORY: "subtitleHistory",
-    LAST_STATUS: "lastStatus"
+    LAST_STATUS: "lastStatus",
+    DEBUG_LOGS: "debugLogs"
   });
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
+    debugMode: false,
     autoOnGenerate: true,
     autoOnExistingVideos: true,
     primaryProvider: "groq",
@@ -422,6 +431,7 @@
     }
     return {
       enabled: typeof saved.enabled === "boolean" ? saved.enabled : DEFAULT_SETTINGS.enabled,
+      debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
       autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
       autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
       primaryProvider,
@@ -716,6 +726,10 @@ ${body}`;
     const lastStatusBadge = document.getElementById("last-status-badge");
     const lastStatusTitle = document.getElementById("last-status-title");
     const lastStatusMeta = document.getElementById("last-status-meta");
+    const permWarningCard = document.getElementById("permission-warning-card");
+    const grantGooglePermsBtn = document.getElementById("grant-google-perms-btn");
+    const debugModeToggle = document.getElementById("debug-mode-toggle");
+    const copyDebugBtn = document.getElementById("copy-debug-btn");
     const specs = listProviderSpecs();
     for (const spec of specs) {
       const opt = document.createElement("option");
@@ -730,6 +744,29 @@ ${body}`;
       getSubtitleCacheList()
     ]);
     let activeTabId = null;
+    let activeTabDiagnostics = null;
+    let missingGoogleOrigins = [];
+    async function inspectGoogleHostPermissions() {
+      if (!chrome.permissions?.contains) return;
+      const required = [
+        "https://*.googleusercontent.com/*",
+        "https://*.google.com/*",
+        "https://*.googlevideo.com/*",
+        "https://*.usercontent.google.com/*"
+      ];
+      const missing = [];
+      for (const origin of required) {
+        try {
+          const ok = await chrome.permissions.contains({ origins: [origin] });
+          if (!ok) missing.push(origin);
+        } catch {
+        }
+      }
+      missingGoogleOrigins = missing;
+      if (permWarningCard) {
+        permWarningCard.style.display = missing.length > 0 ? "block" : "none";
+      }
+    }
     function renderQueueSummary() {
       const activeIds = settings.queueOrder.filter(
         (id) => id === "custom" ? settings.customEnabled : presenceMap[id]
@@ -814,6 +851,9 @@ ${body}`;
             generateNowBtn.disabled = false;
             return;
           }
+          if (state.diagnostics) {
+            activeTabDiagnostics = state.diagnostics;
+          }
           if (state.hasVideoElement || state.readyArtifactCount > 0) {
             tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Video ready`;
             tabBadge.className = "badge badge-saved";
@@ -834,13 +874,48 @@ ${body}`;
       );
     }
     enabledToggle.checked = settings.enabled;
+    if (debugModeToggle) debugModeToggle.checked = Boolean(settings.debugMode);
     providerSelect.value = settings.primaryProvider || "groq";
     renderQueueSummary();
     renderSelectedProvider();
     renderLastStatus();
+    inspectGoogleHostPermissions();
     inspectActiveTab();
     enabledToggle.addEventListener("change", async () => {
       settings = await saveSettings({ enabled: enabledToggle.checked });
+    });
+    debugModeToggle?.addEventListener("change", async () => {
+      settings = await saveSettings({ debugMode: debugModeToggle.checked });
+    });
+    grantGooglePermsBtn?.addEventListener("click", async () => {
+      if (!chrome.permissions?.request || missingGoogleOrigins.length === 0) return;
+      try {
+        const granted = await chrome.permissions.request({
+          origins: missingGoogleOrigins
+        });
+        if (granted) {
+          await inspectGoogleHostPermissions();
+        }
+      } catch {
+      }
+    });
+    copyDebugBtn?.addEventListener("click", async () => {
+      copyDebugBtn.disabled = true;
+      const report = await sendRuntime({
+        type: RUNTIME_MESSAGE.GET_DEBUG_REPORT,
+        tabContext: activeTabDiagnostics
+      });
+      const text = report?.reportText || "No diagnostic data available.";
+      try {
+        await navigator.clipboard.writeText(text);
+        copyDebugBtn.textContent = "Copied Report!";
+      } catch {
+        copyDebugBtn.textContent = "Copy Failed";
+      }
+      setTimeout(() => {
+        copyDebugBtn.disabled = false;
+        copyDebugBtn.textContent = "Copy Debug Report";
+      }, 1800);
     });
     providerSelect.addEventListener("change", async () => {
       const nextProvider = providerSelect.value;

@@ -5,6 +5,7 @@ import {
   createTestSpeechCadenceWav,
   encodeMonoWav16Bit,
   extractAudioTrackFromMp4,
+  inspectMp4Tracks,
   readIsoBoxes,
   slicePcmIntoWavChunks,
   validateMediaPayload,
@@ -87,4 +88,36 @@ test("validateMediaPayload rejects 0-byte and HTML auth login pages", () => {
     () => validateMediaPayload(htmlBytes, "video/mp4"),
     /HTML/i
   );
+
+  // Rejects JPEG thumbnail magic bytes & HLS manifests
+  const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+  assert.throws(
+    () => validateMediaPayload(jpegBytes, "application/octet-stream"),
+    /JPEG thumbnail/i
+  );
+  const hlsBytes = new TextEncoder().encode("#EXTM3U\n#EXT-X-VERSION:3\n");
+  assert.throws(
+    () => validateMediaPayload(hlsBytes, "video/mp4"),
+    /HLS\/DASH manifest/i
+  );
+});
+
+test("inspectMp4Tracks distinguishes silent video-only preview MP4s from audio-bearing MP4s", () => {
+  const silentMp4 = createSyntheticMp4WithVideoAndAudio({
+    videoPayloads: [new Uint8Array(1024).fill(0xaa)],
+    audioPayloads: [],
+  });
+  const silentInfo = inspectMp4Tracks(silentMp4);
+  assert.equal(silentInfo.isMp4, true);
+  assert.equal(silentInfo.hasVideo, true);
+  assert.equal(silentInfo.hasAudio, false);
+
+  const muxedMp4 = createSyntheticMp4WithVideoAndAudio({
+    videoPayloads: [new Uint8Array(1024).fill(0xaa)],
+    audioPayloads: [new Uint8Array([1, 2, 3, 4])],
+  });
+  const muxedInfo = inspectMp4Tracks(muxedMp4);
+  assert.equal(muxedInfo.isMp4, true);
+  assert.equal(muxedInfo.hasVideo, true);
+  assert.equal(muxedInfo.hasAudio, true);
 });

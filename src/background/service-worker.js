@@ -17,12 +17,15 @@ import {
 import {
   createTestSpeechCadenceWav,
   extractAudioTrackFromMp4,
+  inspectMp4Tracks,
   validateMediaPayload,
 } from "../lib/audio-extract.js";
 import {
   deriveGoogleMediaVariants,
   extractMediaToken,
+  isThumbnailOrManifestUrl,
   isTrustedGoogleMediaUrl,
+  summarizeMediaUrlForDebug,
 } from "../lib/batchexecute.js";
 import { resolveSubtitleCacheKey } from "../lib/decide.js";
 import {
@@ -33,12 +36,19 @@ import {
   transcribeWithQueue,
 } from "../lib/providers/index.js";
 import {
+  clearDebugLogs,
   findCachedSubtitles,
   getApiKey,
+  getDebugLogs,
+  getLastStatus,
   getModelForProvider,
+  getSavedKeyPresenceMap,
   getSecretApiKeysMap,
   getSettings,
+  MAX_DEBUG_LOGS,
+  sanitizeDebugMessage,
   saveCachedSubtitles,
+  saveDebugLogs,
   setLastStatus,
 } from "../lib/storage.js";
 
@@ -83,6 +93,66 @@ export function createRuntimeDispatcher({
 } = {}) {
   const inFlightPromises = new Map();
   const stagedAudioJobs = new Map();
+  const memoryDebugLogs = [];
+  let debugLogsHydrated = false;
+
+  const REQUIRED_GOOGLE_ORIGINS = [
+    "https://*.googleusercontent.com/*",
+    "https://*.google.com/*",
+    "https://*.googlevideo.com/*",
+  ];
+
+  async function ensureDebugLogsHydrated() {
+    if (debugLogsHydrated) return;
+    debugLogsHydrated = true;
+    const saved = await getDebugLogs(storageArea);
+    for (const item of saved) {
+      memoryDebugLogs.push(item);
+    }
+    while (memoryDebugLogs.length > MAX_DEBUG_LOGS) {
+      memoryDebugLogs.shift();
+    }
+  }
+
+  async function appendDebugEntry(entry, extraSecrets = []) {
+    await ensureDebugLogsHydrated();
+    const safeDetail = redactSecrets(
+      sanitizeDebugMessage(entry?.detail || ""),
+      extraSecrets
+    );
+    const normalized = {
+      ts: entry?.ts || new Date().toISOString(),
+      layer: String(entry?.layer || "SW").slice(0, 12),
+      event: String(entry?.event || "log").slice(0, 48),
+      detail: safeDetail,
+      level: entry?.level || "info",
+    };
+    memoryDebugLogs.push(normalized);
+    while (memoryDebugLogs.length > MAX_DEBUG_LOGS) {
+      memoryDebugLogs.shift();
+    }
+    await saveDebugLogs(memoryDebugLogs, storageArea);
+    return normalized;
+  }
+
+  async function checkGoogleHostPermissions() {
+    if (!permissionsApi?.contains) {
+      return { ok: true, missingOrigins: [] };
+    }
+    const missingOrigins = [];
+    for (const origin of REQUIRED_GOOGLE_ORIGINS) {
+      try {
+        const has = await permissionsApi.contains({ origins: [origin] });
+        if (!has) missingOrigins.push(origin);
+      } catch {
+        // Ignore unsupported pattern in mock
+      }
+    }
+    return {
+      ok: missingOrigins.length === 0,
+      missingOrigins,
+    };
+  }
 
   function sweepExpiredStagedAudio() {
     const now = Date.now();
@@ -192,8 +262,8 @@ export function createRuntimeDispatcher({
       artifact.mediaUrl,
     ].filter(Boolean);
 
-    const allCandidateUrls = [...new Set(rawCandidates)].filter((u) =>
-      isTrustedGoogleMediaUrl(u)
+    const allCandidateUrls = [...new Set(rawCandidates)].filter(
+      (u) => isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u)
     );
 
     if (allCandidateUrls.length === 0) {
@@ -207,6 +277,14 @@ export function createRuntimeDispatcher({
       );
     }
 
+    await appendDebugEntry({
+      layer: "SW",
+      event: "media.candidates",
+      detail: `Trying ${allCandidateUrls.length} Google CDN URL(s); first=${summarizeMediaUrlForDebug(
+        allCandidateUrls[0]
+      )}`,
+    });
+
     let downloadedBytes = null;
     let downloadedContentType = "";
     let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
@@ -219,6 +297,7 @@ export function createRuntimeDispatcher({
         // Ignore
       }
 
+      let skipCandidateVariant = false;
       for (const credentialsMode of ["include", "omit"]) {
         try {
           const res = await fetchImpl(candidateUrl, {
@@ -227,6 +306,11 @@ export function createRuntimeDispatcher({
           });
           if (!res.ok) {
             lastDownloadErr = `Media CDN (${hostLabel}) returned HTTP ${res.status}`;
+            await appendDebugEntry({
+              layer: "SW",
+              event: "media.http_status",
+              detail: `${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}] -> HTTP ${res.status}`,
+            });
             if (res.status === 404 || res.status === 400) {
               break; // Variant doesn't exist; skip straight to next URL variant
             }
@@ -234,20 +318,70 @@ export function createRuntimeDispatcher({
           }
           const ct = res.headers?.get?.("content-type") || "";
           const buf = new Uint8Array(await res.arrayBuffer());
-          downloadedBytes = validateMediaPayload(buf, ct);
+          const validated = validateMediaPayload(buf, ct);
+
+          // Reject silent video-only preview thumbnails (e.g., `=s512-mm,22` card loops)
+          const trackInfo = inspectMp4Tracks(validated);
+          if (
+            trackInfo.isMp4 &&
+            trackInfo.hasVideo &&
+            !trackInfo.hasAudio &&
+            !trackInfo.isFragmented
+          ) {
+            lastDownloadErr = `Skipped silent video-only preview stream (${summarizeMediaUrlForDebug(
+              candidateUrl
+            )})`;
+            await appendDebugEntry({
+              layer: "SW",
+              event: "media.skip_silent",
+              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks, ${
+                validated.byteLength
+              } B) — advancing to next stream`,
+            });
+            skipCandidateVariant = true;
+            break;
+          }
+
+          downloadedBytes = validated;
           downloadedContentType = ct.toLowerCase();
+          await appendDebugEntry({
+            layer: "SW",
+            event: "media.downloaded",
+            detail: `Downloaded ${formatMegabytes(validated.byteLength)} (${
+              ct || "binary"
+            }) from ${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}]`,
+            level: "ok",
+          });
           break;
         } catch (err) {
           lastDownloadErr = `Media stream download failed (${hostLabel}): ${
             err?.message || String(err)
           }`;
+          await appendDebugEntry({
+            layer: "SW",
+            event: "media.fetch_err",
+            detail: `${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}] -> ${
+              err?.message || String(err)
+            }`,
+          });
         }
       }
 
+      if (skipCandidateVariant) continue;
       if (downloadedBytes) break;
     }
 
     if (!downloadedBytes) {
+      const permCheck = await checkGoogleHostPermissions();
+      if (!permCheck.ok) {
+        const permErr = new Error(
+          `Chrome withheld Google CDN host permissions (${permCheck.missingOrigins.join(
+            ", "
+          )}). Open the extension popup and click "Grant Google Media Access".`
+        );
+        permErr.missingPermissions = true;
+        throw permErr;
+      }
       throw new Error(lastDownloadErr);
     }
 
@@ -503,6 +637,14 @@ export function createRuntimeDispatcher({
           ? settings.languageHint
           : artifact.language || null;
 
+      await appendDebugEntry({
+        layer: "STT",
+        event: "stt.dispatch",
+        detail: `Sending ${audioBundle.chunks.length} audio chunk(s) (${formatMegabytes(
+          audioBundle.extractedBytes
+        )}) to queue [${candidates.map((c) => c.providerId).join(" -> ")}]`,
+      });
+
       const txResult = await transcribeWithQueue({
         chunks: audioBundle.chunks,
         candidates,
@@ -517,6 +659,13 @@ export function createRuntimeDispatcher({
           `${txResult.providerName} returned 0 subtitle cues for this audio.`
         );
       }
+
+      await appendDebugEntry({
+        layer: "STT",
+        event: "stt.ok",
+        detail: `${txResult.providerName} (${txResult.model}) returned ${txResult.cues.length} cues in ${txResult.latencyMs} ms`,
+        level: "ok",
+      });
 
       const savedEntry = await saveCachedSubtitles(
         {
@@ -559,10 +708,17 @@ export function createRuntimeDispatcher({
     })()
       .catch(async (err) => {
         const secretsMap = await getSecretApiKeysMap(storageArea).catch(() => ({}));
-        const safeError = redactSecrets(
-          err?.message || String(err),
-          Object.values(secretsMap)
-        );
+        const allSecrets = Object.values(secretsMap);
+        const safeError = redactSecrets(err?.message || String(err), allSecrets);
+        await appendDebugEntry(
+          {
+            layer: "SW",
+            event: "pipeline.error",
+            detail: safeError,
+            level: "error",
+          },
+          allSecrets
+        ).catch(() => {});
         await setLastStatus(
           {
             state: "error",
@@ -571,7 +727,11 @@ export function createRuntimeDispatcher({
           },
           storageArea
         ).catch(() => {});
-        return { ok: false, error: safeError };
+        return {
+          ok: false,
+          error: safeError,
+          missingPermissions: Boolean(err?.missingPermissions),
+        };
       })
       .finally(() => {
         inFlightPromises.delete(cacheKey);
@@ -692,6 +852,129 @@ export function createRuntimeDispatcher({
 
     if (msg.type === RUNTIME_MESSAGE.TEST_PROVIDER) {
       handleTestProvider(msg)
+        .then((res) => sendResponse(res))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.APPEND_DEBUG_LOG && msg.entry) {
+      getSecretApiKeysMap(storageArea)
+        .catch(() => ({}))
+        .then((secretsMap) =>
+          appendDebugEntry(msg.entry, Object.values(secretsMap))
+        )
+        .then((saved) => sendResponse({ ok: true, entry: saved }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS) {
+      memoryDebugLogs.length = 0;
+      clearDebugLogs(storageArea)
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.GET_DEBUG_REPORT) {
+      (async () => {
+        await ensureDebugLogsHydrated();
+        const [settings, presenceMap, lastStatus, permCheck] = await Promise.all([
+          getSettings(storageArea),
+          getSavedKeyPresenceMap(storageArea),
+          getLastStatus(storageArea),
+          checkGoogleHostPermissions(),
+        ]);
+        const configuredProviders = Object.entries(presenceMap)
+          .filter(([, has]) => Boolean(has))
+          .map(([id]) => id);
+        const manifestVersion =
+          globalThis.chrome?.runtime?.getManifest?.()?.version || "0.1.2";
+
+        const reportObj = {
+          generatedAt: new Date().toISOString(),
+          extensionVersion: manifestVersion,
+          permissionsOk: permCheck.ok,
+          missingOrigins: permCheck.missingOrigins,
+          settingsSummary: {
+            enabled: settings.enabled,
+            debugMode: settings.debugMode,
+            autoOnGenerate: settings.autoOnGenerate,
+            autoOnExistingVideos: settings.autoOnExistingVideos,
+            primaryProvider: settings.primaryProvider,
+            configuredProviders,
+            queueOrder: settings.queueOrder.slice(0, 6),
+          },
+          lastStatus,
+          tabContext: msg.tabContext || null,
+          logs: [...memoryDebugLogs],
+        };
+
+        const lines = [
+          `# Subtitles for NotebookLM — Diagnostic Report (v${manifestVersion})`,
+          `Generated: ${reportObj.generatedAt}`,
+          `Google CDN Permissions: ${
+            permCheck.ok ? "GRANTED" : `MISSING (${permCheck.missingOrigins.join(", ")})`
+          }`,
+          `Enabled: ${settings.enabled} | Debug Mode: ${settings.debugMode} | Primary: ${settings.primaryProvider}`,
+          `Configured Providers (keys redacted): ${
+            configuredProviders.length > 0 ? configuredProviders.join(", ") : "(none)"
+          }`,
+          `Last Status: ${
+            lastStatus
+              ? `[${lastStatus.state}] ${lastStatus.title || ""} — ${lastStatus.message || ""}`
+              : "(none)"
+          }`,
+        ];
+
+        if (msg.tabContext) {
+          lines.push(
+            `Tab Snapshot: host=${msg.tabContext.host}${msg.tabContext.pathname || ""} | artifacts=${
+              msg.tabContext.artifactCount
+            } | boundVideos=${msg.tabContext.videoCount}`
+          );
+          if (Array.isArray(msg.tabContext.artifacts) && msg.tabContext.artifacts.length > 0) {
+            for (const a of msg.tabContext.artifacts) {
+              lines.push(
+                `  - Artifact ${a.id} [${a.status}] (${a.origin}) variants=${a.variantCount} ${a.mediaSummary}`
+              );
+            }
+          }
+          if (Array.isArray(msg.tabContext.videos) && msg.tabContext.videos.length > 0) {
+            for (const v of msg.tabContext.videos) {
+              lines.push(
+                `  - <video> overlayMounted=${v.overlayMounted} status=${v.status} cues=${v.cueCount} dur=${v.duration}s src=${v.srcSummary}`
+              );
+            }
+          }
+        }
+
+        lines.push("", "## Chronological Pipeline Logs");
+        if (memoryDebugLogs.length === 0) {
+          lines.push("(no debug events recorded yet)");
+        } else {
+          for (const l of memoryDebugLogs) {
+            lines.push(
+              `${l.ts} [${l.layer}] ${l.event}: ${l.detail}`
+            );
+          }
+        }
+
+        return {
+          ok: true,
+          permissionsOk: permCheck.ok,
+          missingOrigins: permCheck.missingOrigins,
+          logs: reportObj.logs,
+          reportJson: reportObj,
+          reportText: lines.join("\n"),
+        };
+      })()
         .then((res) => sendResponse(res))
         .catch((err) =>
           sendResponse({ ok: false, error: err?.message || String(err) })

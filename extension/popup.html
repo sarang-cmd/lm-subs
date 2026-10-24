@@ -12,13 +12,26 @@
         <span id="brand-icon-slot"></span>
         <div>
           <h1 class="brand-title">Subtitles for NotebookLM</h1>
-          <p class="brand-sub">Audio-only BYOK captions · v0.1.1</p>
+          <p class="brand-sub">Audio-only BYOK captions · v0.1.2</p>
         </div>
       </div>
       <label class="switch" title="Enable automatic subtitles on NotebookLM">
         <input id="enabled-toggle" type="checkbox" checked />
       </label>
     </header>
+
+    <section id="permission-warning-card" class="card" style="display: none; border-color: #dc2626">
+      <div class="section-head" style="margin-bottom: 4px">
+        <h2 class="section-title" style="color: #dc2626">Google Media Access Required</h2>
+        <span class="badge badge-err">Withheld</span>
+      </div>
+      <div class="hint" style="margin-top: 0; margin-bottom: 8px">
+        Chrome withheld Google CDN redirect permissions after updating. Grant access so audio extraction can download Video Overview streams.
+      </div>
+      <button id="grant-google-perms-btn" type="button" class="btn btn-primary" style="width: 100%">
+        Grant Google Media Access
+      </button>
+    </section>
 
     <div id="queue-summary" class="queue-pill">
       <span>Failover queue: <strong id="queue-summary-text">None configured</strong></span>
@@ -90,6 +103,18 @@
       </div>
       <div id="last-status-title" style="font-weight: 600; font-size: 12.5px"></div>
       <div id="last-status-meta" class="hint"></div>
+    </section>
+
+    <section class="card" style="padding: 9px 12px">
+      <div class="row" style="justify-content: space-between; align-items: center">
+        <label class="switch" title="Show live in-page diagnostic drawer on NotebookLM">
+          <input id="debug-mode-toggle" type="checkbox" />
+          <span style="font-size: 12px; font-weight: 600">Debug Mode</span>
+        </label>
+        <button id="copy-debug-btn" type="button" class="btn btn-sm" title="Copy redacted pipeline report">
+          Copy Debug Report
+        </button>
+      </div>
     </section>
 
     <footer class="footer-bar">

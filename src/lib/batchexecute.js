@@ -1,12 +1,15 @@
 /**
- * Pure parser for Google NotebookLM / Gemini Notebook `batchexecute` wire traffic.
+ * Pure parser for Google NotebookLM / Gemini Notebook `batchexecute` wire traffic
+ * and SSR `AF_initDataCallback` hydration scripts.
  *
  * Supports:
  * - Outgoing `f.req` form-urlencoded request bodies (`CREATE_STUDIO` / `R7cb6c`)
  * - Incoming `)]}'` anti-XSSI framed `wrb.fr` response bodies (`CREATE_STUDIO` + `POLL_STUDIO` / `gArtLc`)
+ * - Inline Google Boq `AF_initDataCallback({..., data: [...]})` SSR hydration blocks on page refresh
  * - RPC-ID-agnostic structural fallback so rotated 6-character Google RPC IDs
- *   still resolve Studio Video Overview rows cleanly.
- * - Trusted Google CDN URL validation & FIFE media token matching.
+ *   still resolve Studio Video Overview rows cleanly
+ * - Trusted Google CDN URL validation & FIFE media token / variant derivation
+ *   (including live `=mm,22`, `=m140`, `=m18`, `=m22`, `=m22-dv`, and `rd-notebooklm` forms).
  */
 
 import {
@@ -20,6 +23,8 @@ const UUID_RE =
 
 const FIFE_NOTEBOOKLM_TOKEN_RE =
   /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
+
+const FIFE_SUFFIX_RE = /=[A-Za-z0-9_,.-]+$/;
 
 export function isNotebookLmHost(hostname) {
   if (typeof hostname !== "string" || !hostname) return false;
@@ -55,8 +60,53 @@ export function isTrustedGoogleMediaUrl(rawUrl) {
 }
 
 /**
+ * Returns true if a Google FIFE URL is a resized image/motion thumbnail (`=s512...`, `=w1280...`)
+ * or a streaming manifest (`=mm,hls`, `=mm,dash`, `.m3u8`, `.mpd`) rather than a full audio/video file.
+ */
+export function isThumbnailOrManifestUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return false;
+  if (/\.(?:m3u8|mpd|jpe?g|png|webp|gif|svg)(?:$|\?)/i.test(rawUrl)) {
+    return true;
+  }
+  const suffixMatch = rawUrl.match(FIFE_SUFFIX_RE);
+  if (!suffixMatch) return false;
+  const suffix = suffixMatch[0].slice(1).toLowerCase();
+  // `s512`, `s512-mm,22`, `w2752-d-h1536`, `mm,hls`, `mm,dash`, `mm,22` (card preview redirector)
+  if (/^(?:s\d+|w\d+|h\d+|c\b|p\b)/.test(suffix)) return true;
+  if (/(?:^|-)s\d+(?:-|$)/.test(suffix)) return true;
+  if (/^mm,(?:hls|dash)$/i.test(suffix)) return true;
+  return false;
+}
+
+/**
+ * Formats a media URL safely for diagnostic logs (shortens long signed capability tokens).
+ */
+export function summarizeMediaUrlForDebug(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return "(empty)";
+  if (rawUrl.startsWith("blob:")) return rawUrl.slice(0, 48);
+  try {
+    const u = new URL(rawUrl);
+    const suffixMatch = u.pathname.match(FIFE_SUFFIX_RE);
+    const suffix = suffixMatch ? suffixMatch[0] : "";
+    const tokenMatch = u.pathname.match(FIFE_NOTEBOOKLM_TOKEN_RE);
+    if (tokenMatch) {
+      const tok = tokenMatch[1];
+      const shortTok =
+        tok.length > 14 ? `${tok.slice(0, 8)}…${tok.slice(-4)}` : tok;
+      const prefix = u.pathname.includes("/rd-notebooklm/")
+        ? "/rd-notebooklm/"
+        : "/notebooklm/";
+      return `${u.origin}${prefix}${shortTok}${suffix}`;
+    }
+    return `${u.origin}${u.pathname.slice(0, 36)}${suffix}`;
+  } catch {
+    return String(rawUrl).slice(0, 60);
+  }
+}
+
+/**
  * Extracts a stable identifier from a NotebookLM / Google FIFE media URL so
- * `<video src="...=m22">` in the DOM matches `...=m22-dv` from `gArtLc`.
+ * `<video src="...=m22">` or `...=mm,22` matches `...=m22-dv` from `gArtLc`.
  */
 export function extractMediaToken(rawUrl) {
   if (typeof rawUrl !== "string" || !rawUrl) return null;
@@ -69,7 +119,7 @@ export function extractMediaToken(rawUrl) {
     if (u.protocol === "blob:") return null;
     const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
     if (idParam) return idParam;
-    const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
+    const cleanPath = u.pathname.replace(FIFE_SUFFIX_RE, "");
     return `${u.hostname}${cleanPath}`;
   } catch {
     return null;
@@ -77,9 +127,9 @@ export function extractMediaToken(rawUrl) {
 }
 
 /**
- * Given a Google FIFE NotebookLM video URL (`.../notebooklm/<token>=m22-dv`),
- * returns ordered candidate URLs preferring direct streaming variants (`=m140`,
- * `=m18`, `=m22`) before attachment-redirect variants (`=m140-dv`, `=m22-dv`).
+ * Given a Google FIFE NotebookLM URL (`.../notebooklm/<token>=m22-dv`, `=mm,22`, `=m22`, etc.),
+ * returns ordered candidate URLs preferring compact AAC audio (`=m140`) and direct MP4
+ * streams (`=m18`, `=m22`) before attachment-redirect variants (`=m140-dv`, `=m22-dv`).
  */
 export function deriveGoogleMediaVariants(mediaUrl) {
   if (typeof mediaUrl !== "string" || !mediaUrl) return [];
@@ -88,13 +138,12 @@ export function deriveGoogleMediaVariants(mediaUrl) {
     if (u && !out.includes(u)) out.push(u);
   };
 
-  if (
-    isTrustedGoogleMediaUrl(mediaUrl) &&
-    FIFE_NOTEBOOKLM_TOKEN_RE.test(mediaUrl)
-  ) {
-    const base = mediaUrl.replace(/=(?:m\d+(?:-dv)?|mm,[a-z]+)$/i, "");
-    if (base !== mediaUrl) {
-      // Direct streaming variants avoid cross-origin 302 download-attachment redirects
+  const isTrusted = isTrustedGoogleMediaUrl(mediaUrl);
+  const tokenMatch = isTrusted ? mediaUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE) : null;
+
+  if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/")) {
+    const base = mediaUrl.replace(FIFE_SUFFIX_RE, "");
+    if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
       pushUnique(`${base}=m140`);
       pushUnique(`${base}=m18`);
       pushUnique(`${base}=m22`);
@@ -102,7 +151,25 @@ export function deriveGoogleMediaVariants(mediaUrl) {
       pushUnique(`${base}=m22-dv`);
     }
   }
-  pushUnique(mediaUrl);
+
+  if (!isThumbnailOrManifestUrl(mediaUrl)) {
+    pushUnique(mediaUrl);
+  }
+
+  // Same-site `.google.com` FIFE fallback in case third-party `.googleusercontent.com`
+  // cookies are partitioned by the browser.
+  if (
+    isTrusted &&
+    tokenMatch &&
+    !mediaUrl.includes("/rd-notebooklm/") &&
+    mediaUrl.includes("googleusercontent.com/notebooklm/")
+  ) {
+    const token = tokenMatch[1];
+    pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
+    pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
+    pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
+  }
+
   return out;
 }
 
@@ -221,7 +288,8 @@ export function parseBatchExecuteRequest(body, rpcOverrides = {}) {
 }
 
 /**
- * Extracts the best MP4 URLs from a Studio Video Overview row (`row[8]`).
+ * Extracts the best audio/video MP4 URLs from a Studio Video Overview row (`row[8]`).
+ * Aligned with `ExplainerVideoArtifact` & `CinematicVideo` wire shapes on `notebook.google.com`.
  */
 export function extractVideoMetadataFromRow(row) {
   if (!Array.isArray(row)) return null;
@@ -244,15 +312,32 @@ export function extractVideoMetadataFromRow(row) {
   const videoBlock = row[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
   let mediaUrl = null;
   let progressiveUrl = null;
+  let directAudioUrl = null;
   let language = null;
   let durationSeconds = null;
-  const discoveredMp4Urls = [];
+  const discoveredStreamUrls = [];
+
+  const pushStreamUrl = (u) => {
+    if (
+      typeof u === "string" &&
+      isTrustedGoogleMediaUrl(u) &&
+      !isThumbnailOrManifestUrl(u) &&
+      !discoveredStreamUrls.includes(u)
+    ) {
+      discoveredStreamUrls.push(u);
+    }
+  };
 
   if (Array.isArray(videoBlock)) {
     const progCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
     if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
-      progressiveUrl = progCandidate;
-      discoveredMp4Urls.push(progCandidate);
+      if (!isThumbnailOrManifestUrl(progCandidate)) {
+        progressiveUrl = progCandidate;
+        pushStreamUrl(progCandidate);
+      } else if (!progressiveUrl) {
+        // Still keep token seed if needed
+        progressiveUrl = progCandidate;
+      }
     }
 
     const genOpts = videoBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
@@ -262,22 +347,33 @@ export function extractVideoMetadataFromRow(row) {
 
     const dlCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
     if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
-      mediaUrl = dlCandidate;
-      discoveredMp4Urls.push(dlCandidate);
+      if (!isThumbnailOrManifestUrl(dlCandidate)) {
+        mediaUrl = dlCandidate;
+        pushStreamUrl(dlCandidate);
+      }
     }
 
-    const mediaList = videoBlock[BATCHEXECUTE.VIDEO_META_POS.MEDIA_LIST];
-    if (Array.isArray(mediaList)) {
-      let fallbackMp4 = null;
-      for (const entry of mediaList) {
+    // Scan ALL nested media-list arrays inside `row[8]` (matches `ArtifactRow.video_url`
+    // in `notebooklm-py` so both Explainer and Cinematic Video Overview rows resolve).
+    let fallbackMp4 = null;
+    let fallbackAnyTrusted = null;
+
+    for (const subBlock of videoBlock) {
+      if (!Array.isArray(subBlock)) continue;
+      for (const entry of subBlock) {
         if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
         const url = entry[0];
         const kind = entry[1];
-        const mime = entry[2];
+        const mime = typeof entry[2] === "string" ? entry[2].toLowerCase() : "";
         if (!isTrustedGoogleMediaUrl(url)) continue;
 
-        if (mime === "video/mp4") {
-          if (!discoveredMp4Urls.includes(url)) discoveredMp4Urls.push(url);
+        if (!fallbackAnyTrusted) fallbackAnyTrusted = url;
+
+        if (mime === "audio/mp4" || mime === "audio/mpeg" || mime === "audio/webm") {
+          if (!directAudioUrl) directAudioUrl = url;
+          pushStreamUrl(url);
+        } else if (mime === "video/mp4" || (!mime && !isThumbnailOrManifestUrl(url))) {
+          pushStreamUrl(url);
           if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
             progressiveUrl = url;
           }
@@ -288,13 +384,16 @@ export function extractVideoMetadataFromRow(row) {
           }
         }
       }
-      if (!mediaUrl && fallbackMp4) {
-        mediaUrl = fallbackMp4;
-      }
     }
 
+    if (!mediaUrl && fallbackMp4) {
+      mediaUrl = fallbackMp4;
+    }
     if (!mediaUrl && progressiveUrl) {
       mediaUrl = progressiveUrl;
+    }
+    if (!mediaUrl && fallbackAnyTrusted) {
+      mediaUrl = fallbackAnyTrusted;
     }
 
     const durTuple = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DURATION];
@@ -311,10 +410,21 @@ export function extractVideoMetadataFromRow(row) {
     Array.isArray(row[BATCHEXECUTE.ROW_POS.SOURCES]);
   if (!looksLikeArtifactRow) return null;
 
-  const primarySeed = progressiveUrl || mediaUrl;
-  const variants = primarySeed ? deriveGoogleMediaVariants(primarySeed) : [];
-  for (const extra of discoveredMp4Urls) {
-    if (!variants.includes(extra)) variants.push(extra);
+  const primarySeed = directAudioUrl || progressiveUrl || mediaUrl;
+  const variants = [];
+  const pushVariant = (u) => {
+    if (u && !variants.includes(u)) variants.push(u);
+  };
+
+  if (directAudioUrl) pushVariant(directAudioUrl);
+  if (primarySeed) {
+    for (const v of deriveGoogleMediaVariants(primarySeed)) pushVariant(v);
+  }
+  if (mediaUrl && mediaUrl !== primarySeed) {
+    for (const v of deriveGoogleMediaVariants(mediaUrl)) pushVariant(v);
+  }
+  for (const extra of discoveredStreamUrls) {
+    pushVariant(extra);
   }
 
   return {
@@ -326,14 +436,15 @@ export function extractVideoMetadataFromRow(row) {
     language,
     mediaUrl,
     progressiveUrl: progressiveUrl || mediaUrl,
+    directAudioUrl,
     mediaVariants: variants,
-    mediaToken: extractMediaToken(mediaUrl || progressiveUrl || ""),
+    mediaToken: extractMediaToken(mediaUrl || progressiveUrl || directAudioUrl || ""),
     durationSeconds,
   };
 }
 
 function collectVideoRowsFromPayload(node, out, seenIds, depth = 0) {
-  if (!Array.isArray(node) || depth > 5) return;
+  if (!Array.isArray(node) || depth > 7) return;
 
   const maybeVideo = extractVideoMetadataFromRow(node);
   if (maybeVideo) {
@@ -348,6 +459,23 @@ function collectVideoRowsFromPayload(node, out, seenIds, depth = 0) {
     if (Array.isArray(child)) {
       collectVideoRowsFromPayload(child, out, seenIds, depth + 1);
     }
+  }
+}
+
+/**
+ * Extracts RPC IDs mentioned in a `batchexecute` URL query (`?rpcids=gArtLc,wXbhsf`).
+ */
+export function extractRpcIdsFromUrl(url) {
+  if (typeof url !== "string" || !url) return [];
+  try {
+    const u = new URL(url, "https://notebook.google.com");
+    const raw = u.searchParams.get("rpcids") || "";
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
   }
 }
 
@@ -413,6 +541,79 @@ export function parseBatchExecuteResponse(responseText, rpcOverrides = {}) {
             : rpcId === pollRpcId
               ? "poll"
               : "structural";
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Extracts balanced JSON array literals passed as `data: [...]` inside Google Boq
+ * `AF_initDataCallback({...})` SSR hydration `<script>` blocks.
+ * Ensures existing Video Overviews are discovered immediately on page refresh (`Ctrl+R`)
+ * even when NotebookLM hydrates Studio state without firing an XHR `gArtLc` call.
+ */
+function extractBalancedBracketJson(text, openBracketIndex) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = openBracketIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "[") {
+      depth++;
+    } else if (ch === "]") {
+      depth--;
+      if (depth === 0) {
+        return text.slice(openBracketIndex, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+export function parseAfInitDataPayloads(scriptTexts = []) {
+  const results = [];
+  const seenIds = new Set();
+
+  for (const scriptText of scriptTexts) {
+    if (
+      typeof scriptText !== "string" ||
+      !scriptText.includes("AF_initDataCallback")
+    ) {
+      continue;
+    }
+
+    const dataKeyRe = /\bdata\s*:\s*\[/g;
+    let match;
+    while ((match = dataKeyRe.exec(scriptText)) !== null) {
+      const bracketIdx = scriptText.indexOf("[", match.index);
+      if (bracketIdx < 0) continue;
+      const jsonSlice = extractBalancedBracketJson(scriptText, bracketIdx);
+      if (!jsonSlice) continue;
+      try {
+        const parsed = JSON.parse(jsonSlice);
+        const before = results.length;
+        collectVideoRowsFromPayload(parsed, results, seenIds, 0);
+        for (let i = before; i < results.length; i++) {
+          results[i].rpcId = "AF_initDataCallback";
+          results[i].origin = "ssr";
+        }
+      } catch {
+        // Ignore non-JSON script literals
       }
     }
   }

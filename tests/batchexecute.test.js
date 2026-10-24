@@ -5,7 +5,9 @@ import {
   extractMediaToken,
   isBatchExecuteUrl,
   isNotebookLmHost,
+  isThumbnailOrManifestUrl,
   isTrustedGoogleMediaUrl,
+  parseAfInitDataPayloads,
   parseBatchExecuteRequest,
   parseBatchExecuteResponse,
 } from "../src/lib/batchexecute.js";
@@ -82,7 +84,23 @@ test("extractMediaToken and deriveGoogleMediaVariants prefer direct streaming UR
     `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m22`,
     `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m140-dv`,
     `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m22-dv`,
+    `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m140`,
+    `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m18`,
+    `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m22`,
   ]);
+
+  // Live regression (`boq_labs-tailwind-frontend_20261022.12_p0`): `=mm,22` and `=s512-mm,22`
+  // must strip cleanly to the base token and never place thumbnail URLs ahead of `=m140`/`=m18`
+  const mmVariants = deriveGoogleMediaVariants(
+    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=mm,22`
+  );
+  assert.equal(
+    mmVariants[0],
+    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m140`
+  );
+  assert.equal(isThumbnailOrManifestUrl(`https://lh3.google.com/rd-notebooklm/${SAMPLE_TOKEN}=s512-mm,22`), true);
+  assert.equal(isThumbnailOrManifestUrl(`https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=mm,hls`), true);
+  assert.equal(isThumbnailOrManifestUrl(SAMPLE_PROG_URL), false);
 });
 
 test("parseBatchExecuteRequest detects Video Overview CREATE_STUDIO (R7cb6c) and ignores Audio Overview", () => {
@@ -168,4 +186,38 @@ test("parseBatchExecuteResponse extracts ready Video Overviews from gArtLc and s
   const rotatedArtifacts = parseBatchExecuteResponse(rotatedRaw);
   assert.equal(rotatedArtifacts.length, 1);
   assert.equal(rotatedArtifacts[0].origin, "structural");
+});
+
+test("parseAfInitDataPayloads discovers SSR-hydrated Video Overviews on tab refresh (zero XHR needed)", () => {
+  const ssrVideoRow = [
+    "93731fdd-7bbd-4b5a-9d79-4873d75b4f1d",
+    "Mass Spectrometry Overview",
+    3,
+    [[["src-1"]]],
+    3,
+    null,
+    null,
+    null,
+    [
+      null,
+      `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=mm,22`,
+      [[["src-1"]], "en", ""],
+      SAMPLE_DL_URL,
+      [[SAMPLE_DL_URL, 4, "video/mp4"]],
+      [212, 0],
+    ],
+  ];
+
+  const scriptHtml = `AF_initDataCallback({key: 'ds:4', hash: '9', data:${JSON.stringify(
+    [[ssrVideoRow]]
+  )}, sideChannel: {}});`;
+
+  const found = parseAfInitDataPayloads([scriptHtml]);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].artifactId, "93731fdd-7bbd-4b5a-9d79-4873d75b4f1d");
+  assert.equal(found[0].origin, "ssr");
+  assert.equal(
+    found[0].mediaVariants[0],
+    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m140`
+  );
 });

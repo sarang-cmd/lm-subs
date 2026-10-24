@@ -92,6 +92,7 @@ var DOM_SELECTORS = Object.freeze({
   OVERLAY_HOST_ID: "nlm-subtitles-player-root",
   OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
   TOAST_HOST_ID: "nlm-subtitles-toast-root",
+  DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
   TRACK_LABEL: "NotebookLM Auto-Subtitles"
 });
 var PAGE_MESSAGE = Object.freeze({
@@ -99,6 +100,9 @@ var PAGE_MESSAGE = Object.freeze({
   BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
   BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
   SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+  REQUEST_PAGE_STATE: "NOTEBOOKLM_REQUEST_PAGE_STATE",
+  PAGE_STATE_SNAPSHOT: "NOTEBOOKLM_PAGE_STATE_SNAPSHOT",
+  PAGE_DEBUG_EVENT: "NOTEBOOKLM_PAGE_DEBUG_EVENT",
   EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
   EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
 });
@@ -111,7 +115,10 @@ var RUNTIME_MESSAGE = Object.freeze({
   SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
   SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
   GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
-  TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO"
+  TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
+  APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
+  GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
+  CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
 });
 
 // src/lib/audio-extract.js
@@ -263,15 +270,71 @@ function validateMediaPayload(inputBuffer, contentType = "") {
       "Received HTML instead of media stream. Refresh your NotebookLM tab so Google's media session cookie renews."
     );
   }
+  if (ct.startsWith("image/")) {
+    throw new Error(`Received thumbnail image (${ct}) instead of audio/video stream.`);
+  }
+  if (ct.includes("mpegurl") || ct.includes("dash+xml") || ct.includes("application/xml") || ct.includes("text/xml") || ct.includes("application/json") || ct.startsWith("text/plain")) {
+    throw new Error(`Received streaming manifest/text (${ct}) instead of binary media.`);
+  }
+  if (bytes.byteLength >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) {
+    throw new Error("Received JPEG thumbnail instead of audio/video stream.");
+  }
+  if (bytes.byteLength >= 4 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71) {
+    throw new Error("Received PNG image instead of audio/video stream.");
+  }
+  if (bytes.byteLength >= 12 && fourCC(bytes, 0) === "RIFF" && fourCC(bytes, 8) === "WEBP") {
+    throw new Error("Received WebP thumbnail instead of audio/video stream.");
+  }
   const headAscii = String.fromCharCode(
-    ...bytes.subarray(0, Math.min(32, bytes.byteLength))
+    ...bytes.subarray(0, Math.min(48, bytes.byteLength))
   ).trimStart().toLowerCase();
   if (headAscii.startsWith("<!doctype") || headAscii.startsWith("<html")) {
     throw new Error(
       "Received an HTML document instead of video/audio bytes. Refresh NotebookLM and try again."
     );
   }
+  if (headAscii.startsWith("#extm3u") || headAscii.startsWith("<?xml") || headAscii.startsWith("<mpd")) {
+    throw new Error("Received HLS/DASH manifest text instead of binary audio/video.");
+  }
   return bytes;
+}
+function inspectMp4Tracks(inputBuffer) {
+  const bytes = inputBuffer instanceof Uint8Array ? inputBuffer : new Uint8Array(inputBuffer || 0);
+  if (bytes.byteLength < 16) {
+    return { isMp4: false, hasVideo: false, hasAudio: false, isFragmented: false };
+  }
+  const topBoxes = readIsoBoxes(bytes, 0, bytes.byteLength);
+  const ftypBox = topBoxes.find((b) => b.type === "ftyp");
+  const moovBox = topBoxes.find((b) => b.type === "moov");
+  const isFragmented = topBoxes.some((b) => b.type === "moof");
+  if (!ftypBox && !moovBox) {
+    return { isMp4: false, hasVideo: false, hasAudio: false, isFragmented: false };
+  }
+  let hasVideo = false;
+  let hasAudio = false;
+  let hasMvex = false;
+  if (moovBox) {
+    const moovChildren = readIsoBoxes(bytes, moovBox.dataOffset, moovBox.endOffset);
+    hasMvex = moovChildren.some((b) => b.type === "mvex");
+    for (const child of moovChildren) {
+      if (child.type !== "trak") continue;
+      const trakChildren = readIsoBoxes(bytes, child.dataOffset, child.endOffset);
+      const mdia = trakChildren.find((b) => b.type === "mdia");
+      if (!mdia) continue;
+      const mdiaChildren = readIsoBoxes(bytes, mdia.dataOffset, mdia.endOffset);
+      const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+      if (!hdlr || hdlr.dataOffset + 12 > hdlr.endOffset) continue;
+      const subtype = fourCC(bytes, hdlr.dataOffset + 8);
+      if (subtype === "vide") hasVideo = true;
+      if (subtype === "soun") hasAudio = true;
+    }
+  }
+  return {
+    isMp4: true,
+    hasVideo,
+    hasAudio,
+    isFragmented: isFragmented || hasMvex
+  };
 }
 function extractAudioTrackFromMp4(inputBuffer) {
   const bytes = inputBuffer instanceof Uint8Array ? inputBuffer : new Uint8Array(inputBuffer || 0);
@@ -464,6 +527,7 @@ function createTestSpeechCadenceWav(durationSec = 1.1, sampleRate = 16e3) {
 
 // src/lib/batchexecute.js
 var FIFE_NOTEBOOKLM_TOKEN_RE = /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
+var FIFE_SUFFIX_RE = /=[A-Za-z0-9_,.-]+$/;
 function isTrustedGoogleMediaUrl(rawUrl) {
   if (typeof rawUrl !== "string" || !rawUrl) return false;
   let parsed;
@@ -482,6 +546,38 @@ function isTrustedGoogleMediaUrl(rawUrl) {
     return host === bare || host.endsWith(suffix);
   });
 }
+function isThumbnailOrManifestUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return false;
+  if (/\.(?:m3u8|mpd|jpe?g|png|webp|gif|svg)(?:$|\?)/i.test(rawUrl)) {
+    return true;
+  }
+  const suffixMatch = rawUrl.match(FIFE_SUFFIX_RE);
+  if (!suffixMatch) return false;
+  const suffix = suffixMatch[0].slice(1).toLowerCase();
+  if (/^(?:s\d+|w\d+|h\d+|c\b|p\b)/.test(suffix)) return true;
+  if (/(?:^|-)s\d+(?:-|$)/.test(suffix)) return true;
+  if (/^mm,(?:hls|dash)$/i.test(suffix)) return true;
+  return false;
+}
+function summarizeMediaUrlForDebug(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return "(empty)";
+  if (rawUrl.startsWith("blob:")) return rawUrl.slice(0, 48);
+  try {
+    const u = new URL(rawUrl);
+    const suffixMatch = u.pathname.match(FIFE_SUFFIX_RE);
+    const suffix = suffixMatch ? suffixMatch[0] : "";
+    const tokenMatch = u.pathname.match(FIFE_NOTEBOOKLM_TOKEN_RE);
+    if (tokenMatch) {
+      const tok = tokenMatch[1];
+      const shortTok = tok.length > 14 ? `${tok.slice(0, 8)}\u2026${tok.slice(-4)}` : tok;
+      const prefix = u.pathname.includes("/rd-notebooklm/") ? "/rd-notebooklm/" : "/notebooklm/";
+      return `${u.origin}${prefix}${shortTok}${suffix}`;
+    }
+    return `${u.origin}${u.pathname.slice(0, 36)}${suffix}`;
+  } catch {
+    return String(rawUrl).slice(0, 60);
+  }
+}
 function extractMediaToken(rawUrl) {
   if (typeof rawUrl !== "string" || !rawUrl) return null;
   const fifeMatch = rawUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE);
@@ -493,7 +589,7 @@ function extractMediaToken(rawUrl) {
     if (u.protocol === "blob:") return null;
     const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
     if (idParam) return idParam;
-    const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
+    const cleanPath = u.pathname.replace(FIFE_SUFFIX_RE, "");
     return `${u.hostname}${cleanPath}`;
   } catch {
     return null;
@@ -505,9 +601,11 @@ function deriveGoogleMediaVariants(mediaUrl) {
   const pushUnique = (u) => {
     if (u && !out.includes(u)) out.push(u);
   };
-  if (isTrustedGoogleMediaUrl(mediaUrl) && FIFE_NOTEBOOKLM_TOKEN_RE.test(mediaUrl)) {
-    const base = mediaUrl.replace(/=(?:m\d+(?:-dv)?|mm,[a-z]+)$/i, "");
-    if (base !== mediaUrl) {
+  const isTrusted = isTrustedGoogleMediaUrl(mediaUrl);
+  const tokenMatch = isTrusted ? mediaUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE) : null;
+  if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/")) {
+    const base = mediaUrl.replace(FIFE_SUFFIX_RE, "");
+    if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
       pushUnique(`${base}=m140`);
       pushUnique(`${base}=m18`);
       pushUnique(`${base}=m22`);
@@ -515,7 +613,15 @@ function deriveGoogleMediaVariants(mediaUrl) {
       pushUnique(`${base}=m22-dv`);
     }
   }
-  pushUnique(mediaUrl);
+  if (!isThumbnailOrManifestUrl(mediaUrl)) {
+    pushUnique(mediaUrl);
+  }
+  if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/") && mediaUrl.includes("googleusercontent.com/notebooklm/")) {
+    const token = tokenMatch[1];
+    pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
+    pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
+    pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
+  }
   return out;
 }
 
@@ -2071,12 +2177,15 @@ var STORAGE_KEYS = Object.freeze({
   API_KEYS: "apiKeys",
   SUBTITLE_CACHE: "subtitleCache",
   HISTORY: "subtitleHistory",
-  LAST_STATUS: "lastStatus"
+  LAST_STATUS: "lastStatus",
+  DEBUG_LOGS: "debugLogs"
 });
 var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
+var MAX_DEBUG_LOGS = 120;
 var DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
+  debugMode: false,
   autoOnGenerate: true,
   autoOnExistingVideos: true,
   primaryProvider: "groq",
@@ -2147,6 +2256,7 @@ async function getSettings(storageArea) {
   }
   return {
     enabled: typeof saved.enabled === "boolean" ? saved.enabled : DEFAULT_SETTINGS.enabled,
+    debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
     autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
     autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
     primaryProvider,
@@ -2184,6 +2294,16 @@ async function getSecretApiKeysMap(storageArea) {
 async function getApiKey(providerId, storageArea) {
   const map = await getSecretApiKeysMap(storageArea);
   return map[providerId] || "";
+}
+async function getSavedKeyPresenceMap(storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.API_KEYS);
+  const map = raw?.[STORAGE_KEYS.API_KEYS] || {};
+  const presence = {};
+  for (const id of DEFAULT_QUEUE_ORDER) {
+    presence[id] = typeof map[id] === "string" && map[id].trim().length > 0;
+  }
+  return presence;
 }
 async function getSubtitleCacheList(storageArea) {
   const store = resolveStorage(storageArea);
@@ -2263,6 +2383,11 @@ async function getHistory(storageArea) {
   const list = raw?.[STORAGE_KEYS.HISTORY];
   return Array.isArray(list) ? list : [];
 }
+async function getLastStatus(storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.LAST_STATUS);
+  return raw?.[STORAGE_KEYS.LAST_STATUS] || null;
+}
 async function setLastStatus(status, storageArea) {
   const store = resolveStorage(storageArea);
   const next = {
@@ -2271,6 +2396,37 @@ async function setLastStatus(status, storageArea) {
   };
   await store.set({ [STORAGE_KEYS.LAST_STATUS]: next });
   return next;
+}
+function sanitizeDebugMessage(text) {
+  if (typeof text !== "string") return String(text ?? "");
+  return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
+}
+async function getDebugLogs(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.DEBUG_LOGS);
+    const list = raw?.[STORAGE_KEYS.DEBUG_LOGS];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+async function saveDebugLogs(logs, storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const trimmed = Array.isArray(logs) ? logs.slice(-MAX_DEBUG_LOGS) : [];
+    await store.set({ [STORAGE_KEYS.DEBUG_LOGS]: trimmed });
+    return trimmed;
+  } catch {
+    return [];
+  }
+}
+async function clearDebugLogs(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    await store.set({ [STORAGE_KEYS.DEBUG_LOGS]: [] });
+  } catch {
+  }
 }
 
 // src/background/service-worker.js
@@ -2311,6 +2467,61 @@ function createRuntimeDispatcher({
 } = {}) {
   const inFlightPromises = /* @__PURE__ */ new Map();
   const stagedAudioJobs = /* @__PURE__ */ new Map();
+  const memoryDebugLogs = [];
+  let debugLogsHydrated = false;
+  const REQUIRED_GOOGLE_ORIGINS = [
+    "https://*.googleusercontent.com/*",
+    "https://*.google.com/*",
+    "https://*.googlevideo.com/*"
+  ];
+  async function ensureDebugLogsHydrated() {
+    if (debugLogsHydrated) return;
+    debugLogsHydrated = true;
+    const saved = await getDebugLogs(storageArea);
+    for (const item of saved) {
+      memoryDebugLogs.push(item);
+    }
+    while (memoryDebugLogs.length > MAX_DEBUG_LOGS) {
+      memoryDebugLogs.shift();
+    }
+  }
+  async function appendDebugEntry(entry, extraSecrets = []) {
+    await ensureDebugLogsHydrated();
+    const safeDetail = redactSecrets(
+      sanitizeDebugMessage(entry?.detail || ""),
+      extraSecrets
+    );
+    const normalized = {
+      ts: entry?.ts || (/* @__PURE__ */ new Date()).toISOString(),
+      layer: String(entry?.layer || "SW").slice(0, 12),
+      event: String(entry?.event || "log").slice(0, 48),
+      detail: safeDetail,
+      level: entry?.level || "info"
+    };
+    memoryDebugLogs.push(normalized);
+    while (memoryDebugLogs.length > MAX_DEBUG_LOGS) {
+      memoryDebugLogs.shift();
+    }
+    await saveDebugLogs(memoryDebugLogs, storageArea);
+    return normalized;
+  }
+  async function checkGoogleHostPermissions() {
+    if (!permissionsApi?.contains) {
+      return { ok: true, missingOrigins: [] };
+    }
+    const missingOrigins = [];
+    for (const origin of REQUIRED_GOOGLE_ORIGINS) {
+      try {
+        const has = await permissionsApi.contains({ origins: [origin] });
+        if (!has) missingOrigins.push(origin);
+      } catch {
+      }
+    }
+    return {
+      ok: missingOrigins.length === 0,
+      missingOrigins
+    };
+  }
   function sweepExpiredStagedAudio() {
     const now = Date.now();
     for (const [id, record] of stagedAudioJobs.entries()) {
@@ -2403,7 +2614,7 @@ function createRuntimeDispatcher({
       artifact.mediaUrl
     ].filter(Boolean);
     const allCandidateUrls = [...new Set(rawCandidates)].filter(
-      (u) => isTrustedGoogleMediaUrl(u)
+      (u) => isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u)
     );
     if (allCandidateUrls.length === 0) {
       if (String(artifact.mediaUrl || "").startsWith("blob:")) {
@@ -2415,6 +2626,13 @@ function createRuntimeDispatcher({
         "Untrusted or missing NotebookLM media URL. Refusing network download."
       );
     }
+    await appendDebugEntry({
+      layer: "SW",
+      event: "media.candidates",
+      detail: `Trying ${allCandidateUrls.length} Google CDN URL(s); first=${summarizeMediaUrlForDebug(
+        allCandidateUrls[0]
+      )}`
+    });
     let downloadedBytes = null;
     let downloadedContentType = "";
     let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
@@ -2424,6 +2642,7 @@ function createRuntimeDispatcher({
         hostLabel = new URL(candidateUrl).hostname;
       } catch {
       }
+      let skipCandidateVariant = false;
       for (const credentialsMode of ["include", "omit"]) {
         try {
           const res = await fetchImpl(candidateUrl, {
@@ -2432,6 +2651,11 @@ function createRuntimeDispatcher({
           });
           if (!res.ok) {
             lastDownloadErr = `Media CDN (${hostLabel}) returned HTTP ${res.status}`;
+            await appendDebugEntry({
+              layer: "SW",
+              event: "media.http_status",
+              detail: `${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}] -> HTTP ${res.status}`
+            });
             if (res.status === 404 || res.status === 400) {
               break;
             }
@@ -2439,16 +2663,52 @@ function createRuntimeDispatcher({
           }
           const ct = res.headers?.get?.("content-type") || "";
           const buf = new Uint8Array(await res.arrayBuffer());
-          downloadedBytes = validateMediaPayload(buf, ct);
+          const validated = validateMediaPayload(buf, ct);
+          const trackInfo = inspectMp4Tracks(validated);
+          if (trackInfo.isMp4 && trackInfo.hasVideo && !trackInfo.hasAudio && !trackInfo.isFragmented) {
+            lastDownloadErr = `Skipped silent video-only preview stream (${summarizeMediaUrlForDebug(
+              candidateUrl
+            )})`;
+            await appendDebugEntry({
+              layer: "SW",
+              event: "media.skip_silent",
+              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks, ${validated.byteLength} B) \u2014 advancing to next stream`
+            });
+            skipCandidateVariant = true;
+            break;
+          }
+          downloadedBytes = validated;
           downloadedContentType = ct.toLowerCase();
+          await appendDebugEntry({
+            layer: "SW",
+            event: "media.downloaded",
+            detail: `Downloaded ${formatMegabytes(validated.byteLength)} (${ct || "binary"}) from ${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}]`,
+            level: "ok"
+          });
           break;
         } catch (err) {
           lastDownloadErr = `Media stream download failed (${hostLabel}): ${err?.message || String(err)}`;
+          await appendDebugEntry({
+            layer: "SW",
+            event: "media.fetch_err",
+            detail: `${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}] -> ${err?.message || String(err)}`
+          });
         }
       }
+      if (skipCandidateVariant) continue;
       if (downloadedBytes) break;
     }
     if (!downloadedBytes) {
+      const permCheck = await checkGoogleHostPermissions();
+      if (!permCheck.ok) {
+        const permErr = new Error(
+          `Chrome withheld Google CDN host permissions (${permCheck.missingOrigins.join(
+            ", "
+          )}). Open the extension popup and click "Grant Google Media Access".`
+        );
+        permErr.missingPermissions = true;
+        throw permErr;
+      }
       throw new Error(lastDownloadErr);
     }
     const originalBytes = downloadedBytes.byteLength;
@@ -2647,6 +2907,13 @@ function createRuntimeDispatcher({
         });
       }
       const language = settings.languageHint && settings.languageHint !== "auto" ? settings.languageHint : artifact.language || null;
+      await appendDebugEntry({
+        layer: "STT",
+        event: "stt.dispatch",
+        detail: `Sending ${audioBundle.chunks.length} audio chunk(s) (${formatMegabytes(
+          audioBundle.extractedBytes
+        )}) to queue [${candidates.map((c) => c.providerId).join(" -> ")}]`
+      });
       const txResult = await transcribeWithQueue({
         chunks: audioBundle.chunks,
         candidates,
@@ -2660,6 +2927,12 @@ function createRuntimeDispatcher({
           `${txResult.providerName} returned 0 subtitle cues for this audio.`
         );
       }
+      await appendDebugEntry({
+        layer: "STT",
+        event: "stt.ok",
+        detail: `${txResult.providerName} (${txResult.model}) returned ${txResult.cues.length} cues in ${txResult.latencyMs} ms`,
+        level: "ok"
+      });
       const savedEntry = await saveCachedSubtitles(
         {
           cacheKey,
@@ -2697,10 +2970,18 @@ function createRuntimeDispatcher({
       return { ok: true, cached: false, entry: savedEntry };
     })().catch(async (err) => {
       const secretsMap = await getSecretApiKeysMap(storageArea).catch(() => ({}));
-      const safeError = redactSecrets(
-        err?.message || String(err),
-        Object.values(secretsMap)
-      );
+      const allSecrets = Object.values(secretsMap);
+      const safeError = redactSecrets(err?.message || String(err), allSecrets);
+      await appendDebugEntry(
+        {
+          layer: "SW",
+          event: "pipeline.error",
+          detail: safeError,
+          level: "error"
+        },
+        allSecrets
+      ).catch(() => {
+      });
       await setLastStatus(
         {
           state: "error",
@@ -2710,7 +2991,11 @@ function createRuntimeDispatcher({
         storageArea
       ).catch(() => {
       });
-      return { ok: false, error: safeError };
+      return {
+        ok: false,
+        error: safeError,
+        missingPermissions: Boolean(err?.missingPermissions)
+      };
     }).finally(() => {
       inFlightPromises.delete(cacheKey);
     });
@@ -2799,6 +3084,100 @@ function createRuntimeDispatcher({
     }
     if (msg.type === RUNTIME_MESSAGE.TEST_PROVIDER) {
       handleTestProvider(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.APPEND_DEBUG_LOG && msg.entry) {
+      getSecretApiKeysMap(storageArea).catch(() => ({})).then(
+        (secretsMap) => appendDebugEntry(msg.entry, Object.values(secretsMap))
+      ).then((saved) => sendResponse({ ok: true, entry: saved })).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS) {
+      memoryDebugLogs.length = 0;
+      clearDebugLogs(storageArea).then(() => sendResponse({ ok: true })).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.GET_DEBUG_REPORT) {
+      (async () => {
+        await ensureDebugLogsHydrated();
+        const [settings, presenceMap, lastStatus, permCheck] = await Promise.all([
+          getSettings(storageArea),
+          getSavedKeyPresenceMap(storageArea),
+          getLastStatus(storageArea),
+          checkGoogleHostPermissions()
+        ]);
+        const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
+        const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version || "0.1.2";
+        const reportObj = {
+          generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          extensionVersion: manifestVersion,
+          permissionsOk: permCheck.ok,
+          missingOrigins: permCheck.missingOrigins,
+          settingsSummary: {
+            enabled: settings.enabled,
+            debugMode: settings.debugMode,
+            autoOnGenerate: settings.autoOnGenerate,
+            autoOnExistingVideos: settings.autoOnExistingVideos,
+            primaryProvider: settings.primaryProvider,
+            configuredProviders,
+            queueOrder: settings.queueOrder.slice(0, 6)
+          },
+          lastStatus,
+          tabContext: msg.tabContext || null,
+          logs: [...memoryDebugLogs]
+        };
+        const lines = [
+          `# Subtitles for NotebookLM \u2014 Diagnostic Report (v${manifestVersion})`,
+          `Generated: ${reportObj.generatedAt}`,
+          `Google CDN Permissions: ${permCheck.ok ? "GRANTED" : `MISSING (${permCheck.missingOrigins.join(", ")})`}`,
+          `Enabled: ${settings.enabled} | Debug Mode: ${settings.debugMode} | Primary: ${settings.primaryProvider}`,
+          `Configured Providers (keys redacted): ${configuredProviders.length > 0 ? configuredProviders.join(", ") : "(none)"}`,
+          `Last Status: ${lastStatus ? `[${lastStatus.state}] ${lastStatus.title || ""} \u2014 ${lastStatus.message || ""}` : "(none)"}`
+        ];
+        if (msg.tabContext) {
+          lines.push(
+            `Tab Snapshot: host=${msg.tabContext.host}${msg.tabContext.pathname || ""} | artifacts=${msg.tabContext.artifactCount} | boundVideos=${msg.tabContext.videoCount}`
+          );
+          if (Array.isArray(msg.tabContext.artifacts) && msg.tabContext.artifacts.length > 0) {
+            for (const a of msg.tabContext.artifacts) {
+              lines.push(
+                `  - Artifact ${a.id} [${a.status}] (${a.origin}) variants=${a.variantCount} ${a.mediaSummary}`
+              );
+            }
+          }
+          if (Array.isArray(msg.tabContext.videos) && msg.tabContext.videos.length > 0) {
+            for (const v of msg.tabContext.videos) {
+              lines.push(
+                `  - <video> overlayMounted=${v.overlayMounted} status=${v.status} cues=${v.cueCount} dur=${v.duration}s src=${v.srcSummary}`
+              );
+            }
+          }
+        }
+        lines.push("", "## Chronological Pipeline Logs");
+        if (memoryDebugLogs.length === 0) {
+          lines.push("(no debug events recorded yet)");
+        } else {
+          for (const l of memoryDebugLogs) {
+            lines.push(
+              `${l.ts} [${l.layer}] ${l.event}: ${l.detail}`
+            );
+          }
+        }
+        return {
+          ok: true,
+          permissionsOk: permCheck.ok,
+          missingOrigins: permCheck.missingOrigins,
+          logs: reportObj.logs,
+          reportJson: reportObj,
+          reportText: lines.join("\n")
+        };
+      })().then((res) => sendResponse(res)).catch(
         (err) => sendResponse({ ok: false, error: err?.message || String(err) })
       );
       return true;

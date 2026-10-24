@@ -91,6 +91,7 @@
     OVERLAY_HOST_ID: "nlm-subtitles-player-root",
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
+    DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
     TRACK_LABEL: "NotebookLM Auto-Subtitles"
   });
   var PAGE_MESSAGE = Object.freeze({
@@ -98,6 +99,9 @@
     BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
     BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
     SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+    REQUEST_PAGE_STATE: "NOTEBOOKLM_REQUEST_PAGE_STATE",
+    PAGE_STATE_SNAPSHOT: "NOTEBOOKLM_PAGE_STATE_SNAPSHOT",
+    PAGE_DEBUG_EVENT: "NOTEBOOKLM_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
     EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
   });
@@ -110,7 +114,10 @@
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
-    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO"
+    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
+    APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
+    GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
   });
 
   // src/lib/providers/registry.js
@@ -345,10 +352,12 @@
     API_KEYS: "apiKeys",
     SUBTITLE_CACHE: "subtitleCache",
     HISTORY: "subtitleHistory",
-    LAST_STATUS: "lastStatus"
+    LAST_STATUS: "lastStatus",
+    DEBUG_LOGS: "debugLogs"
   });
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
+    debugMode: false,
     autoOnGenerate: true,
     autoOnExistingVideos: true,
     primaryProvider: "groq",
@@ -419,6 +428,7 @@
     }
     return {
       enabled: typeof saved.enabled === "boolean" ? saved.enabled : DEFAULT_SETTINGS.enabled,
+      debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
       autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
       autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
       primaryProvider,
@@ -755,6 +765,14 @@ ${blocks.join("\n\n")}
     const rpcCreateInput = document.getElementById("rpc-create-input");
     const rpcPollInput = document.getElementById("rpc-poll-input");
     const saveRpcBtn = document.getElementById("save-rpc-btn");
+    const optDebugMode = document.getElementById("opt-debug-mode");
+    const optPermBadge = document.getElementById("opt-perm-badge");
+    const optGrantPermsBtn = document.getElementById("opt-grant-perms-btn");
+    const optRefreshDebugBtn = document.getElementById("opt-refresh-debug-btn");
+    const optCopyDebugBtn = document.getElementById("opt-copy-debug-btn");
+    const optClearDebugBtn = document.getElementById("opt-clear-debug-btn");
+    const debugLogViewer = document.getElementById("debug-log-viewer");
+    let missingOriginsForOptions = [];
     let [settings, presenceMap, cacheList] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
@@ -768,6 +786,7 @@ ${blocks.join("\n\n")}
     }
     function populateForm() {
       optEnabled.checked = settings.enabled;
+      if (optDebugMode) optDebugMode.checked = Boolean(settings.debugMode);
       optAutoGenerate.checked = settings.autoOnGenerate;
       optAutoExisting.checked = settings.autoOnExistingVideos;
       optShowToast.checked = settings.showToast;
@@ -1063,6 +1082,65 @@ ${blocks.join("\n\n")}
       settings = await saveSettings({ rpcOverrides });
       flashSavedPill();
     });
+    async function refreshDiagnosticsPanel() {
+      if (!debugLogViewer) return;
+      const report = await sendRuntime({
+        type: RUNTIME_MESSAGE.GET_DEBUG_REPORT
+      });
+      if (!report?.ok) {
+        debugLogViewer.textContent = report?.error || "Unable to fetch diagnostic report from Service Worker.";
+        return;
+      }
+      missingOriginsForOptions = report.missingOrigins || [];
+      if (optPermBadge) {
+        if (report.permissionsOk) {
+          optPermBadge.textContent = "Google CDN Perms: OK";
+          optPermBadge.className = "badge badge-saved";
+          if (optGrantPermsBtn) optGrantPermsBtn.style.display = "none";
+        } else {
+          optPermBadge.textContent = "Permissions Withheld";
+          optPermBadge.className = "badge badge-err";
+          if (optGrantPermsBtn) optGrantPermsBtn.style.display = "inline-flex";
+        }
+      }
+      debugLogViewer.textContent = report.reportText || "(empty)";
+    }
+    optDebugMode?.addEventListener("change", async () => {
+      settings = await saveSettings({ debugMode: optDebugMode.checked });
+      flashSavedPill();
+      await refreshDiagnosticsPanel();
+    });
+    optGrantPermsBtn?.addEventListener("click", async () => {
+      if (!chrome.permissions?.request || missingOriginsForOptions.length === 0) return;
+      try {
+        await chrome.permissions.request({ origins: missingOriginsForOptions });
+        await refreshDiagnosticsPanel();
+      } catch {
+      }
+    });
+    optRefreshDebugBtn?.addEventListener("click", () => {
+      refreshDiagnosticsPanel();
+    });
+    optCopyDebugBtn?.addEventListener("click", async () => {
+      const report = await sendRuntime({
+        type: RUNTIME_MESSAGE.GET_DEBUG_REPORT
+      });
+      const text = report?.reportText || "";
+      try {
+        await navigator.clipboard.writeText(text);
+        optCopyDebugBtn.textContent = "Copied!";
+      } catch {
+        optCopyDebugBtn.textContent = "Copy Failed";
+      }
+      setTimeout(() => {
+        optCopyDebugBtn.textContent = "Copy Redacted Debug Report";
+      }, 1600);
+    });
+    optClearDebugBtn?.addEventListener("click", async () => {
+      await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS });
+      await refreshDiagnosticsPanel();
+    });
+    refreshDiagnosticsPanel();
   }
   document.addEventListener("DOMContentLoaded", initOptions);
 })();
