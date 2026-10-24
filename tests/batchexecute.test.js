@@ -69,7 +69,7 @@ test("isTrustedGoogleMediaUrl enforces strict HTTPS Google CDN allowlist (SSRF g
   );
 });
 
-test("extractMediaToken and deriveGoogleMediaVariants prefer direct streaming URLs before -dv redirects", () => {
+test("extractMediaToken and deriveGoogleMediaVariants prioritize all pure-audio =m140 streams before video MP4s", () => {
   assert.equal(extractMediaToken(SAMPLE_PROG_URL), SAMPLE_TOKEN);
   assert.equal(extractMediaToken(SAMPLE_DL_URL), SAMPLE_TOKEN);
   assert.equal(
@@ -80,12 +80,13 @@ test("extractMediaToken and deriveGoogleMediaVariants prefer direct streaming UR
   const variants = deriveGoogleMediaVariants(SAMPLE_DL_URL);
   assert.deepEqual(variants, [
     `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m140`,
-    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m18`,
-    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m22`,
     `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m140-dv`,
-    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m22-dv`,
     `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m140`,
+    `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m140-dv`,
+    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m18`,
     `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m18`,
+    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m22`,
+    `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m22-dv`,
     `https://lh3.google.com/notebooklm/${SAMPLE_TOKEN}=m22`,
   ]);
 

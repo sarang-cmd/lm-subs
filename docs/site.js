@@ -1,5 +1,10 @@
 /**
- * Interactive Landing Page Simulator & Provider Filter (`docs/site.js`).
+ * LM Subs Interactive Web App, Fast-Path Simulator & Neon Cloud Sync Console (`docs/site.js`).
+ *
+ * Uses strictly relative `/api/*` paths so it works identically on:
+ * - Local `npm start` (`http://localhost:4173`)
+ * - Sandboxed live browser previews (`https://4173-*.e2b.app`)
+ * - Vercel Serverless / Fluid Compute (`api/[...route].js`)
  */
 
 (() => {
@@ -7,38 +12,41 @@
     {
       startSec: 0.0,
       endSec: 4.2,
-      slideKicker: "SECTION 01 · CONSENSUS SAFETY",
+      slideKicker: "01 · CONSENSUS SAFETY",
       slideTitle: "Distributed Consensus & Raft",
       text: "Welcome to this NotebookLM Video Overview\non distributed consensus with Raft.",
     },
     {
       startSec: 4.3,
       endSec: 8.8,
-      slideKicker: "SECTION 01 · LEADER ELECTION",
+      slideKicker: "01 · LEADER ELECTION",
       slideTitle: "Term-Numbered Leader Election",
       text: "Every cluster term elects at most one leader\nusing randomized heartbeat timeouts.",
     },
     {
       startSec: 8.9,
       endSec: 14.2,
-      slideKicker: "SECTION 02 · LOG REPLICATION",
+      slideKicker: "02 · LOG REPLICATION",
       slideTitle: "Quorum AppendEntries Replication",
       text: "Once a majority of followers append an entry,\nthe leader marks it committed safely.",
     },
     {
       startSec: 14.3,
       endSec: 20.0,
-      slideKicker: "SECTION 03 · SUBTITLE EXPORT",
-      slideTitle: "Local .M4A Slimming + Multi-Provider BYOK",
-      text: "Stripping the video track locally cuts upload size\nby over ninety percent before transcription.",
+      slideKicker: "03 · INSTANT CLOUD VAULT",
+      slideTitle: "Direct =m140 Audio + Neon Postgres Sync",
+      text: "Fetching the 4.1 MB audio stream directly cuts latency\nfrom five minutes down to three seconds.",
     },
   ];
 
-  // Theme toggle
+  // =========================================================================
+  // Theme Switcher
+  // =========================================================================
   const themeBtn = document.getElementById("theme-toggle");
   const prefersDark =
     window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  let currentTheme = localStorage.getItem("nlm-sub-theme") || (prefersDark ? "dark" : "light");
+  let currentTheme =
+    localStorage.getItem("lmsubs-theme") || (prefersDark ? "dark" : "light");
 
   function applyTheme(t) {
     currentTheme = t;
@@ -49,11 +57,13 @@
 
   themeBtn?.addEventListener("click", () => {
     const next = currentTheme === "dark" ? "light" : "dark";
-    localStorage.setItem("nlm-sub-theme", next);
+    localStorage.setItem("lmsubs-theme", next);
     applyTheme(next);
   });
 
-  // Provider table category filter
+  // =========================================================================
+  // Provider Table Filter
+  // =========================================================================
   const filterBtns = document.querySelectorAll(".filter-pill");
   const provRows = document.querySelectorAll("#prov-tbody tr");
   filterBtns.forEach((btn) => {
@@ -69,7 +79,9 @@
     });
   });
 
-  // Interactive Pipeline & Player Simulator
+  // =========================================================================
+  // Interactive Broadcast Player & Fast-Path Simulator
+  // =========================================================================
   const runBtn = document.getElementById("sim-run-btn");
   const failoverToggle = document.getElementById("sim-failover-toggle");
   const logBox = document.getElementById("sim-log");
@@ -90,7 +102,7 @@
 
   let ccEnabled = true;
   let fontIdx = 1;
-  const fontSizes = ["13.5px", "16px", "19px", "22px"];
+  const fontSizes = ["13px", "15px", "18px", "21px"];
   let offsetSec = 0;
   let playTimer = null;
   let currentTime = 1.2;
@@ -163,6 +175,18 @@
     }, 100);
   }
 
+  function downloadBlob(text, filename, mime) {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
   playBtn?.addEventListener("click", togglePlayback);
   rangeEl?.addEventListener("input", () => {
     currentTime = Number(rangeEl.value) || 0;
@@ -174,111 +198,391 @@
     ccBtn.dataset.active = ccEnabled ? "true" : "false";
     renderPlayerState();
   });
-
   fontDownBtn?.addEventListener("click", () => {
     fontIdx = Math.max(0, fontIdx - 1);
     renderPlayerState();
   });
-
   fontUpBtn?.addEventListener("click", () => {
     fontIdx = Math.min(fontSizes.length - 1, fontIdx + 1);
     renderPlayerState();
   });
-
   offsetDownBtn?.addEventListener("click", () => {
-    offsetSec = Math.round((offsetSec - 0.25) * 100) / 100;
+    offsetSec = Math.max(-5, offsetSec - 0.25);
     renderPlayerState();
   });
-
   offsetUpBtn?.addEventListener("click", () => {
-    offsetSec = Math.round((offsetSec + 0.25) * 100) / 100;
+    offsetSec = Math.min(5, offsetSec + 0.25);
     renderPlayerState();
   });
-
   offsetLblBtn?.addEventListener("click", () => {
     offsetSec = 0;
     renderPlayerState();
   });
 
-  function triggerDownload(content, name, mime) {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
-
   dlSrtBtn?.addEventListener("click", () => {
-    const srt =
-      DEMO_CUES.map(
-        (c, i) =>
-          `${i + 1}\n${formatSubTime(c.startSec, ",")} --> ${formatSubTime(
-            c.endSec,
-            ","
-          )}\n${c.text}`
-      ).join("\n\n") + "\n";
-    triggerDownload(srt, "raft-consensus-overview.srt", "application/x-subrip;charset=utf-8");
+    const srt = DEMO_CUES.map(
+      (c, i) =>
+        `${i + 1}\n${formatSubTime(c.startSec, ",")} --> ${formatSubTime(
+          c.endSec,
+          ","
+        )}\n${c.text}\n`
+    ).join("\n");
+    downloadBlob(srt, "raft-consensus-overview.srt", "application/x-subrip;charset=utf-8");
   });
 
   dlVttBtn?.addEventListener("click", () => {
-    const vtt =
-      "WEBVTT\n\n" +
-      DEMO_CUES.map(
-        (c, i) =>
-          `${i + 1}\n${formatSubTime(c.startSec, ".")} --> ${formatSubTime(
-            c.endSec,
-            "."
-          )}\n${c.text}`
-      ).join("\n\n") +
-      "\n";
-    triggerDownload(vtt, "raft-consensus-overview.vtt", "text/vtt;charset=utf-8");
+    const body = DEMO_CUES.map(
+      (c, i) =>
+        `${i + 1}\n${formatSubTime(c.startSec, ".")} --> ${formatSubTime(
+          c.endSec,
+          "."
+        )}\n${c.text}\n`
+    ).join("\n");
+    downloadBlob(`WEBVTT\n\n${body}`, "raft-consensus-overview.vtt", "text/vtt;charset=utf-8");
   });
 
-  function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
-  }
-
   async function runSimulation() {
-    if (!runBtn || !logBox) return;
+    if (!logBox || !runBtn) return;
     runBtn.disabled = true;
     logBox.textContent = "";
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    appendLog("[00.00s] page.js observed POST /_/LabsTailwindUi/data/batchexecute (gArtLc)");
-    await sleep(320);
-    appendLog("[00.08s] Matched row[2]===3 (VIDEO_OVERVIEW) · status=READY · lang=\"en\"");
-    await sleep(340);
-    appendLog("[00.24s] SSRF guard verified https://lh3.googleusercontent.com/notebooklm/...=m22-dv");
-    await sleep(380);
-    appendLog("[00.41s] extractAudioTrackFromMp4(): stripped H.264 vide track (58.4 MB -> 4.3 MB .m4a, -92.6%)", "ok");
-    await sleep(380);
+    appendLog("[00.0s] AF_initDataCallback -> Video Overview detected (id=9f41c8e2)");
+    await sleep(220);
+    appendLog("[00.4s] SW Fast-Path -> GET =m140 (4.1 MB direct AAC audio, skipped 92 MB HD MP4)", "ok");
+    await sleep(260);
 
     if (failoverToggle?.checked) {
-      appendLog("[00.62s] Queue #1 Groq (whisper-large-v3-turbo) -> HTTP 429 RPM rate limit", "warn");
-      await sleep(360);
-      appendLog("[00.63s] Failing over automatically to Queue #2 Mistral (voxtral-mini-transcribe-3)…", "warn");
-      await sleep(480);
-      appendLog("[01.84s] Mistral returned 64 timed cues · cached in chrome.storage.local", "ok");
+      appendLog("[01.1s] Queue #1 Groq (whisper-large-v3-turbo, segment) -> HTTP 429 rate limit", "warn");
+      await sleep(240);
+      appendLog("[01.2s] Automatic Queue Failover -> #2 Mistral (voxtral-mini-transcribe-3)");
+      await sleep(320);
+      appendLog("[03.1s] Mistral returned 42 cues · Encrypted & synced to Neon Postgres", "ok");
     } else {
-      appendLog("[00.62s] Queue #1 Groq (whisper-large-v3-turbo) -> HTTP 200 OK in 740 ms", "ok");
-      await sleep(380);
-      appendLog("[01.36s] Groq returned 64 word-aligned cues · cached in chrome.storage.local", "ok");
+      appendLog("[02.8s] Queue #1 Groq (whisper-large-v3-turbo, segment) -> 42 cues in 1.9s", "ok");
     }
 
-    appendLog("[01.86s] Injected Shadow-DOM player overlay + VTTCue PiP track. Playing preview…", "ok");
-    currentTime = 0;
+    currentTime = 0.2;
     renderPlayerState();
     if (!playTimer) togglePlayback();
     runBtn.disabled = false;
   }
 
   runBtn?.addEventListener("click", runSimulation);
-
-  // Seed initial terminal log & player state
-  appendLog("[Ready] Click 'Simulate Video Overview Generation' to trace the 3-world MV3 pipeline.");
-  appendLog("[Info] Player controls ([CC], [A-/A+], [±0.25s], [.SRT], [.VTT]) are live right now.", "ok");
+  appendLog("[READY] Direct =m140 audio fast-path + HTTP 206 Range remuxer armed.", "ok");
   renderPlayerState();
+
+  // =========================================================================
+  // Live Neon Account & Cloud Sync Console (`/api/*`)
+  // =========================================================================
+  const TOKEN_STORAGE_KEY = "lmsubs_web_sync_token";
+  const healthBadge = document.getElementById("api-health-badge");
+  const authLoggedOut = document.getElementById("web-auth-logged-out");
+  const authLoggedIn = document.getElementById("web-auth-logged-in");
+  const authEmail = document.getElementById("web-auth-email");
+  const authPassword = document.getElementById("web-auth-password");
+  const authName = document.getElementById("web-auth-name");
+  const signupBtn = document.getElementById("web-signup-btn");
+  const signinBtn = document.getElementById("web-signin-btn");
+  const signoutBtn = document.getElementById("web-signout-btn");
+  const refreshVaultBtn = document.getElementById("web-refresh-vault-btn");
+  const mintTokenBtn = document.getElementById("web-mint-token-btn");
+  const extTokenOutput = document.getElementById("web-ext-token-output");
+  const userTitle = document.getElementById("web-user-title");
+  const userSub = document.getElementById("web-user-sub");
+  const authFeedback = document.getElementById("web-auth-feedback");
+
+  const vaultLocked = document.getElementById("web-vault-locked");
+  const vaultUnlocked = document.getElementById("web-vault-unlocked");
+  const keyProvider = document.getElementById("web-key-provider");
+  const keySecret = document.getElementById("web-key-secret");
+  const saveKeyBtn = document.getElementById("web-save-key-btn");
+  const keyHintsEl = document.getElementById("web-key-hints");
+  const prefPrimary = document.getElementById("web-pref-primary");
+  const prefLang = document.getElementById("web-pref-lang");
+  const prefFont = document.getElementById("web-pref-font");
+  const savePrefsBtn = document.getElementById("web-save-prefs-btn");
+  const subsEmpty = document.getElementById("web-subs-empty");
+  const subsList = document.getElementById("web-subs-list");
+
+  let activeToken = localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+  let currentSettings = {};
+
+  function setFeedback(msg, isError = false) {
+    if (!authFeedback) return;
+    authFeedback.style.color = isError ? "var(--red)" : "var(--green)";
+    authFeedback.textContent = msg;
+  }
+
+  async function apiRequest(path, { method = "GET", body = null } = {}) {
+    const headers = {};
+    if (body !== null) headers["Content-Type"] = "application/json";
+    if (activeToken) headers.Authorization = `Bearer ${activeToken}`;
+    const res = await fetch(path, {
+      method,
+      headers,
+      body: body !== null ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  async function checkApiHealth() {
+    if (!healthBadge) return;
+    try {
+      const h = await fetch("/api/health").then((r) => r.json());
+      if (h?.ok) {
+        healthBadge.textContent = `ONLINE · ${String(h.databaseMode || "POSTGRES").toUpperCase()}`;
+        healthBadge.className = "spec-tag spec-tag-ok";
+      } else {
+        healthBadge.textContent = "STATIC PREVIEW MODE";
+      }
+    } catch {
+      healthBadge.textContent = "STATIC PREVIEW MODE";
+    }
+  }
+
+  function renderLoggedOut() {
+    authLoggedOut.style.display = "flex";
+    authLoggedIn.style.display = "none";
+    vaultLocked.style.display = "block";
+    vaultUnlocked.style.display = "none";
+  }
+
+  function renderVaultData(pullData) {
+    authLoggedOut.style.display = "none";
+    authLoggedIn.style.display = "flex";
+    vaultLocked.style.display = "none";
+    vaultUnlocked.style.display = "block";
+
+    const u = pullData.user || {};
+    userTitle.textContent = u.name ? `${u.name} (${u.email})` : u.email;
+    const hintPairs = Object.entries(pullData.keyHints || {});
+    userSub.textContent = `ID: ${u.id} · ${hintPairs.length} ENCRYPTED KEY(S)`;
+
+    keyHintsEl.textContent = "";
+    if (hintPairs.length === 0) {
+      const empty = document.createElement("span");
+      empty.style.fontSize = "12px";
+      empty.style.color = "var(--ink-muted)";
+      empty.textContent = "No encrypted API keys saved yet.";
+      keyHintsEl.appendChild(empty);
+    } else {
+      for (const [prov, hint] of hintPairs) {
+        const chip = document.createElement("span");
+        chip.className = "hint-chip";
+        const txt = document.createElement("span");
+        txt.textContent = `${prov}: ${hint}`;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.title = `Delete ${prov} key from Postgres`;
+        del.textContent = "×";
+        del.addEventListener("click", async () => {
+          try {
+            await apiRequest("/api/sync/push", {
+              method: "POST",
+              body: { deletedProviders: [prov] },
+            });
+            await loadVault();
+            setFeedback(`Deleted ${prov} key from Neon Postgres.`);
+          } catch (err) {
+            setFeedback(err.message, true);
+          }
+        });
+        chip.append(txt, del);
+        keyHintsEl.appendChild(chip);
+      }
+    }
+
+    currentSettings = pullData.settings || {};
+    if (currentSettings.primaryProvider) prefPrimary.value = currentSettings.primaryProvider;
+    if (currentSettings.languageHint) prefLang.value = currentSettings.languageHint;
+    if (currentSettings.fontSize) prefFont.value = currentSettings.fontSize;
+
+    const subs = Array.isArray(pullData.subtitles) ? pullData.subtitles : [];
+    subsList.textContent = "";
+    subsEmpty.style.display = subs.length === 0 ? "block" : "none";
+
+    for (const s of subs) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:3px;background:var(--bg);flex-wrap:wrap";
+      const info = document.createElement("div");
+      info.innerHTML = `<strong style="font-size:13px"></strong><div style="font-family:var(--mono);font-size:11px;color:var(--ink-muted)"></div>`;
+      info.querySelector("strong").textContent = s.title || "Video Overview";
+      info.querySelector("div").textContent = `${s.cueCount || s.cues?.length || 0} cues · ${
+        s.provider || "stt"
+      }`;
+
+      const btnWrap = document.createElement("div");
+      btnWrap.style.cssText = "display:flex;gap:6px";
+      const srtB = document.createElement("button");
+      srtB.type = "button";
+      srtB.className = "btn btn-sm";
+      srtB.textContent = ".SRT";
+      srtB.addEventListener("click", () => {
+        const srt = (s.cues || [])
+          .map(
+            (c, idx) =>
+              `${idx + 1}\n${formatSubTime(c.startSec, ",")} --> ${formatSubTime(
+                c.endSec,
+                ","
+              )}\n${c.text}\n`
+          )
+          .join("\n");
+        downloadBlob(srt, `${(s.title || "overview").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.srt`, "application/x-subrip;charset=utf-8");
+      });
+      btnWrap.appendChild(srtB);
+      row.append(info, btnWrap);
+      subsList.appendChild(row);
+    }
+  }
+
+  async function loadVault() {
+    if (!activeToken) {
+      renderLoggedOut();
+      return;
+    }
+    try {
+      const pull = await apiRequest("/api/sync/pull?includeSecrets=0");
+      renderVaultData(pull);
+    } catch {
+      activeToken = "";
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      renderLoggedOut();
+    }
+  }
+
+  signupBtn?.addEventListener("click", async () => {
+    try {
+      signupBtn.disabled = true;
+      const res = await apiRequest("/api/auth/signup", {
+        method: "POST",
+        body: {
+          email: authEmail.value.trim(),
+          password: authPassword.value,
+          name: authName.value.trim(),
+          deviceLabel: "web-console",
+        },
+      });
+      activeToken = res.token;
+      localStorage.setItem(TOKEN_STORAGE_KEY, activeToken);
+      authPassword.value = "";
+      await loadVault();
+      setFeedback("Neon account created & session active.");
+    } catch (err) {
+      setFeedback(err.message, true);
+    } finally {
+      signupBtn.disabled = false;
+    }
+  });
+
+  signinBtn?.addEventListener("click", async () => {
+    try {
+      signinBtn.disabled = true;
+      const res = await apiRequest("/api/auth/signin", {
+        method: "POST",
+        body: {
+          email: authEmail.value.trim(),
+          password: authPassword.value,
+          deviceLabel: "web-console",
+        },
+      });
+      activeToken = res.token;
+      localStorage.setItem(TOKEN_STORAGE_KEY, activeToken);
+      authPassword.value = "";
+      await loadVault();
+      setFeedback("Signed in to Neon Lakebase Postgres.");
+    } catch (err) {
+      setFeedback(err.message, true);
+    } finally {
+      signinBtn.disabled = false;
+    }
+  });
+
+  signoutBtn?.addEventListener("click", async () => {
+    try {
+      await apiRequest("/api/auth/signout", { method: "POST" });
+    } catch {
+      // Ignore
+    }
+    activeToken = "";
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    if (extTokenOutput) extTokenOutput.value = "";
+    renderLoggedOut();
+    setFeedback("Signed out.");
+  });
+
+  refreshVaultBtn?.addEventListener("click", async () => {
+    await loadVault();
+    setFeedback("Refreshed cloud vault.");
+  });
+
+  mintTokenBtn?.addEventListener("click", async () => {
+    try {
+      const res = await apiRequest("/api/auth/extension-token", { method: "POST" });
+      extTokenOutput.value = res.token;
+      try {
+        await navigator.clipboard.writeText(res.token);
+        setFeedback("Minted & copied Extension Sync Token to clipboard.");
+      } catch {
+        setFeedback("Minted Extension Sync Token — copy and paste into LM Subs Settings.");
+      }
+    } catch (err) {
+      setFeedback(err.message, true);
+    }
+  });
+
+  saveKeyBtn?.addEventListener("click", async () => {
+    const prov = keyProvider.value;
+    const raw = keySecret.value.trim();
+    if (!raw) {
+      setFeedback("Paste an API key first.", true);
+      return;
+    }
+    try {
+      saveKeyBtn.disabled = true;
+      await apiRequest("/api/sync/push", {
+        method: "POST",
+        body: {
+          apiKeys: { [prov]: raw },
+        },
+      });
+      keySecret.value = "";
+      await loadVault();
+      setFeedback(`Encrypted & saved ${prov} key to Neon Postgres.`);
+    } catch (err) {
+      setFeedback(err.message, true);
+    } finally {
+      saveKeyBtn.disabled = false;
+    }
+  });
+
+  savePrefsBtn?.addEventListener("click", async () => {
+    try {
+      savePrefsBtn.disabled = true;
+      const merged = {
+        ...currentSettings,
+        primaryProvider: prefPrimary.value,
+        languageHint: prefLang.value,
+        fontSize: prefFont.value,
+      };
+      await apiRequest("/api/sync/push", {
+        method: "POST",
+        body: { settings: merged },
+      });
+      await loadVault();
+      setFeedback("Preferences synced to Neon Postgres.");
+    } catch (err) {
+      setFeedback(err.message, true);
+    } finally {
+      savePrefsBtn.disabled = false;
+    }
+  });
+
+  checkApiHealth();
+  loadVault();
 })();

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="236" height="20" role="img" aria-label="NEON SYNC: AES-256-GCM POSTGRES">
+  <rect width="236" height="20" rx="2" fill="#161615"/>
+  <rect x="80" width="156" height="20" rx="2" fill="#1B6E38"/>
+  <rect x="80" width="2" height="20" fill="#1B6E38"/>
+  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
+    <text x="40.0" y="14">NEON SYNC</text>
+    <text x="158.0" y="14">AES-256-GCM POSTGRES</text>
+  </g>
+</svg>

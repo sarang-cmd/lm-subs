@@ -140,34 +140,45 @@ export function deriveGoogleMediaVariants(mediaUrl) {
 
   const isTrusted = isTrustedGoogleMediaUrl(mediaUrl);
   const tokenMatch = isTrusted ? mediaUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE) : null;
+  const isFifeNonRd =
+    isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/");
+  const isGoogleUserContent =
+    isFifeNonRd && mediaUrl.includes("googleusercontent.com/notebooklm/");
 
-  if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/")) {
+  if (isFifeNonRd) {
     const base = mediaUrl.replace(FIFE_SUFFIX_RE, "");
+    const token = tokenMatch[1];
+
+    // 1. Always exhaust pure AAC audio-only (~3-5 MB) variants BEFORE touching video MP4s!
     if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
       pushUnique(`${base}=m140`);
-      pushUnique(`${base}=m18`);
-      pushUnique(`${base}=m22`);
       pushUnique(`${base}=m140-dv`);
+    }
+    if (isGoogleUserContent) {
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m140-dv`);
+    }
+
+    // 2. Compact 360p MP4 (~10-14 MB) next
+    if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
+      pushUnique(`${base}=m18`);
+    }
+    if (isGoogleUserContent) {
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
+    }
+
+    // 3. 720p MP4 only as final fallback
+    if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
+      pushUnique(`${base}=m22`);
       pushUnique(`${base}=m22-dv`);
+    }
+    if (isGoogleUserContent) {
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
     }
   }
 
   if (!isThumbnailOrManifestUrl(mediaUrl)) {
     pushUnique(mediaUrl);
-  }
-
-  // Same-site `.google.com` FIFE fallback in case third-party `.googleusercontent.com`
-  // cookies are partitioned by the browser.
-  if (
-    isTrusted &&
-    tokenMatch &&
-    !mediaUrl.includes("/rd-notebooklm/") &&
-    mediaUrl.includes("googleusercontent.com/notebooklm/")
-  ) {
-    const token = tokenMatch[1];
-    pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
-    pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
-    pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
   }
 
   return out;

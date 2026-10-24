@@ -95,7 +95,7 @@
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
     DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
-    TRACK_LABEL: "NotebookLM Auto-Subtitles"
+    TRACK_LABEL: "LM Subs"
   });
   var PAGE_MESSAGE = Object.freeze({
     BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
@@ -115,12 +115,18 @@
     SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
     TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
+    SUBTITLES_PARTIAL: "NOTEBOOKLM_SUBTITLES_PARTIAL",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
     TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
     APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
     GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
-    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
+    SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
+    SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+    SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
+    SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
+    SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
   });
 
   // src/lib/audio-extract.js
@@ -568,7 +574,9 @@
     SUBTITLE_CACHE: "subtitleCache",
     HISTORY: "subtitleHistory",
     LAST_STATUS: "lastStatus",
-    DEBUG_LOGS: "debugLogs"
+    DEBUG_LOGS: "debugLogs",
+    CLOUD_SYNC_PROFILE: "cloudSyncProfile",
+    CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
@@ -689,8 +697,17 @@
   }
   function sanitizeDebugMessage(text) {
     if (typeof text !== "string") return String(text ?? "");
-    return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
+    return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-|lms_)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
   }
+  var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
+    serverUrl: "http://localhost:4173",
+    connected: false,
+    autoSync: true,
+    user: null,
+    keyHints: {},
+    subtitleCount: 0,
+    lastSyncedAt: null
+  });
 
   // src/content/debug-drawer.js
   var DRAWER_CSS = (
@@ -880,7 +897,7 @@
       const dot = this.doc.createElement("span");
       dot.className = "dot";
       const pillLabel = this.doc.createElement("span");
-      pillLabel.textContent = "NLM Subtitles \xB7 Debug (0)";
+      pillLabel.textContent = "LM Subs \xB7 Debug (0)";
       pill.append(dot, pillLabel);
       pill.addEventListener("click", () => {
         this.collapsed = false;
@@ -891,7 +908,7 @@
       const hdr = this.doc.createElement("div");
       hdr.className = "hdr";
       const title = this.doc.createElement("span");
-      title.textContent = "NotebookLM Subtitles \xB7 Debug";
+      title.textContent = "LM Subs \xB7 Pipeline Monitor";
       const actions = this.doc.createElement("div");
       actions.className = "hdr-actions";
       const mkBtn = (label, cls, fn) => {
@@ -969,7 +986,7 @@
       if (!this.els) return;
       const hasError = this.entries.some((e) => e.level === "error");
       this.els.dot.className = hasError ? "dot error" : "dot";
-      this.els.pillLabel.textContent = `NLM Subtitles \xB7 Debug (${this.entries.length})`;
+      this.els.pillLabel.textContent = `LM Subs \xB7 Debug (${this.entries.length})`;
       const container = this.els.logs;
       while (container.firstChild) {
         container.removeChild(container.firstChild);
@@ -1265,18 +1282,18 @@ ${blocks.join("\n\n")}
     right: 14px;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 6px;
-    border-radius: 7px;
-    background: rgba(17, 19, 22, 0.86);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+    gap: 3px;
+    padding: 4px 5px;
+    border-radius: 4px;
+    background: rgba(20, 20, 19, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     pointer-events: auto;
-    opacity: 0.94;
-    transition: opacity 160ms ease;
+    opacity: 0.95;
+    font-variant-numeric: tabular-nums;
+    transition: opacity 100ms linear;
   }
   .toolbar[data-idle="true"] {
-    opacity: 0.22;
+    opacity: 0.24;
   }
   .toolbar:hover,
   .toolbar:focus-within {
@@ -1288,15 +1305,15 @@ ${blocks.join("\n\n")}
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 4px;
     padding: 4px 7px;
-    border-radius: 5px;
-    font-size: 11.5px;
+    border-radius: 3px;
+    font-size: 11px;
     font-weight: 600;
     line-height: 1;
-    color: #e5e7eb;
+    color: #e6e4de;
     background: transparent;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color 90ms linear, color 90ms linear;
     user-select: none;
     white-space: nowrap;
   }
@@ -1305,19 +1322,19 @@ ${blocks.join("\n\n")}
     color: #ffffff;
   }
   button:focus-visible {
-    outline: 2px solid #f3f4f6;
+    outline: 1.5px solid #e96a26;
     outline-offset: 1px;
   }
   button[data-active="true"] {
-    background: #f3f4f6;
-    color: #111315;
+    background: #e96a26;
+    color: #ffffff;
   }
   button[data-primary="true"] {
-    background: #16a34a;
+    background: #e96a26;
     color: #ffffff;
   }
   button[data-primary="true"]:hover {
-    background: #15803d;
+    background: #d9531e;
   }
   button:disabled {
     opacity: 0.55;
@@ -1332,15 +1349,15 @@ ${blocks.join("\n\n")}
   .status-pill {
     font-size: 11px;
     font-weight: 500;
-    color: #d1d5db;
+    color: #d6d3cb;
     padding: 2px 6px;
     white-space: nowrap;
   }
   .status-pill[data-state="working"] {
-    color: #fbbf24;
+    color: #e96a26;
   }
   .status-pill[data-state="error"] {
-    color: #fca5a5;
+    color: #f87171;
   }
   .caption-stage {
     position: absolute;
@@ -1356,16 +1373,15 @@ ${blocks.join("\n\n")}
     display: none;
     max-width: min(92%, 780px);
     padding: 6px 14px 7px;
-    border-radius: 6px;
-    background: rgba(12, 14, 16, 0.82);
-    color: #f9fafb;
+    border-radius: 4px;
+    background: rgba(16, 16, 15, 0.86);
+    color: #f7f6f2;
     text-align: center;
     font-weight: 500;
     line-height: 1.38;
     letter-spacing: 0.005em;
     white-space: pre-line;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
   .caption-box[data-visible="true"] {
     display: inline-block;
@@ -1844,18 +1860,16 @@ ${blocks.join("\n\n")}
     align-items: center;
     gap: 10px;
     max-width: 380px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: #14171a;
-    color: #f3f4f6;
-    border: 1px solid #2a2f36;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
-    font-size: 12.5px;
+    padding: 9px 13px;
+    border-radius: 4px;
+    background: #161615;
+    color: #f4f2ed;
+    border: 1px solid #2e2d2a;
+    font-size: 12px;
     line-height: 1.4;
-    letter-spacing: -0.005em;
     opacity: 0;
-    transform: translateY(6px);
-    transition: opacity 150ms ease, transform 150ms ease;
+    transform: translateY(4px);
+    transition: opacity 100ms linear, transform 100ms linear;
     pointer-events: auto;
   }
   .toast[data-visible="true"] {
@@ -1869,14 +1883,14 @@ ${blocks.join("\n\n")}
     }
   }
   .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
+    width: 7px;
+    height: 7px;
+    border-radius: 1.5px;
     flex-shrink: 0;
-    background: #9ca3af;
+    background: #8c8980;
   }
   .toast[data-kind="working"] .dot {
-    background: #f59e0b;
+    background: #e96a26;
   }
   .toast[data-kind="success"] .dot {
     background: #22c55e;
@@ -2953,6 +2967,22 @@ ${blocks.join("\n\n")}
         if (msg.label) {
           showToast(msg.label, msg.detail || "", "working", 0);
         }
+        return false;
+      }
+      if (msg.type === RUNTIME_MESSAGE.SUBTITLES_PARTIAL && Array.isArray(msg.cues)) {
+        const active = pickTargetVideoEntry();
+        if (active && msg.cues.length > 0) {
+          active.controller.setCues(msg.cues, {
+            title: msg.title || active.controller.title || "Video Overview",
+            language: msg.language || "en"
+          });
+        }
+        showToast(
+          `Live captions active (${msg.completedChunks}/${msg.totalChunks} segments)`,
+          `${msg.cues.length} cues mounted while remaining audio transcribes`,
+          "working",
+          0
+        );
         return false;
       }
       if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {

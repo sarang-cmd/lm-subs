@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Subtitles for NotebookLM — Audio-Only BYOK Captions &amp; .SRT Export</title>
+    <title>LM Subs — Fast Subtitles &amp; Encrypted Neon Sync for NotebookLM</title>
     <meta
       name="description"
-      content="Open-source Chrome Manifest V3 extension that adds automatic synchronized subtitles and .SRT/.VTT export to Google NotebookLM Video Overviews via client-side audio extraction and 12 BYOK STT providers."
+      content="LM Subs adds sub-5-second synchronized captions, .SRT/.VTT export, 12-provider BYOK failover, and AES-256-GCM encrypted Neon Postgres sync to Google NotebookLM Video Overviews."
     />
-    <meta property="og:title" content="Subtitles for NotebookLM" />
+    <meta property="og:title" content="LM Subs" />
     <meta
       property="og:description"
-      content="Automatic synchronized captions & .SRT/.VTT export for Google NotebookLM Video Overviews. Strips 92% of video weight client-side; supports Groq, Mistral, Gemini, Deepgram, and 8 more BYOK providers."
+      content="Sub-5-second synchronized captions & encrypted Neon Postgres API-key sync for Google NotebookLM Video Overviews."
     />
     <meta property="og:image" content="assets/banner-social-1280x640.png" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -22,18 +22,19 @@
     <header class="topbar">
       <div class="wrap topbar-inner">
         <a class="brand-link" href="#top">
-          <img src="assets/logo.svg" alt="Subtitles for NotebookLM mark" />
-          <span>Subtitles for NotebookLM</span>
+          <img src="assets/logo.svg" alt="LM Subs mark" />
+          <span>LM Subs</span>
+          <span class="brand-ver">v0.2.0</span>
         </a>
         <nav class="nav-links">
-          <a class="hide-sm" href="#simulator">Live Simulator</a>
-          <a class="hide-sm" href="#providers">12 Providers</a>
-          <a class="hide-sm" href="#architecture">Architecture</a>
-          <a class="hide-sm" href="#install">Install</a>
+          <a class="hide-sm" href="#sync">01 Cloud Sync</a>
+          <a class="hide-sm" href="#interface">02 Interface</a>
+          <a class="hide-sm" href="#providers">03 Providers</a>
+          <a class="hide-sm" href="#install">04 Setup</a>
           <button id="theme-toggle" type="button" class="btn btn-sm" aria-label="Toggle color theme">
             Dark
           </button>
-          <a class="btn btn-sm btn-primary" href="releases/notebooklm-subtitles-v0.1.2.zip" download>
+          <a class="btn btn-sm btn-primary" href="releases/lm-subs-v0.2.0.zip" download>
             Download .ZIP
           </a>
         </nav>
@@ -41,123 +42,279 @@
     </header>
 
     <main id="top">
+      <!-- Asymmetric Specification Hero + Interactive Monitor -->
       <section class="hero">
-        <div class="wrap">
-          <div class="eyebrow">
-            <span class="eyebrow-dot"></span>
-            <span>Open-Source Manifest V3 Extension · notebooklm.google.com &amp; notebook.google.com</span>
-          </div>
-          <h1>Synchronized subtitles &amp; .SRT export for NotebookLM Video Overviews.</h1>
-          <p class="hero-lead">
-            Google NotebookLM generates narrated Video Overviews without closed captions or subtitle downloads.
-            This extension strips the compact AAC audio track locally in JavaScript, transcribes it through your
-            own free-tier Groq, Mistral, or Gemini API key, and injects crisp synchronized captions directly into the player.
-          </p>
-
-          <div class="hero-actions">
-            <a class="btn btn-primary" href="releases/notebooklm-subtitles-v0.1.2.zip" download>
-              Download Unpacked v0.1.2 (.zip)
-            </a>
-            <a class="btn" href="#simulator">Try Interactive Simulator</a>
-            <a class="btn" href="https://github.com/sarang-cmd/notebooklm-subtitles" target="_blank" rel="noopener noreferrer">
-              View Source on GitHub ↗
-            </a>
-          </div>
-
-          <div class="badge-strip">
-            <img src="assets/badges/manifest-v3.svg" alt="Chrome Manifest V3" />
-            <img src="assets/badges/providers.svg" alt="12 BYOK STT Providers" />
-            <img src="assets/badges/audio-extract.svg" alt="-92% .m4a Audio Extraction" />
-            <img src="assets/badges/tests.svg" alt="25 / 25 Tests Passing" />
-            <img src="assets/badges/telemetry.svg" alt="Zero Telemetry" />
-            <img src="assets/badges/license.svg" alt="MIT License" />
-          </div>
-
-          <div class="metrics-grid">
-            <div class="metric-cell">
-              <div class="metric-val">-92.6%</div>
-              <div class="metric-lbl">Payload reduction (58 MB MP4 → 4.3 MB .m4a)</div>
+        <div class="wrap hero-grid">
+          <div>
+            <div class="hero-meta-line">
+              CHROME MV3 INSTRUMENT · NOTEBOOK.GOOGLE.COM &amp; NOTEBOOKLM.GOOGLE.COM
             </div>
-            <div class="metric-cell">
-              <div class="metric-val">12</div>
-              <div class="metric-lbl">BYOK Speech-to-Text providers + failover queue</div>
-            </div>
-            <div class="metric-cell">
-              <div class="metric-val">0 KB</div>
-              <div class="metric-lbl">WASM / runtime npm bloat (pure ISO-BMFF JS)</div>
-            </div>
-            <div class="metric-cell">
-              <div class="metric-val">0</div>
-              <div class="metric-lbl">Backend servers, analytics, or telemetry calls</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Interactive Pipeline + Player Simulator -->
-      <section id="simulator" class="section">
-        <div class="wrap">
-          <div class="section-header">
-            <div class="section-kicker">Interactive Demo</div>
-            <h2 class="section-title">Experience the Audio-Only Extraction &amp; Queue Failover Pipeline</h2>
-            <p class="section-desc">
-              Run a simulated NotebookLM Studio Video Overview lifecycle below. Toggle HTTP 429 rate-limiting on Groq
-              to watch the priority queue fail over to Mistral Voxtral automatically, then test the player HUD controls.
+            <h1>Sub-5-second captions &amp; encrypted Neon sync for NotebookLM Video Overviews.</h1>
+            <p class="hero-lead">
+              Google NotebookLM renders narrated Video Overviews without closed captions or transcript downloads.
+              <strong>LM Subs</strong> fetches the compact AAC audio stream directly (or pulls only <code>soun</code>
+              byte ranges via HTTP 206), transcribes via 12 BYOK providers, and syncs your encrypted API keys and
+              subtitles across devices with Neon Lakebase Postgres.
             </p>
-          </div>
 
-          <div class="sim-shell">
-            <div class="sim-panel">
-              <button id="sim-run-btn" type="button" class="btn btn-primary" style="width: 100%">
-                Simulate Video Overview Generation
-              </button>
-
-              <label class="sim-check">
-                <input id="sim-failover-toggle" type="checkbox" checked />
-                <span>
-                  <strong>Simulate Groq HTTP 429 rate limit</strong><br />
-                  <span style="color: var(--ink-muted); font-size: 12px">
-                    Demonstrates automatic queue failover to #2 Mistral (voxtral-mini-transcribe-3)
-                  </span>
-                </span>
-              </label>
-
-              <div id="sim-log" class="sim-log" aria-live="polite"></div>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="releases/lm-subs-v0.2.0.zip" download>
+                Download LM Subs v0.2.0 (.zip)
+              </a>
+              <a class="btn btn-ink" href="#sync">Open Neon Sync Console</a>
+              <a
+                class="btn"
+                href="https://github.com/sarang-cmd/notebooklm-subtitles"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                GitHub Source ↗
+              </a>
             </div>
 
-            <div class="sim-player">
-              <div class="sim-player-top">
-                <span class="sim-video-tag">notebooklm.google.com · Studio Video Overview</span>
-                <div class="sim-hud">
-                  <button id="sim-cc-btn" type="button" data-active="true" title="Toggle captions">CC</button>
-                  <button id="sim-font-down" type="button" title="Smaller captions">A-</button>
-                  <button id="sim-font-up" type="button" title="Larger captions">A+</button>
-                  <button id="sim-offset-down" type="button" title="Shift -0.25s">-0.25s</button>
-                  <button id="sim-offset-lbl" type="button" title="Reset offset">0.00s</button>
-                  <button id="sim-offset-up" type="button" title="Shift +0.25s">+0.25s</button>
-                  <button id="sim-dl-srt" type="button" style="color: #4ade80">.SRT</button>
-                  <button id="sim-dl-vtt" type="button">.VTT</button>
-                </div>
+            <div class="spec-ledger">
+              <div class="spec-cell">
+                <div class="spec-val">~3.2s</div>
+                <div class="spec-lbl">End-to-end latency (=m140 direct audio + segment STT)</div>
               </div>
+              <div class="spec-cell">
+                <div class="spec-val">-93.4%</div>
+                <div class="spec-lbl">Bandwidth saved via HTTP 206 Range audio-only extraction</div>
+              </div>
+              <div class="spec-cell">
+                <div class="spec-val">12 BYOK</div>
+                <div class="spec-lbl">Groq, Mistral, Gemini, Deepgram + automatic 429 failover</div>
+              </div>
+              <div class="spec-cell">
+                <div class="spec-val">AES-256</div>
+                <div class="spec-lbl">Per-user HKDF + GCM API-key sync on Neon Postgres</div>
+              </div>
+            </div>
+          </div>
 
-              <div class="sim-slide">
-                <div id="sim-slide-kicker" class="sim-slide-kicker">SECTION 01 · CONSENSUS SAFETY</div>
-                <h3 id="sim-slide-title" class="sim-slide-title">Distributed Consensus &amp; Raft</h3>
+          <!-- Interactive Player & Fast-Path Simulator -->
+          <div class="monitor-frame" aria-label="Interactive player and pipeline simulator">
+            <div class="monitor-topbar">
+              <span class="monitor-id">MONITOR · STUDIO VIDEO OVERVIEW</span>
+              <div class="sim-hud">
+                <button id="sim-cc-btn" type="button" data-active="true" title="Toggle captions">CC</button>
+                <button id="sim-font-down" type="button" title="Smaller captions">A-</button>
+                <button id="sim-font-up" type="button" title="Larger captions">A+</button>
+                <button id="sim-offset-down" type="button" title="Shift -0.25s">-0.25s</button>
+                <button id="sim-offset-lbl" type="button" title="Reset offset">0.00s</button>
+                <button id="sim-offset-up" type="button" title="Shift +0.25s">+0.25s</button>
+                <button id="sim-dl-srt" type="button" style="color: #4ade80">.SRT</button>
+                <button id="sim-dl-vtt" type="button">.VTT</button>
+              </div>
+            </div>
+
+            <div class="sim-stage">
+              <div>
+                <div id="sim-slide-kicker" class="sim-slide-kicker">01 · CONSENSUS SAFETY</div>
+                <h2 id="sim-slide-title" class="sim-slide-title">Distributed Consensus &amp; Raft</h2>
                 <p id="sim-slide-sub" class="sim-slide-sub">
                   How replicated state machines stay consistent across node failures using term-numbered leader election.
                 </p>
               </div>
 
-              <div>
-                <div class="sim-caption-wrap">
-                  <div id="sim-caption" class="sim-caption"></div>
+              <div class="sim-caption-wrap">
+                <div id="sim-caption" class="sim-caption"></div>
+              </div>
+            </div>
+
+            <div class="sim-scrubber">
+              <button
+                id="sim-play-btn"
+                type="button"
+                class="btn btn-sm"
+                style="background: #262522; color: #f4f2ed; border-color: #3d3b36"
+              >
+                Play
+              </button>
+              <input
+                id="sim-range"
+                type="range"
+                min="0"
+                max="20"
+                step="0.1"
+                value="1.2"
+                aria-label="Playback timeline"
+              />
+              <span id="sim-time" class="sim-time">00:01 / 00:20</span>
+            </div>
+
+            <div class="sim-trace-bar">
+              <label style="display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #c7c4bc; cursor: pointer">
+                <input id="sim-failover-toggle" type="checkbox" checked />
+                <span>Simulate Groq HTTP 429 -> Mistral failover</span>
+              </label>
+              <button id="sim-run-btn" type="button" class="btn btn-sm btn-primary">
+                Run Fast-Path Trace
+              </button>
+            </div>
+
+            <div id="sim-log" class="sim-log" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 01 · Live Neon Account & Encrypted API-Key Sync Console -->
+      <section id="sync" class="section">
+        <div class="wrap">
+          <div class="section-bar">
+            <h2 class="section-heading">
+              <span class="section-idx">01</span>
+              <span>Neon Account &amp; Encrypted API-Key Vault</span>
+            </h2>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span id="api-health-badge" class="spec-tag">Checking Postgres…</span>
+            </div>
+          </div>
+
+          <div class="console-shell">
+            <!-- Left Pane: Account Creation / Sign-In / Session -->
+            <div class="console-pane">
+              <h3 class="pane-title">Account Authentication</h3>
+
+              <div id="web-auth-logged-out" class="form-stack">
+                <div>
+                  <label class="field-lbl" for="web-auth-email">Email Address</label>
+                  <input id="web-auth-email" type="email" placeholder="you@domain.com" autocomplete="email" />
                 </div>
-                <div class="sim-scrubber">
-                  <button id="sim-play-btn" type="button" class="btn btn-sm" style="background: #1d2229; color: #f9fafb; border-color: #343c49">
-                    Play
+                <div>
+                  <label class="field-lbl" for="web-auth-password">Password (min 8 characters)</label>
+                  <input id="web-auth-password" type="password" placeholder="••••••••" autocomplete="current-password" />
+                </div>
+                <div>
+                  <label class="field-lbl" for="web-auth-name">Display Name (optional)</label>
+                  <input id="web-auth-name" type="text" placeholder="Alex" autocomplete="name" />
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px">
+                  <button id="web-signup-btn" type="button" class="btn btn-primary" style="flex: 1">
+                    Create Account
                   </button>
-                  <input id="sim-range" type="range" min="0" max="20" step="0.1" value="1.2" aria-label="Playback timeline" />
-                  <span id="sim-time" class="sim-time">00:01 / 00:20</span>
+                  <button id="web-signin-btn" type="button" class="btn btn-ink" style="flex: 1">
+                    Sign In
+                  </button>
+                </div>
+                <p style="font-size: 12px; color: var(--ink-muted); margin: 4px 0 0">
+                  Backed by Neon Lakebase Postgres (<code>falling-cherry-16443194</code>). Passwords use salted <code>scrypt</code>; API keys use per-user HKDF-SHA256 + AES-256-GCM.
+                </p>
+              </div>
+
+              <div id="web-auth-logged-in" style="display: none" class="form-stack">
+                <div style="padding: 12px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg)">
+                  <div id="web-user-title" style="font-weight: 600; font-size: 14px"></div>
+                  <div id="web-user-sub" style="font-family: var(--mono); font-size: 11.5px; color: var(--ink-muted); margin-top: 3px"></div>
+                </div>
+
+                <div>
+                  <label class="field-lbl">Chrome Extension 1-Click Sync Token</label>
+                  <div style="display: flex; gap: 6px">
+                    <input
+                      id="web-ext-token-output"
+                      type="text"
+                      class="mono"
+                      readonly
+                      placeholder="Click Mint Token -> paste in Extension"
+                    />
+                    <button id="web-mint-token-btn" type="button" class="btn btn-sm btn-ink">
+                      Mint Token
+                    </button>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-top: 4px">
+                  <button id="web-refresh-vault-btn" type="button" class="btn btn-sm" style="flex: 1">
+                    Refresh Vault
+                  </button>
+                  <button id="web-signout-btn" type="button" class="btn btn-sm btn-danger">
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+
+              <div id="web-auth-feedback" style="font-family: var(--mono); font-size: 11.5px; margin-top: 10px; min-height: 18px"></div>
+            </div>
+
+            <!-- Right Pane: Encrypted BYOK Keys + Preferences + Synced Subtitles -->
+            <div class="console-pane">
+              <h3 class="pane-title">Synced BYOK API Keys &amp; Transcripts</h3>
+
+              <div id="web-vault-locked" style="padding: 28px 16px; border: 1px dashed var(--border-strong); border-radius: 3px; color: var(--ink-muted); font-size: 13.5px">
+                Create an account or sign in on the left to store encrypted STT API keys (Groq, Mistral, Gemini, Deepgram, OpenAI, and more), sync extension preferences, and download your NotebookLM Video Overview transcripts from any device.
+              </div>
+
+              <div id="web-vault-unlocked" style="display: none">
+                <div class="vault-key-grid">
+                  <select id="web-key-provider">
+                    <option value="groq">Groq (Whisper v3 Turbo)</option>
+                    <option value="mistral">Mistral (Voxtral Mini)</option>
+                    <option value="gemini">Google Gemini 2.5 Flash</option>
+                    <option value="deepgram">Deepgram Nova-3</option>
+                    <option value="assemblyai">AssemblyAI Universal-2</option>
+                    <option value="gladia">Gladia Solaria</option>
+                    <option value="cloudflare">Cloudflare Workers AI</option>
+                    <option value="elevenlabs">ElevenLabs Scribe v2</option>
+                    <option value="huggingface">Hugging Face Inference</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="openai">OpenAI Whisper-1</option>
+                  </select>
+                  <input
+                    id="web-key-secret"
+                    type="password"
+                    placeholder="Paste API key to encrypt & sync to Postgres…"
+                    autocomplete="off"
+                  />
+                  <button id="web-save-key-btn" type="button" class="btn btn-primary">
+                    Encrypt &amp; Save
+                  </button>
+                </div>
+
+                <div id="web-key-hints" class="hint-list"></div>
+
+                <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end">
+                  <div>
+                    <label class="field-lbl" for="web-pref-primary">Primary Provider</label>
+                    <select id="web-pref-primary">
+                      <option value="groq">Groq</option>
+                      <option value="mistral">Mistral</option>
+                      <option value="gemini">Google Gemini</option>
+                      <option value="deepgram">Deepgram</option>
+                      <option value="openai">OpenAI</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-lbl" for="web-pref-lang">Language Hint</label>
+                    <select id="web-pref-lang">
+                      <option value="auto">Auto</option>
+                      <option value="en">English (en)</option>
+                      <option value="de">German (de)</option>
+                      <option value="es">Spanish (es)</option>
+                      <option value="fr">French (fr)</option>
+                      <option value="ja">Japanese (ja)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-lbl" for="web-pref-font">Caption Size</label>
+                    <select id="web-pref-font">
+                      <option value="small">Small</option>
+                      <option value="medium" selected>Medium</option>
+                      <option value="large">Large</option>
+                      <option value="xlarge">Extra Large</option>
+                    </select>
+                  </div>
+                  <button id="web-save-prefs-btn" type="button" class="btn btn-ink">
+                    Save Preferences
+                  </button>
+                </div>
+
+                <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border)">
+                  <div class="pane-title" style="margin-bottom: 8px">Synced Subtitle Transcripts</div>
+                  <div id="web-subs-empty" style="font-size: 12.5px; color: var(--ink-muted)">
+                    No Video Overview transcripts synced yet. Caption a Video Overview in Chrome with LM Subs signed in to see it appear here automatically.
+                  </div>
+                  <div id="web-subs-list" style="display: flex; flex-direction: column; gap: 6px"></div>
                 </div>
               </div>
             </div>
@@ -165,107 +322,175 @@
         </div>
       </section>
 
-      <!-- 12 BYOK Providers Matrix -->
-      <section id="providers" class="section">
+      <!-- 02 · Interface Inspection Plates -->
+      <section id="interface" class="section">
         <div class="wrap">
-          <div class="section-header">
-            <div class="section-kicker">Bring Your Own Key</div>
-            <h2 class="section-title">12 Supported Speech-to-Text Providers &amp; Free Tiers</h2>
-            <p class="section-desc">
-              Save keys for as many providers as you like and order them in a priority queue. Most users pair
-              <strong>#1 Groq</strong> with <strong>#2 Mistral</strong> for fast, zero-cost daily captioning.
+          <div class="section-bar">
+            <h2 class="section-heading">
+              <span class="section-idx">02</span>
+              <span>Extension Surfaces &amp; Broadcast HUD</span>
+            </h2>
+            <p class="section-note">
+              Closed ShadowRoot player overlay, 384px toolbar unit, and full Postgres sync + queue workspace.
             </p>
           </div>
 
-          <div class="filter-row" role="tablist" aria-label="Filter STT providers">
-            <button class="filter-pill" data-filter="all" data-active="true" type="button">All 12 Providers</button>
-            <button class="filter-pill" data-filter="recurring-free" type="button">Recurring Free Tier (No Card)</button>
-            <button class="filter-pill" data-filter="signup-credit" type="button">Free Signup Credits</button>
-            <button class="filter-pill" data-filter="local" type="button">Local / Self-Hosted</button>
+          <div class="plates-grid">
+            <figure class="plate">
+              <img
+                src="assets/screenshots/01-player-subtitles.png"
+                alt="LM Subs synchronized caption HUD inside Google NotebookLM Studio Video Overview player"
+                loading="lazy"
+              />
+              <figcaption>
+                <span>FIG 2.1 · IN-PLAYER SHADOW-DOM CAPTION OVERLAY</span>
+                <span>CC / A± / ±0.25S / .SRT / .VTT</span>
+              </figcaption>
+            </figure>
+
+            <figure class="plate">
+              <img
+                src="assets/screenshots/03-toolbar-popup.png"
+                alt="LM Subs Chrome toolbar popup showing provider key setup and Neon Cloud Sync status"
+                loading="lazy"
+              />
+              <figcaption>
+                <span>FIG 2.2 · TOOLBAR CONTROL UNIT</span>
+                <span>384PX MV3 POPUP</span>
+              </figcaption>
+            </figure>
           </div>
 
-          <div class="table-card">
+          <div class="plates-grid" style="grid-template-columns: 1fr 1fr; margin-top: 16px">
+            <figure class="plate">
+              <img
+                src="assets/screenshots/04-settings-queue.png"
+                alt="LM Subs Settings workspace with Neon Postgres Cloud Sync and 12-provider failover queue"
+                loading="lazy"
+              />
+              <figcaption>
+                <span>FIG 2.3 · NEON ACCOUNT SYNC &amp; 12-PROVIDER QUEUE</span>
+                <span>OPTIONS WORKSPACE</span>
+              </figcaption>
+            </figure>
+
+            <figure class="plate">
+              <img
+                src="assets/screenshots/02-audio-extraction-failover.png"
+                alt="LM Subs sub-5-second audio fast-path and HTTP 206 Range extraction pipeline"
+                loading="lazy"
+              />
+              <figcaption>
+                <span>FIG 2.4 · =M140 DIRECT AUDIO &amp; HTTP 206 RANGE PIPELINE</span>
+                <span>3.2S LATENCY</span>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- 03 · 12 Supported STT Providers -->
+      <section id="providers" class="section">
+        <div class="wrap">
+          <div class="section-bar">
+            <h2 class="section-heading">
+              <span class="section-idx">03</span>
+              <span>12 BYOK Speech-to-Text Providers</span>
+            </h2>
+            <p class="section-note">
+              Segment-level timestamp mode eliminates server-side DTW word-alignment stalls.
+            </p>
+          </div>
+
+          <div class="filter-bar" role="tablist" aria-label="Filter STT providers">
+            <button class="filter-btn filter-pill" data-filter="all" data-active="true" type="button">ALL (12)</button>
+            <button class="filter-btn filter-pill" data-filter="recurring-free" type="button">RECURRING FREE TIER</button>
+            <button class="filter-btn filter-pill" data-filter="signup-credit" type="button">FREE SIGNUP CREDIT</button>
+            <button class="filter-btn filter-pill" data-filter="local" type="button">LOCAL / SELF-HOSTED</button>
+          </div>
+
+          <div class="ledger-table-wrap">
             <table class="prov-table">
               <thead>
                 <tr>
-                  <th>Queue Default</th>
+                  <th>Queue Rank</th>
                   <th>Default Model</th>
-                  <th>Free Tier / Pricing</th>
-                  <th>Timestamp Granularity</th>
+                  <th>Free Allowance / Billing</th>
+                  <th>Timestamp Mode</th>
                 </tr>
               </thead>
               <tbody id="prov-tbody">
                 <tr data-cat="recurring-free">
-                  <td><strong>#1 Groq</strong></td>
+                  <td><strong>01 · Groq</strong></td>
                   <td class="mono">whisper-large-v3-turbo</td>
-                  <td><span class="tag-free">Free · No Card</span> 8 hrs audio/day, 20 RPM, 25 MB cap</td>
-                  <td>Word + Segment</td>
+                  <td><span class="spec-tag spec-tag-ok">Free · No Card</span> 8 hrs audio/day, ~200x real-time</td>
+                  <td>Fast Segment</td>
                 </tr>
                 <tr data-cat="recurring-free">
-                  <td><strong>#2 Mistral (Voxtral)</strong></td>
+                  <td><strong>02 · Mistral (Voxtral)</strong></td>
                   <td class="mono">voxtral-mini-transcribe-3</td>
-                  <td><span class="tag-free">Free Studio Tier</span> Experiment plan (no card), 48 MB cap</td>
-                  <td>Segment + Speaker ID</td>
+                  <td><span class="spec-tag spec-tag-ok">Free Studio</span> Experiment tier, 48 MB upload cap</td>
+                  <td>Segment</td>
                 </tr>
                 <tr data-cat="recurring-free">
-                  <td><strong>#3 Google Gemini</strong></td>
+                  <td><strong>03 · Google Gemini</strong></td>
                   <td class="mono">gemini-2.5-flash</td>
-                  <td><span class="tag-free">Free AI Studio</span> Daily free quota + single-pass translation</td>
+                  <td><span class="spec-tag spec-tag-ok">Free AI Studio</span> Daily quota + optional translation</td>
                   <td>Direct SubRip (.srt)</td>
                 </tr>
                 <tr data-cat="signup-credit">
-                  <td><strong>#4 Deepgram</strong></td>
+                  <td><strong>04 · Deepgram</strong></td>
                   <td class="mono">nova-3</td>
-                  <td><span class="tag-credit">$200 Free Credit</span> No card (~700+ hours of batch audio)</td>
-                  <td>Word + Utterance</td>
+                  <td><span class="spec-tag">$200 Credit</span> No card (~700+ hrs pre-recorded audio)</td>
+                  <td>Utterance + Word</td>
                 </tr>
                 <tr data-cat="signup-credit">
-                  <td><strong>#5 AssemblyAI</strong></td>
+                  <td><strong>05 · AssemblyAI</strong></td>
                   <td class="mono">universal</td>
-                  <td><span class="tag-credit">$50 Free Credit</span> No card (~330 hours Universal-2)</td>
-                  <td>Word (ms precision)</td>
+                  <td><span class="spec-tag">$50 Credit</span> ~330 hrs Universal-2 batch audio</td>
+                  <td>Millisecond Word</td>
                 </tr>
                 <tr data-cat="signup-credit">
-                  <td><strong>#6 Gladia</strong></td>
+                  <td><strong>06 · Gladia</strong></td>
                   <td class="mono">solaria-1</td>
-                  <td><span class="tag-credit">€50 Free Credit</span> ~80+ hours pre-recorded audio</td>
-                  <td>Native SRT + Utterance</td>
+                  <td><span class="spec-tag">EUR 50 Credit</span> ~80+ hrs Solaria pre-recorded audio</td>
+                  <td>Native SRT</td>
                 </tr>
                 <tr data-cat="recurring-free">
-                  <td><strong>#7 Cloudflare Workers AI</strong></td>
+                  <td><strong>07 · Cloudflare Workers AI</strong></td>
                   <td class="mono">@cf/openai/whisper-large-v3-turbo</td>
-                  <td><span class="tag-free">10k Neurons/day</span> Free daily Cloudflare allowance</td>
-                  <td>Word + WebVTT</td>
+                  <td><span class="spec-tag spec-tag-ok">10k Neurons/day</span> Daily free Cloudflare allowance</td>
+                  <td>WebVTT + Segment</td>
                 </tr>
                 <tr data-cat="recurring-free">
-                  <td><strong>#8 ElevenLabs</strong></td>
+                  <td><strong>08 · ElevenLabs</strong></td>
                   <td class="mono">scribe_v2</td>
-                  <td><span class="tag-free">10k Credits/mo</span> ~30 min/month free on Scribe v2</td>
-                  <td>Word (90+ languages)</td>
+                  <td><span class="spec-tag spec-tag-ok">10k Credits/mo</span> ~30 min/month free on Scribe v2</td>
+                  <td>90+ Lang Word</td>
                 </tr>
                 <tr data-cat="recurring-free">
-                  <td><strong>#9 Hugging Face</strong></td>
+                  <td><strong>09 · Hugging Face</strong></td>
                   <td class="mono">openai/whisper-large-v3-turbo</td>
-                  <td><span class="tag-free">Free HF Token</span> Monthly Serverless Inference credits</td>
-                  <td>Chunk timestamps</td>
+                  <td><span class="spec-tag spec-tag-ok">Free HF Token</span> Monthly Serverless Inference quota</td>
+                  <td>Chunk Timestamps</td>
                 </tr>
                 <tr data-cat="signup-credit">
-                  <td><strong>#10 OpenRouter</strong></td>
+                  <td><strong>10 · OpenRouter</strong></td>
                   <td class="mono">mistralai/voxtral-mini-transcribe</td>
-                  <td>Unified BYOK router across Voxtral &amp; Whisper models</td>
+                  <td>Unified BYOK router across Voxtral &amp; Whisper</td>
                   <td>Segment</td>
                 </tr>
                 <tr data-cat="signup-credit">
-                  <td><strong>#11 OpenAI Whisper</strong></td>
+                  <td><strong>11 · OpenAI Whisper</strong></td>
                   <td class="mono">whisper-1</td>
                   <td>Pay-as-you-go ($0.006 / minute)</td>
-                  <td>Word + Segment</td>
+                  <td>Fast Segment</td>
                 </tr>
                 <tr data-cat="local">
-                  <td><strong>#12 Local / Custom URL</strong></td>
+                  <td><strong>12 · Local / Custom Whisper</strong></td>
                   <td class="mono">Systran/faster-whisper-small</td>
-                  <td><span class="tag-free">100% Free Local</span> speaches, faster-whisper-server, whisper.cpp</td>
-                  <td>Verbose JSON / SRT</td>
+                  <td><span class="spec-tag spec-tag-ok">100% Offline</span> speaches, whisper.cpp, faster-whisper</td>
+                  <td>Local Segment</td>
                 </tr>
               </tbody>
             </table>
@@ -273,139 +498,64 @@
         </div>
       </section>
 
-      <!-- Architecture Deep Dive -->
-      <section id="architecture" class="section">
+      <!-- 04 · Installation & Neon Provisioning -->
+      <section id="install" class="section" style="border-bottom: 0">
         <div class="wrap">
-          <div class="section-header">
-            <div class="section-kicker">Engineering &amp; Security</div>
-            <h2 class="section-title">Three-World Manifest V3 Architecture</h2>
-            <p class="section-desc">
-              Designed around strict privilege separation: page-context RPC hooks never touch storage, UI pages never
-              read raw API keys, and full video binaries never leave your browser.
+          <div class="section-bar">
+            <h2 class="section-heading">
+              <span class="section-idx">04</span>
+              <span>Installation &amp; Neon Lakebase Deployment</span>
+            </h2>
+            <p class="section-note">
+              Load unpacked in 30 seconds; connect Neon Postgres with two CLI commands.
             </p>
           </div>
 
-          <div class="arch-frame">
-            <img src="assets/architecture.svg" alt="Three-world MV3 architecture diagram" />
-          </div>
+          <div class="setup-ledger">
+            <div class="setup-col">
+              <div class="pane-title">STEP A · CHROME EXTENSION</div>
+              <h3>Load Unpacked in Chrome</h3>
+              <p style="font-size: 13px; color: var(--ink-muted); margin: 0">
+                Download and unzip <code>lm-subs-v0.2.0.zip</code> (or run <code>npm run build</code>), open
+                <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, and select the
+                <code>extension/</code> directory.
+              </p>
+              <pre class="code-block">npm install
+npm run build
+# Load ./extension in chrome://extensions</pre>
+            </div>
 
-          <div class="cards-3">
-            <div class="info-card">
-              <h3>1. Passive batchexecute Hook</h3>
-              <p>
-                <code>page.js</code> observes <code>XMLHttpRequest</code> and <code>fetch</code> responses from
-                <code>/_/LabsTailwindUi/data/batchexecute</code> (<code>R7cb6c</code> create &amp; <code>gArtLc</code> poll)
-                without mutating or delaying NotebookLM's own streams.
+            <div class="setup-col">
+              <div class="pane-title">STEP B · NEON AUTH + POSTGRES</div>
+              <h3>Provision Neon Branch</h3>
+              <p style="font-size: 13px; color: var(--ink-muted); margin: 0">
+                <code>neon.ts</code> declares Neon Managed Auth and Lakebase Postgres. Authenticate once in your browser,
+                deploy resources to <code>production</code>, and apply <code>db/schema.sql</code>.
               </p>
+              <pre class="code-block">neon login
+neon deploy --env .env.local
+npm run db:migrate</pre>
             </div>
-            <div class="info-card">
-              <h3>2. Pure-JS ISO-BMFF Audio Remuxer</h3>
-              <p>
-                <code>audio-extract.js</code> parses MP4 boxes (<code>moov</code>, <code>trak</code>, <code>stbl</code>),
-                strips the heavy H.264 <code>vide</code> track, and recalculates <code>stco</code> offsets into a valid
-                4–7 MB <code>.m4a</code> in ~12 ms — without bundling 30 MB of <code>ffmpeg.wasm</code>.
-              </p>
-            </div>
-            <div class="info-card">
-              <h3>3. Dual Shadow-DOM + PiP Captions</h3>
-              <p>
-                <code>player-overlay.js</code> renders balanced 2-line captions inside a closed ShadowRoot for inline &amp;
-                fullscreen playback while syncing a programmatic <code>VTTCue</code> track for OS Picture-in-Picture.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- Authentic Screenshots -->
-      <section class="section">
-        <div class="wrap">
-          <div class="section-header">
-            <div class="section-kicker">Interface Overview</div>
-            <h2 class="section-title">Clean, Restrained Studio Integration</h2>
-            <p class="section-desc">
-              Built to feel like a native part of NotebookLM Studio — zero clutter, high-contrast captions, and instant export.
-            </p>
-          </div>
-
-          <div class="shot-grid">
-            <figure class="shot-card">
-              <img src="assets/screenshots/01-player-subtitles.png" alt="Synchronized Video Overview player captions and HUD" loading="lazy" />
-              <figcaption>In-player synchronized 2-line captions, timing offset controls, and 1-click .SRT/.VTT export.</figcaption>
-            </figure>
-            <figure class="shot-card">
-              <img src="assets/screenshots/02-audio-extraction-failover.png" alt="Audio extraction and multi-provider failover pipeline" loading="lazy" />
-              <figcaption>3-stage client-side audio extraction (-92.6% size reduction) and HTTP 429 queue failover.</figcaption>
-            </figure>
-            <figure class="shot-card">
-              <img src="assets/screenshots/03-toolbar-popup.png" alt="Toolbar popup quick setup" loading="lazy" />
-              <figcaption>Toolbar popup with active failover queue indicator, 1-click connection test, and manual trigger.</figcaption>
-            </figure>
-            <figure class="shot-card">
-              <img src="assets/screenshots/04-settings-queue.png" alt="Full settings and priority queue page" loading="lazy" />
-              <figcaption>Reorderable 12-provider BYOK failover queue and 35-video LRU subtitle export vault.</figcaption>
-            </figure>
-          </div>
-        </div>
-      </section>
-
-      <!-- Installation -->
-      <section id="install" class="section" style="border-bottom: none">
-        <div class="wrap">
-          <div class="section-header">
-            <div class="section-kicker">60-Second Setup</div>
-            <h2 class="section-title">Install Unpacked in Chrome, Brave, Arc, or Edge</h2>
-            <p class="section-desc">
-              No build step required when using the prebuilt release archive.
-            </p>
-          </div>
-
-          <div class="install-steps">
-            <div class="step-box">
-              <div class="step-num">STEP 01</div>
-              <h3>Download &amp; Unzip</h3>
-              <p>
-                Download <a href="releases/notebooklm-subtitles-v0.1.2.zip" download>notebooklm-subtitles-v0.1.2.zip</a>
-                and extract the <code>notebooklm-subtitles</code> folder.
+            <div class="setup-col">
+              <div class="pane-title">STEP C · SYNC SERVER / VERCEL</div>
+              <h3>Run Locally or Deploy</h3>
+              <p style="font-size: 13px; color: var(--ink-muted); margin: 0">
+                Start the unified web &amp; Hono sync server locally on port <code>4173</code>, or deploy straight to
+                Vercel where <code>api/[...route].js</code> connects to <code>DATABASE_URL</code> automatically.
               </p>
-            </div>
-            <div class="step-box">
-              <div class="step-num">STEP 02</div>
-              <h3>Load Unpacked</h3>
-              <p>
-                Open <code>chrome://extensions</code>, enable <strong>Developer mode</strong>, and click
-                <strong>Load unpacked</strong> on the extracted folder.
-              </p>
-            </div>
-            <div class="step-box">
-              <div class="step-num">STEP 03</div>
-              <h3>Paste Free API Key</h3>
-              <p>
-                Click the toolbar icon and save a free <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq</a>
-                and/or <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer">Mistral</a> key.
-              </p>
-            </div>
-            <div class="step-box">
-              <div class="step-num">STEP 04</div>
-              <h3>Open NotebookLM</h3>
-              <p>
-                Generate or open any Studio <strong>Video Overview</strong> — synchronized subtitles appear automatically.
-              </p>
+              <pre class="code-block">npm start
+# Web + Sync API -> http://localhost:4173</pre>
             </div>
           </div>
         </div>
       </section>
     </main>
 
-    <footer class="footer">
-      <div class="wrap footer-inner">
-        <div>
-          <strong>Subtitles for NotebookLM</strong> · MIT License · Independent open-source project (not affiliated with Google LLC).
-        </div>
-        <div style="display: flex; gap: 18px">
-          <a href="privacy-policy.html">Privacy Policy</a>
-          <a href="https://github.com/sarang-cmd/notebooklm-subtitles" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
-        </div>
+    <footer class="site-footer">
+      <div class="wrap" style="display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+        <span>LM SUBS V0.2.0 · MIT LICENSE · ZERO TELEMETRY</span>
+        <span>DESIGNED FOR GOOGLE NOTEBOOKLM VIDEO OVERVIEWS</span>
       </div>
     </footer>
 

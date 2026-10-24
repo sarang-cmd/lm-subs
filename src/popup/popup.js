@@ -2,7 +2,7 @@
  * Extension Toolbar Popup (`src/popup/popup.js` -> `extension/popup.js`).
  *
  * Security invariants:
- * - Never reads raw API keys (`getSavedKeyPresenceMap` returns booleans only).
+ * - Never reads raw API keys or raw sync bearer tokens (`getSavedKeyPresenceMap` returns booleans only).
  * - Requests optional host permissions directly inside user click gestures.
  */
 
@@ -13,6 +13,7 @@ import {
   listProviderSpecs,
 } from "../lib/providers/registry.js";
 import {
+  getCloudSyncProfile,
   getLastStatus,
   getSavedKeyPresenceMap,
   getSettings,
@@ -81,6 +82,12 @@ async function initPopup() {
   const saveKeyBtn = document.getElementById("save-key-btn");
   const testKeyBtn = document.getElementById("test-key-btn");
   const keyFeedback = document.getElementById("key-feedback");
+
+  const popupSyncBadge = document.getElementById("popup-sync-badge");
+  const popupSyncSummary = document.getElementById("popup-sync-summary");
+  const popupSyncNowBtn = document.getElementById("popup-sync-now-btn");
+  const popupOpenSyncBtn = document.getElementById("popup-open-sync-btn");
+
   const tabBadge = document.getElementById("tab-badge");
   const tabDescription = document.getElementById("tab-description");
   const generateNowBtn = document.getElementById("generate-now-btn");
@@ -102,12 +109,14 @@ async function initPopup() {
     providerSelect.appendChild(opt);
   }
 
-  let [settings, presenceMap, lastStatus, cacheList] = await Promise.all([
-    getSettings(),
-    getSavedKeyPresenceMap(),
-    getLastStatus(),
-    getSubtitleCacheList(),
-  ]);
+  let [settings, presenceMap, lastStatus, cacheList, syncProfile] =
+    await Promise.all([
+      getSettings(),
+      getSavedKeyPresenceMap(),
+      getLastStatus(),
+      getSubtitleCacheList(),
+      getCloudSyncProfile(),
+    ]);
 
   let activeTabId = null;
   let activeTabDiagnostics = null;
@@ -141,12 +150,12 @@ async function initPopup() {
       id === "custom" ? settings.customEnabled : presenceMap[id]
     );
     if (activeIds.length === 0) {
-      queueSummaryText.textContent = "Add Groq or Mistral key below";
+      queueSummaryText.textContent = "Add Groq or Mistral key";
     } else {
       queueSummaryText.textContent = activeIds
         .slice(0, 3)
         .map((id, i) => `#${i + 1} ${getProviderSpec(id).name.split(" ")[0]}`)
-        .join(" → ");
+        .join(" -> ");
     }
   }
 
@@ -165,7 +174,7 @@ async function initPopup() {
     const isConfigured =
       spec.id === "custom" ? settings.customEnabled : Boolean(presenceMap[spec.id]);
     if (isConfigured) {
-      keyPresenceBadge.textContent = spec.id === "custom" ? "Enabled" : "Key saved";
+      keyPresenceBadge.textContent = spec.id === "custom" ? "Enabled" : "Saved";
       keyPresenceBadge.className = "badge badge-saved";
     } else {
       keyPresenceBadge.textContent = "Not set";
@@ -173,6 +182,27 @@ async function initPopup() {
     }
     keyFeedback.textContent = "";
     keyFeedback.dataset.kind = "";
+  }
+
+  function renderSyncStatus() {
+    if (!popupSyncBadge || !popupSyncSummary) return;
+    if (syncProfile?.connected && syncProfile.user?.email) {
+      popupSyncBadge.textContent = "Synced";
+      popupSyncBadge.className = "badge badge-saved";
+      const keyCount = Object.keys(syncProfile.keyHints || {}).length;
+      popupSyncSummary.textContent = `${syncProfile.user.email} · ${keyCount} key(s) · ${
+        syncProfile.subtitleCount || 0
+      } transcript(s)`;
+      if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
+      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Manage Account";
+    } else {
+      popupSyncBadge.textContent = "Offline";
+      popupSyncBadge.className = "badge";
+      popupSyncSummary.textContent =
+        "Create a Neon account to sync encrypted API keys & captions across browsers.";
+      if (popupSyncNowBtn) popupSyncNowBtn.style.display = "none";
+      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign In / Create Account";
+    }
   }
 
   function renderLastStatus() {
@@ -188,13 +218,14 @@ async function initPopup() {
         ? `${lastStatus.provider} (failover)`
         : lastStatus.provider || "Ready";
       lastStatusBadge.className = "badge badge-saved";
+      const speedPart = lastStatus.latencyMs
+        ? ` · ${(lastStatus.latencyMs / 1000).toFixed(1)}s`
+        : "";
       const ratioPart =
         lastStatus.originalBytes && lastStatus.extractedBytes
-          ? ` · ${(lastStatus.originalBytes / 1048576).toFixed(1)} MB → ${(
-              lastStatus.extractedBytes / 1048576
-            ).toFixed(1)} MB`
+          ? ` · ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio`
           : "";
-      lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${ratioPart}`;
+      lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${speedPart}${ratioPart}`;
     } else if (lastStatus.state === "working") {
       lastStatusBadge.textContent = "Working";
       lastStatusBadge.className = "badge badge-warn";
@@ -224,7 +255,7 @@ async function initPopup() {
     }
 
     if (!tab?.id || !NOTEBOOKLM_HOSTS.includes(host)) {
-      tabBadge.textContent = "Not on NotebookLM";
+      tabBadge.textContent = "Standby";
       tabBadge.className = "badge";
       generateNowBtn.disabled = true;
       return;
@@ -236,10 +267,10 @@ async function initPopup() {
       { type: RUNTIME_MESSAGE.GET_ACTIVE_TAB_STATE },
       (state) => {
         if (chrome.runtime.lastError || !state?.ok) {
-          tabBadge.textContent = "NotebookLM open";
+          tabBadge.textContent = "NotebookLM";
           tabBadge.className = "badge";
           tabDescription.textContent =
-            "Reload the NotebookLM tab once if you just installed the extension.";
+            "Reload the NotebookLM tab once if you just installed LM Subs.";
           generateNowBtn.disabled = false;
           return;
         }
@@ -248,23 +279,23 @@ async function initPopup() {
           activeTabDiagnostics = state.diagnostics;
         }
         if (state.hasVideoElement || state.readyArtifactCount > 0) {
-          tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Video ready`;
+          tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Ready`;
           tabBadge.className = "badge badge-saved";
           tabDescription.textContent = state.activeArtifact?.title
-            ? `Ready: "${state.activeArtifact.title}"`
-            : "Video Overview detected and ready for captioning.";
+            ? `Video: "${state.activeArtifact.title}"`
+            : "Video Overview ready for instant captioning.";
           generateNowBtn.disabled = false;
         } else if (state.generatingCount > 0) {
-          tabBadge.textContent = "Rendering video…";
+          tabBadge.textContent = "Rendering";
           tabBadge.className = "badge badge-warn";
           tabDescription.textContent =
-            "Video Overview is currently rendering — subtitles will start automatically.";
+            "Studio is rendering the Video Overview — captions start automatically.";
           generateNowBtn.disabled = true;
         } else {
-          tabBadge.textContent = "No video yet";
+          tabBadge.textContent = "Idle";
           tabBadge.className = "badge";
           tabDescription.textContent =
-            "Click Video Overview in NotebookLM Studio to generate a captioned overview.";
+            "Open a Video Overview in NotebookLM Studio to generate captions.";
           generateNowBtn.disabled = false;
         }
       }
@@ -276,6 +307,7 @@ async function initPopup() {
   providerSelect.value = settings.primaryProvider || "groq";
   renderQueueSummary();
   renderSelectedProvider();
+  renderSyncStatus();
   renderLastStatus();
   inspectGoogleHostPermissions();
   inspectActiveTab();
@@ -311,14 +343,14 @@ async function initPopup() {
     const text = report?.reportText || "No diagnostic data available.";
     try {
       await navigator.clipboard.writeText(text);
-      copyDebugBtn.textContent = "Copied Report!";
+      copyDebugBtn.textContent = "Copied";
     } catch {
-      copyDebugBtn.textContent = "Copy Failed";
+      copyDebugBtn.textContent = "Failed";
     }
     setTimeout(() => {
       copyDebugBtn.disabled = false;
-      copyDebugBtn.textContent = "Copy Debug Report";
-    }, 1800);
+      copyDebugBtn.textContent = "Report";
+    }, 1600);
   });
 
   providerSelect.addEventListener("change", async () => {
@@ -363,7 +395,18 @@ async function initPopup() {
     renderQueueSummary();
     renderSelectedProvider();
     keyFeedback.dataset.kind = "ok";
-    keyFeedback.textContent = `${spec.name} saved and active in queue.`;
+    keyFeedback.textContent = syncProfile?.connected
+      ? `${spec.name} saved locally & syncing to Neon…`
+      : `${spec.name} saved and active in queue.`;
+
+    if (syncProfile?.connected) {
+      const syncRes = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
+      if (syncRes?.ok && syncRes.profile) {
+        syncProfile = syncRes.profile;
+        renderSyncStatus();
+        keyFeedback.textContent = `${spec.name} saved & encrypted in Neon Postgres.`;
+      }
+    }
   });
 
   testKeyBtn.addEventListener("click", async () => {
@@ -385,10 +428,32 @@ async function initPopup() {
     testKeyBtn.disabled = false;
     if (res?.ok) {
       keyFeedback.dataset.kind = "ok";
-      keyFeedback.textContent = `Connected to ${res.providerName} (${res.latencyMs} ms).`;
+      keyFeedback.textContent = `Verified ${res.providerName} (${res.latencyMs} ms).`;
     } else {
       keyFeedback.dataset.kind = "err";
       keyFeedback.textContent = res?.error || "Connection test failed.";
+    }
+  });
+
+  popupSyncNowBtn?.addEventListener("click", async () => {
+    popupSyncNowBtn.disabled = true;
+    popupSyncNowBtn.textContent = "Syncing…";
+    const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
+    popupSyncNowBtn.disabled = false;
+    popupSyncNowBtn.textContent = "Sync Now";
+    if (res?.ok && res.profile) {
+      syncProfile = res.profile;
+      [settings, presenceMap, cacheList] = await Promise.all([
+        getSettings(),
+        getSavedKeyPresenceMap(),
+        getSubtitleCacheList(),
+      ]);
+      renderQueueSummary();
+      renderSelectedProvider();
+      renderSyncStatus();
+      renderLastStatus();
+    } else if (res?.error) {
+      popupSyncSummary.textContent = res.error;
     }
   });
 
@@ -414,6 +479,7 @@ async function initPopup() {
   const openOptions = () => chrome.runtime.openOptionsPage();
   openQueueBtn.addEventListener("click", openOptions);
   openOptionsBtn.addEventListener("click", openOptions);
+  popupOpenSyncBtn?.addEventListener("click", openOptions);
 }
 
 document.addEventListener("DOMContentLoaded", initPopup);

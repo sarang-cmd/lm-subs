@@ -508,6 +508,384 @@ export function extractAudioTrackFromMp4(inputBuffer) {
 }
 
 /**
+ * Parses a standalone `moov` box (or a leading/trailing file slice containing `moov`)
+ * and builds an HTTP `Range` fetch plan for ONLY the `soun` audio chunks, plus a
+ * pre-assembled `ftyp` + `moov` header so a 100+ MB MP4 never has to be downloaded in full.
+ */
+export function planMp4AudioExtractionFromSlice(
+  sliceBytesInput,
+  {
+    totalFileBytes = 0,
+    maxGapBytes = 98304,
+    maxRangeSpanBytes = 2 * 1024 * 1024,
+  } = {}
+) {
+  const bytes =
+    sliceBytesInput instanceof Uint8Array
+      ? sliceBytesInput
+      : new Uint8Array(sliceBytesInput || 0);
+
+  if (bytes.byteLength < 32) return null;
+
+  const topBoxes = readIsoBoxes(bytes, 0, bytes.byteLength);
+  const moovBox = topBoxes.find((b) => b.type === "moov");
+  if (!moovBox) return null;
+
+  const moovChildren = readIsoBoxes(bytes, moovBox.dataOffset, moovBox.endOffset);
+  const mvhdBox = moovChildren.find((b) => b.type === "mvhd");
+  if (!mvhdBox) return null;
+  if (moovChildren.some((b) => b.type === "mvex")) return null;
+
+  const trakBoxes = moovChildren.filter((b) => b.type === "trak");
+  let soundTrak = null;
+  let hasVideoTrak = false;
+
+  for (const trak of trakBoxes) {
+    const trakChildren = readIsoBoxes(bytes, trak.dataOffset, trak.endOffset);
+    const mdia = trakChildren.find((b) => b.type === "mdia");
+    if (!mdia) continue;
+    const mdiaChildren = readIsoBoxes(bytes, mdia.dataOffset, mdia.endOffset);
+    const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+    if (!hdlr || hdlr.dataOffset + 12 > hdlr.endOffset) continue;
+
+    const subtype = fourCC(bytes, hdlr.dataOffset + 8);
+    if (subtype === "vide") {
+      hasVideoTrak = true;
+    } else if (subtype === "soun" && !soundTrak) {
+      const minf = mdiaChildren.find((b) => b.type === "minf");
+      if (!minf) continue;
+      const minfChildren = readIsoBoxes(bytes, minf.dataOffset, minf.endOffset);
+      const stbl = minfChildren.find((b) => b.type === "stbl");
+      if (!stbl) continue;
+      const stblChildren = readIsoBoxes(bytes, stbl.dataOffset, stbl.endOffset);
+      soundTrak = {
+        trak,
+        trakChildren,
+        mdia,
+        mdiaChildren,
+        minf,
+        minfChildren,
+        stbl,
+        stblChildren,
+      };
+    }
+  }
+
+  if (!soundTrak) return null;
+
+  const stscBox = soundTrak.stblChildren.find((b) => b.type === "stsc");
+  const stszBox = soundTrak.stblChildren.find((b) => b.type === "stsz");
+  const stcoBox = soundTrak.stblChildren.find((b) => b.type === "stco");
+  const co64Box = soundTrak.stblChildren.find((b) => b.type === "co64");
+  if (!stscBox || !stszBox || (!stcoBox && !co64Box)) return null;
+
+  const stsc = parseStsc(bytes, stscBox);
+  const stsz = parseStsz(bytes, stszBox);
+  const origOffsets = parseChunkOffsets(bytes, stcoBox, co64Box);
+  if (stsc.length === 0 || stsz.sampleCount === 0 || origOffsets.length === 0) {
+    return null;
+  }
+
+  const audioChunks = [];
+  const relativeChunkOffsets = [];
+  let sampleCursor = 0;
+  let stscIdx = 0;
+  let totalAudioBytes = 0;
+
+  for (let c = 0; c < origOffsets.length; c++) {
+    const chunkNum1Based = c + 1;
+    while (
+      stscIdx + 1 < stsc.length &&
+      stsc[stscIdx + 1].firstChunk <= chunkNum1Based
+    ) {
+      stscIdx++;
+    }
+    const samplesInChunk = stsc[stscIdx].samplesPerChunk;
+    let chunkByteLen = 0;
+
+    if (stsz.constantSize > 0) {
+      chunkByteLen = samplesInChunk * stsz.constantSize;
+      sampleCursor += samplesInChunk;
+    } else {
+      if (sampleCursor + samplesInChunk > stsz.sizes.length) return null;
+      for (let s = 0; s < samplesInChunk; s++) {
+        chunkByteLen += stsz.sizes[sampleCursor++];
+      }
+    }
+
+    const startByte = origOffsets[c];
+    const endByteExclusive = startByte + chunkByteLen;
+    if (
+      startByte < 0 ||
+      chunkByteLen <= 0 ||
+      (totalFileBytes > 0 && endByteExclusive > totalFileBytes)
+    ) {
+      return null;
+    }
+
+    relativeChunkOffsets.push(totalAudioBytes);
+    audioChunks.push({
+      startByte,
+      endByteExclusive,
+      length: chunkByteLen,
+      destRelOffset: totalAudioBytes,
+    });
+    totalAudioBytes += chunkByteLen;
+  }
+
+  if (totalAudioBytes === 0 || totalAudioBytes > 0x7fffffff) return null;
+
+  const rebuildMoovWithOffsets = (chunkAbsOffsets) => {
+    const newStco = buildStcoBox(chunkAbsOffsets);
+    const stblParts = [];
+    for (const child of soundTrak.stblChildren) {
+      if (child.type === "stco" || child.type === "co64") continue;
+      stblParts.push(bytes.subarray(child.offset, child.endOffset));
+    }
+    stblParts.push(newStco);
+    const newStbl = makeBox("stbl", stblParts);
+    const minfParts = soundTrak.minfChildren.map((child) =>
+      child.type === "stbl" ? newStbl : bytes.subarray(child.offset, child.endOffset)
+    );
+    const newMinf = makeBox("minf", minfParts);
+    const mdiaParts = soundTrak.mdiaChildren.map((child) =>
+      child.type === "minf" ? newMinf : bytes.subarray(child.offset, child.endOffset)
+    );
+    const newMdia = makeBox("mdia", mdiaParts);
+    const trakParts = soundTrak.trakChildren.map((child) =>
+      child.type === "mdia" ? newMdia : bytes.subarray(child.offset, child.endOffset)
+    );
+    const newTrak = makeBox("trak", trakParts);
+    const mvhdSlice = bytes.subarray(mvhdBox.offset, mvhdBox.endOffset);
+    return makeBox("moov", [mvhdSlice, newTrak]);
+  };
+
+  const ftypBytes = buildM4aFtypBox();
+  const placeholderMoov = rebuildMoovWithOffsets(
+    new Array(origOffsets.length).fill(0)
+  );
+  const mdatPayloadStart = ftypBytes.byteLength + placeholderMoov.byteLength + 8;
+  const finalAbsOffsets = relativeChunkOffsets.map(
+    (rel) => mdatPayloadStart + rel
+  );
+  const finalMoov = rebuildMoovWithOffsets(finalAbsOffsets);
+
+  // Sort a copy of chunks by file byte offset to coalesce adjacent HTTP Range requests
+  const sortedChunks = [...audioChunks].sort((a, b) => a.startByte - b.startByte);
+  const coalescedRanges = [];
+  for (const ch of sortedChunks) {
+    const prev = coalescedRanges[coalescedRanges.length - 1];
+    if (
+      prev &&
+      ch.startByte - prev.endExclusive <= maxGapBytes &&
+      ch.endByteExclusive - prev.start <= maxRangeSpanBytes
+    ) {
+      prev.endExclusive = Math.max(prev.endExclusive, ch.endByteExclusive);
+      prev.chunks.push(ch);
+    } else {
+      coalescedRanges.push({
+        start: ch.startByte,
+        endExclusive: ch.endByteExclusive,
+        chunks: [ch],
+      });
+    }
+  }
+
+  return {
+    ftypBytes,
+    finalMoov,
+    mdatPayloadStart,
+    totalAudioBytes,
+    hasVideoTrak,
+    chunkCount: origOffsets.length,
+    coalescedRanges,
+  };
+}
+
+/**
+ * Fetches ONLY the `moov` header + `soun` audio byte ranges of a large MP4 via HTTP `Range`
+ * requests (6 concurrent streams), assembling a standalone `.m4a` without downloading video frames.
+ */
+export async function extractAudioViaHttpRange({
+  url,
+  credentials = "include",
+  totalBytes = 0,
+  fetchImpl = globalThis.fetch,
+  concurrency = 6,
+  probeBytes = 1024 * 1024,
+}) {
+  async function fetchRangeSlice(start, endInclusive) {
+    const res = await fetchImpl(url, {
+      method: "GET",
+      credentials,
+      headers: {
+        Range: `bytes=${start}-${endInclusive}`,
+      },
+    });
+    if (res.status !== 206) {
+      return null;
+    }
+    let resolvedTotal = totalBytes;
+    const contentRange = res.headers?.get?.("content-range") || "";
+    const crMatch = contentRange.match(/\/(\d+)$/);
+    if (crMatch) {
+      resolvedTotal = Number(crMatch[1]) || resolvedTotal;
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return { bytes: buf, totalBytes: resolvedTotal };
+  }
+
+  const headEnd = totalBytes > 0 ? Math.min(totalBytes - 1, probeBytes - 1) : probeBytes - 1;
+  const headRes = await fetchRangeSlice(0, headEnd);
+  if (!headRes || headRes.bytes.byteLength < 32) return null;
+
+  const knownTotal = headRes.totalBytes || totalBytes;
+  let plan = planMp4AudioExtractionFromSlice(headRes.bytes, {
+    totalFileBytes: knownTotal,
+  });
+
+  // If `moov` wasn't at the front (e.g. `ftyp` + `mdat` + trailing `moov`), inspect top-level boxes or tail
+  if (!plan && knownTotal > headRes.bytes.byteLength) {
+    // Check if `moov` started inside headRes but extended past `probeBytes`
+    const view = new DataView(
+      headRes.bytes.buffer,
+      headRes.bytes.byteOffset,
+      headRes.bytes.byteLength
+    );
+    let pos = 0;
+    let moovOffset = -1;
+    let moovSize = 0;
+    while (pos + 8 <= headRes.bytes.byteLength) {
+      const sz = view.getUint32(pos, false);
+      const tp = fourCC(headRes.bytes, pos + 4);
+      if (tp === "moov" && sz >= 32) {
+        moovOffset = pos;
+        moovSize = sz;
+        break;
+      }
+      if (sz < 8) break;
+      pos += sz;
+    }
+
+    if (moovOffset >= 0 && moovOffset + moovSize <= knownTotal && moovSize <= 16 * 1024 * 1024) {
+      const fullMoov = await fetchRangeSlice(moovOffset, moovOffset + moovSize - 1);
+      if (fullMoov) {
+        plan = planMp4AudioExtractionFromSlice(fullMoov.bytes, {
+          totalFileBytes: knownTotal,
+        });
+      }
+    } else {
+      // Probe trailing 1.5 MB for non-faststart MP4s
+      const tailLen = Math.min(knownTotal, Math.round(1.5 * 1024 * 1024));
+      const tailStart = Math.max(0, knownTotal - tailLen);
+      const tailRes = await fetchRangeSlice(tailStart, knownTotal - 1);
+      if (tailRes) {
+        // Scan for 'moov' signature inside tail slice
+        const tb = tailRes.bytes;
+        const tv = new DataView(tb.buffer, tb.byteOffset, tb.byteLength);
+        for (let i = 0; i + 8 <= tb.byteLength; i++) {
+          if (
+            tb[i + 4] === 0x6d && // m
+            tb[i + 5] === 0x6f && // o
+            tb[i + 6] === 0x6f && // o
+            tb[i + 7] === 0x76    // v
+          ) {
+            const sz = tv.getUint32(i, false);
+            if (sz >= 32 && i + sz <= tb.byteLength) {
+              plan = planMp4AudioExtractionFromSlice(tb.subarray(i, i + sz), {
+                totalFileBytes: knownTotal,
+              });
+              if (plan) break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!plan) return null;
+
+  // Guard: if coalesced ranges somehow exceed 45% of file size on a tiny file, only worthwhile when saving bandwidth
+  const plannedDownloadBytes = plan.coalescedRanges.reduce(
+    (sum, r) => sum + (r.endExclusive - r.start),
+    0
+  );
+  if (plannedDownloadBytes > 64 * 1024 * 1024) {
+    return null;
+  }
+
+  const mdatTotalSize = 8 + plan.totalAudioBytes;
+  const outputSize =
+    plan.ftypBytes.byteLength + plan.finalMoov.byteLength + mdatTotalSize;
+  const out = new Uint8Array(outputSize);
+  const outView = new DataView(out.buffer);
+
+  let cursor = 0;
+  out.set(plan.ftypBytes, cursor);
+  cursor += plan.ftypBytes.byteLength;
+  out.set(plan.finalMoov, cursor);
+  cursor += plan.finalMoov.byteLength;
+  outView.setUint32(cursor, mdatTotalSize, false);
+  out.set(FOURCC_Encoder.encode("mdat"), cursor + 4);
+
+  let rangeIndex = 0;
+  let downloadedRangeBytes = headRes.bytes.byteLength;
+  let rangeErr = null;
+
+  async function rangeWorker() {
+    while (!rangeErr) {
+      const idx = rangeIndex++;
+      if (idx >= plan.coalescedRanges.length) return;
+      const r = plan.coalescedRanges[idx];
+      try {
+        // Reuse `headRes` if the entire range lies within `[0, headRes.bytes.byteLength)`
+        let sliceBytes;
+        if (r.endExclusive <= headRes.bytes.byteLength) {
+          sliceBytes = headRes.bytes.subarray(r.start, r.endExclusive);
+        } else {
+          const fetched = await fetchRangeSlice(r.start, r.endExclusive - 1);
+          if (!fetched || fetched.bytes.byteLength < r.endExclusive - r.start) {
+            throw new Error("Incomplete HTTP 206 range response");
+          }
+          downloadedRangeBytes += fetched.bytes.byteLength;
+          sliceBytes = fetched.bytes;
+        }
+
+        for (const ch of r.chunks) {
+          const localStart = ch.startByte - r.start;
+          const localEnd = localStart + ch.length;
+          out.set(
+            sliceBytes.subarray(localStart, localEnd),
+            plan.mdatPayloadStart + ch.destRelOffset
+          );
+        }
+      } catch (e) {
+        rangeErr = e;
+      }
+    }
+  }
+
+  const workers = Math.max(
+    1,
+    Math.min(concurrency, plan.coalescedRanges.length)
+  );
+  await Promise.all(Array.from({ length: workers }, () => rangeWorker()));
+
+  if (rangeErr) return null;
+
+  return {
+    bytes: out,
+    mimeType: "audio/mp4",
+    fileName: "audio.m4a",
+    strippedVideo: plan.hasVideoTrak,
+    originalBytes: knownTotal || outputSize,
+    downloadedBytes: downloadedRangeBytes,
+    extractedBytes: out.byteLength,
+    rangeCount: plan.coalescedRanges.length,
+  };
+}
+
+/**
  * Encodes Float32 mono PCM samples (`[-1, 1]`) into a standard 16-bit PCM `.wav` Uint8Array.
  */
 export function encodeMonoWav16Bit(float32Samples, sampleRate = 16000) {

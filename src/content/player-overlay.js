@@ -40,18 +40,18 @@ const OVERLAY_CSS = `
     right: 14px;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 6px;
-    border-radius: 7px;
-    background: rgba(17, 19, 22, 0.86);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+    gap: 3px;
+    padding: 4px 5px;
+    border-radius: 4px;
+    background: rgba(20, 20, 19, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     pointer-events: auto;
-    opacity: 0.94;
-    transition: opacity 160ms ease;
+    opacity: 0.95;
+    font-variant-numeric: tabular-nums;
+    transition: opacity 100ms linear;
   }
   .toolbar[data-idle="true"] {
-    opacity: 0.22;
+    opacity: 0.24;
   }
   .toolbar:hover,
   .toolbar:focus-within {
@@ -63,15 +63,15 @@ const OVERLAY_CSS = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 4px;
     padding: 4px 7px;
-    border-radius: 5px;
-    font-size: 11.5px;
+    border-radius: 3px;
+    font-size: 11px;
     font-weight: 600;
     line-height: 1;
-    color: #e5e7eb;
+    color: #e6e4de;
     background: transparent;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color 90ms linear, color 90ms linear;
     user-select: none;
     white-space: nowrap;
   }
@@ -80,19 +80,19 @@ const OVERLAY_CSS = `
     color: #ffffff;
   }
   button:focus-visible {
-    outline: 2px solid #f3f4f6;
+    outline: 1.5px solid #e96a26;
     outline-offset: 1px;
   }
   button[data-active="true"] {
-    background: #f3f4f6;
-    color: #111315;
+    background: #e96a26;
+    color: #ffffff;
   }
   button[data-primary="true"] {
-    background: #16a34a;
+    background: #e96a26;
     color: #ffffff;
   }
   button[data-primary="true"]:hover {
-    background: #15803d;
+    background: #d9531e;
   }
   button:disabled {
     opacity: 0.55;
@@ -107,15 +107,15 @@ const OVERLAY_CSS = `
   .status-pill {
     font-size: 11px;
     font-weight: 500;
-    color: #d1d5db;
+    color: #d6d3cb;
     padding: 2px 6px;
     white-space: nowrap;
   }
   .status-pill[data-state="working"] {
-    color: #fbbf24;
+    color: #e96a26;
   }
   .status-pill[data-state="error"] {
-    color: #fca5a5;
+    color: #f87171;
   }
   .caption-stage {
     position: absolute;
@@ -131,16 +131,15 @@ const OVERLAY_CSS = `
     display: none;
     max-width: min(92%, 780px);
     padding: 6px 14px 7px;
-    border-radius: 6px;
-    background: rgba(12, 14, 16, 0.82);
-    color: #f9fafb;
+    border-radius: 4px;
+    background: rgba(16, 16, 15, 0.86);
+    color: #f7f6f2;
     text-align: center;
     font-weight: 500;
     line-height: 1.38;
     letter-spacing: 0.005em;
     white-space: pre-line;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
   .caption-box[data-visible="true"] {
     display: inline-block;

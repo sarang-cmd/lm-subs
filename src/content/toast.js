@@ -22,18 +22,16 @@ const TOAST_CSS = `
     align-items: center;
     gap: 10px;
     max-width: 380px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    background: #14171a;
-    color: #f3f4f6;
-    border: 1px solid #2a2f36;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36);
-    font-size: 12.5px;
+    padding: 9px 13px;
+    border-radius: 4px;
+    background: #161615;
+    color: #f4f2ed;
+    border: 1px solid #2e2d2a;
+    font-size: 12px;
     line-height: 1.4;
-    letter-spacing: -0.005em;
     opacity: 0;
-    transform: translateY(6px);
-    transition: opacity 150ms ease, transform 150ms ease;
+    transform: translateY(4px);
+    transition: opacity 100ms linear, transform 100ms linear;
     pointer-events: auto;
   }
   .toast[data-visible="true"] {
@@ -47,14 +45,14 @@ const TOAST_CSS = `
     }
   }
   .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
+    width: 7px;
+    height: 7px;
+    border-radius: 1.5px;
     flex-shrink: 0;
-    background: #9ca3af;
+    background: #8c8980;
   }
   .toast[data-kind="working"] .dot {
-    background: #f59e0b;
+    background: #e96a26;
   }
   .toast[data-kind="success"] .dot {
     background: #22c55e;

@@ -202,7 +202,7 @@ export class DebugDrawer {
     const dot = this.doc.createElement("span");
     dot.className = "dot";
     const pillLabel = this.doc.createElement("span");
-    pillLabel.textContent = "NLM Subtitles · Debug (0)";
+    pillLabel.textContent = "LM Subs · Debug (0)";
     pill.append(dot, pillLabel);
     pill.addEventListener("click", () => {
       this.collapsed = false;
@@ -215,7 +215,7 @@ export class DebugDrawer {
     const hdr = this.doc.createElement("div");
     hdr.className = "hdr";
     const title = this.doc.createElement("span");
-    title.textContent = "NotebookLM Subtitles · Debug";
+    title.textContent = "LM Subs · Pipeline Monitor";
 
     const actions = this.doc.createElement("div");
     actions.className = "hdr-actions";
@@ -308,7 +308,7 @@ export class DebugDrawer {
     if (!this.els) return;
     const hasError = this.entries.some((e) => e.level === "error");
     this.els.dot.className = hasError ? "dot error" : "dot";
-    this.els.pillLabel.textContent = `NLM Subtitles · Debug (${this.entries.length})`;
+    this.els.pillLabel.textContent = `LM Subs · Debug (${this.entries.length})`;
 
     const container = this.els.logs;
     while (container.firstChild) {

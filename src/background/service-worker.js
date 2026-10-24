@@ -1,12 +1,16 @@
 /**
  * Manifest V3 Background Service Worker (`src/background/service-worker.js` -> `extension/background.js`).
  *
- * Security & architecture invariants:
- * - This is the ONLY module in the extension permitted to call `getApiKey` / `getSecretApiKeysMap`.
+ * Security & speed invariants (`LM Subs v0.2.0`):
+ * - This is the ONLY module in the extension permitted to call `getApiKey`, `getSecretApiKeysMap`,
+ *   or `getSecretCloudSyncToken`.
  * - Enforces `isTrustedGoogleMediaUrl()` SSRF validation before authenticated media downloads.
- * - Accepts compact audio pre-extracted in-page (`STAGE_AUDIO_CHUNK`) OR falls back to
- *   Service-Worker CORS-bypass download + `extractAudioTrackFromMp4()` (`credentials: "include"` -> `"omit"`).
- * - Maintains an MV3 keepalive port handler so 8–30+ minute Video Overviews never idle-timeout.
+ * - Eliminates multi-minute latency via:
+ *   1. Instant local + Neon Postgres subtitle lookup before media download
+ *   2. Pure-audio `=m140` 0 ms fast-path (never inflates fragmented `.m4a` into 40+ MB `.wav` over IPC)
+ *   3. HTTP `206` Range `soun`-chunk-only extraction when CDN only offers >16 MB HD video MP4s
+ *   4. Segment-only STT timestamps + 3x concurrent multi-chunk transcription + progressive live cues
+ * - Syncs settings, AES-256-GCM encrypted API keys, and subtitles with Neon Lakebase Postgres.
  */
 
 import {
@@ -17,6 +21,7 @@ import {
 import {
   createTestSpeechCadenceWav,
   extractAudioTrackFromMp4,
+  extractAudioViaHttpRange,
   inspectMp4Tracks,
   validateMediaPayload,
 } from "../lib/audio-extract.js";
@@ -39,22 +44,33 @@ import {
   clearDebugLogs,
   findCachedSubtitles,
   getApiKey,
+  getCloudSyncProfile,
   getDebugLogs,
   getLastStatus,
   getModelForProvider,
   getSavedKeyPresenceMap,
   getSecretApiKeysMap,
+  getSecretCloudSyncToken,
   getSettings,
+  getSubtitleCacheList,
   MAX_DEBUG_LOGS,
+  mergeCloudSubtitlesIntoCache,
+  mergeSecretApiKeysFromCloud,
+  normalizeSyncServerUrl,
   sanitizeDebugMessage,
   saveCachedSubtitles,
+  saveCloudSyncProfile,
   saveDebugLogs,
+  saveSettings,
   setLastStatus,
+  setSecretCloudSyncToken,
 } from "../lib/storage.js";
 
 const STAGED_AUDIO_TTL_MS = 5 * 60 * 1000;
 const MAX_SINGLE_M4A_FOR_ALL_PROVIDERS = 22 * 1024 * 1024;
 const MAX_SAFE_IPC_DECODE_BYTES = 38 * 1024 * 1024;
+const RANGE_EXTRACTION_THRESHOLD_BYTES = 16 * 1024 * 1024;
+const MEDIA_HEADER_TIMEOUT_MS = 9000;
 
 function base64ToUint8(b64) {
   if (typeof Buffer !== "undefined") {
@@ -68,7 +84,9 @@ function base64ToUint8(b64) {
 
 function uint8ToBase64(bytes) {
   if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString(
+      "base64"
+    );
   }
   let s = "";
   const CHUNK = 0x8000;
@@ -216,26 +234,25 @@ export function createRuntimeDispatcher({
     };
   }
 
-  function notifyTabProgress(tabId, payload) {
+  function notifyTabMessage(tabId, message) {
     if (!tabId || !tabsApi?.sendMessage) return;
     try {
-      tabsApi.sendMessage(
-        tabId,
-        {
-          type: RUNTIME_MESSAGE.SUBTITLES_PROGRESS,
-          ...payload,
-        },
-        () => {
-          void globalThis.chrome?.runtime?.lastError;
-        }
-      );
+      tabsApi.sendMessage(tabId, message, () => {
+        void globalThis.chrome?.runtime?.lastError;
+      });
     } catch {
       // Ignore
     }
   }
 
+  function notifyTabProgress(tabId, payload) {
+    notifyTabMessage(tabId, {
+      type: RUNTIME_MESSAGE.SUBTITLES_PROGRESS,
+      ...payload,
+    });
+  }
+
   async function checkProviderOriginPermission(providerId, customBaseUrl = "") {
-    // Standard HTTPS providers are declared in `manifest.json` `host_permissions`.
     if (providerId !== "custom") return true;
     if (!permissionsApi?.contains) return true;
     const origin = getProviderOriginPattern(providerId, customBaseUrl);
@@ -247,11 +264,290 @@ export function createRuntimeDispatcher({
     }
   }
 
-  /**
-   * Layer 2 fallback: Downloads media from Google's CDN inside the Service Worker
-   * (bypassing page CORS via MV3 `host_permissions`), trying `{ credentials: "include" }`
-   * first and retrying `{ credentials: "omit" }` if a redirected CDN sets wildcard CORS.
-   */
+  // =========================================================================
+  // Neon Lakebase Cloud Sync Helpers
+  // =========================================================================
+
+  async function callSyncApi(serverUrl, path, { method = "GET", token = "", body = null, timeoutMs = 10000 } = {}) {
+    const base = normalizeSyncServerUrl(serverUrl);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const headers = {};
+    if (body !== null) headers["Content-Type"] = "application/json";
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    try {
+      const res = await fetchImpl(`${base}${path}`, {
+        method,
+        headers,
+        body: body !== null ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        const errMsg = json?.error || `Sync server returned HTTP ${res.status}`;
+        const err = new Error(errMsg);
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function fetchCloudSubtitleIfAvailable({ cacheKey, artifactId, mediaToken }) {
+    try {
+      const [profile, token] = await Promise.all([
+        getCloudSyncProfile(storageArea),
+        getSecretCloudSyncToken(storageArea),
+      ]);
+      if (!profile.connected || !token) return null;
+
+      const qs = new URLSearchParams();
+      if (cacheKey) qs.set("cacheKey", cacheKey);
+      if (artifactId) qs.set("artifactId", artifactId);
+      if (mediaToken) qs.set("mediaToken", mediaToken);
+
+      const res = await callSyncApi(
+        profile.serverUrl,
+        `/api/sync/subtitle?${qs.toString()}`,
+        { token, timeoutMs: 3500 }
+      );
+      if (res?.entry?.cues?.length > 0) {
+        return res.entry;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function runBidirectionalCloudSync({
+    deletedProviders = [],
+    deletedCacheKeys = [],
+    pushOnly = false,
+  } = {}) {
+    const [profile, token] = await Promise.all([
+      getCloudSyncProfile(storageArea),
+      getSecretCloudSyncToken(storageArea),
+    ]);
+    if (!token) {
+      throw new Error("Sign in to your LM Subs Neon account first.");
+    }
+
+    const [localSettings, localKeys, localSubtitles] = await Promise.all([
+      getSettings(storageArea),
+      getSecretApiKeysMap(storageArea),
+      getSubtitleCacheList(storageArea),
+    ]);
+
+    // 1. Push local settings, API keys (encrypted server-side via AES-256-GCM), and subtitles
+    const pushRes = await callSyncApi(profile.serverUrl, "/api/sync/push", {
+      method: "POST",
+      token,
+      body: {
+        settings: localSettings,
+        apiKeys: localKeys,
+        deletedProviders,
+        deletedCacheKeys,
+        subtitles: localSubtitles.slice(0, 35),
+      },
+      timeoutMs: 12000,
+    });
+
+    if (pushOnly) {
+      const updated = await saveCloudSyncProfile(
+        {
+          connected: true,
+          keyHints: pushRes.summary?.keyHints || profile.keyHints,
+          subtitleCount: pushRes.summary?.subtitleCount ?? profile.subtitleCount,
+          lastSyncedAt: pushRes.syncedAt || new Date().toISOString(),
+        },
+        storageArea
+      );
+      return { ok: true, profile: updated };
+    }
+
+    // 2. Pull merged settings, decrypted API keys, and subtitles from Neon Postgres
+    const pullRes = await callSyncApi(
+      profile.serverUrl,
+      "/api/sync/pull?includeSecrets=1",
+      {
+        method: "GET",
+        token,
+        timeoutMs: 12000,
+      }
+    );
+
+    if (pullRes.settings && typeof pullRes.settings === "object") {
+      await saveSettings(pullRes.settings, storageArea);
+    }
+    if (pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
+      await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
+    }
+    if (Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
+      await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
+    }
+
+    const updatedProfile = await saveCloudSyncProfile(
+      {
+        connected: true,
+        user: pullRes.user || profile.user,
+        keyHints: pullRes.keyHints || {},
+        subtitleCount: Array.isArray(pullRes.subtitles)
+          ? pullRes.subtitles.length
+          : 0,
+        lastSyncedAt: pullRes.syncedAt || new Date().toISOString(),
+      },
+      storageArea
+    );
+
+    await appendDebugEntry(
+      {
+        layer: "SYNC",
+        event: "neon.sync_ok",
+        detail: `Synced ${Object.keys(pullRes.keyHints || {}).length} encrypted key(s) & ${
+          pullRes.subtitles?.length || 0
+        } subtitle(s) with Neon Postgres`,
+        level: "ok",
+      },
+      [token, ...Object.values(pullRes.apiKeys || {})]
+    );
+
+    return { ok: true, profile: updatedProfile };
+  }
+
+  async function handleSyncSignup(msg) {
+    const serverUrl = normalizeSyncServerUrl(msg?.serverUrl);
+    const email = String(msg?.email || "").trim().toLowerCase();
+    const password = String(msg?.password || "");
+    const name = String(msg?.name || "").trim();
+
+    const res = await callSyncApi(serverUrl, "/api/auth/signup", {
+      method: "POST",
+      body: {
+        email,
+        password,
+        name,
+        deviceLabel: "chrome-extension",
+      },
+    });
+
+    await setSecretCloudSyncToken(res.token, storageArea);
+    await saveCloudSyncProfile(
+      {
+        serverUrl,
+        connected: true,
+        user: res.user,
+        keyHints: res.summary?.keyHints || {},
+        subtitleCount: res.summary?.subtitleCount || 0,
+        lastSyncedAt: new Date().toISOString(),
+      },
+      storageArea
+    );
+
+    return runBidirectionalCloudSync();
+  }
+
+  async function handleSyncSignin(msg) {
+    const serverUrl = normalizeSyncServerUrl(msg?.serverUrl);
+    const pastedToken = String(msg?.token || "").trim();
+
+    if (pastedToken) {
+      // Direct Extension Token / Neon Auth JWT connection
+      const meRes = await callSyncApi(serverUrl, "/api/auth/me", {
+        method: "GET",
+        token: pastedToken,
+      });
+      await setSecretCloudSyncToken(pastedToken, storageArea);
+      await saveCloudSyncProfile(
+        {
+          serverUrl,
+          connected: true,
+          user: meRes.user,
+          keyHints: meRes.summary?.keyHints || {},
+          subtitleCount: meRes.summary?.subtitleCount || 0,
+          lastSyncedAt: new Date().toISOString(),
+        },
+        storageArea
+      );
+      return runBidirectionalCloudSync();
+    }
+
+    const email = String(msg?.email || "").trim().toLowerCase();
+    const password = String(msg?.password || "");
+
+    const res = await callSyncApi(serverUrl, "/api/auth/signin", {
+      method: "POST",
+      body: {
+        email,
+        password,
+        deviceLabel: "chrome-extension",
+      },
+    });
+
+    await setSecretCloudSyncToken(res.token, storageArea);
+    await saveCloudSyncProfile(
+      {
+        serverUrl,
+        connected: true,
+        user: res.user,
+        keyHints: res.summary?.keyHints || {},
+        subtitleCount: res.summary?.subtitleCount || 0,
+        lastSyncedAt: new Date().toISOString(),
+      },
+      storageArea
+    );
+
+    // Pull existing cloud keys/settings first so a fresh install gets keys before pushing
+    const pullRes = await callSyncApi(
+      serverUrl,
+      "/api/sync/pull?includeSecrets=1",
+      { method: "GET", token: res.token, timeoutMs: 12000 }
+    );
+    if (pullRes.settings && typeof pullRes.settings === "object") {
+      await saveSettings(pullRes.settings, storageArea);
+    }
+    if (pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
+      await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
+    }
+    if (Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
+      await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
+    }
+
+    return runBidirectionalCloudSync();
+  }
+
+  async function handleSyncSignout() {
+    const [profile, token] = await Promise.all([
+      getCloudSyncProfile(storageArea),
+      getSecretCloudSyncToken(storageArea),
+    ]);
+    if (token) {
+      await callSyncApi(profile.serverUrl, "/api/auth/signout", {
+        method: "POST",
+        token,
+        timeoutMs: 4000,
+      }).catch(() => {});
+    }
+    await setSecretCloudSyncToken("", storageArea);
+    const cleared = await saveCloudSyncProfile(
+      {
+        connected: false,
+        user: null,
+        keyHints: {},
+        subtitleCount: 0,
+      },
+      storageArea
+    );
+    return { ok: true, profile: cleared };
+  }
+
+  // =========================================================================
+  // Fast Audio Acquisition & Extraction Pipeline
+  // =========================================================================
+
   async function fetchAndExtractCompactAudio(artifact, tabId, pageFetchError = null) {
     const seedUrl = artifact.progressiveUrl || artifact.mediaUrl;
     const rawCandidates = [
@@ -262,14 +558,20 @@ export function createRuntimeDispatcher({
       artifact.mediaUrl,
     ].filter(Boolean);
 
-    const allCandidateUrls = [...new Set(rawCandidates)].filter(
+    // Ensure pure-audio `=m140` variants are always probed before any `=m18` / `=m22` video URLs
+    const audioFirstCandidates = [
+      ...rawCandidates.filter((u) => /=m140(?:-dv)?(?:$|\?)/i.test(u)),
+      ...rawCandidates.filter((u) => !/=m140(?:-dv)?(?:$|\?)/i.test(u)),
+    ];
+
+    const allCandidateUrls = [...new Set(audioFirstCandidates)].filter(
       (u) => isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u)
     );
 
     if (allCandidateUrls.length === 0) {
       if (String(artifact.mediaUrl || "").startsWith("blob:")) {
         throw new Error(
-          "Reload this NotebookLM tab once (Ctrl+R / Cmd+R) so the extension can capture the Video Overview media stream."
+          "Reload this NotebookLM tab once (Ctrl+R / Cmd+R) so LM Subs can capture the Video Overview stream."
         );
       }
       throw new Error(
@@ -280,13 +582,14 @@ export function createRuntimeDispatcher({
     await appendDebugEntry({
       layer: "SW",
       event: "media.candidates",
-      detail: `Trying ${allCandidateUrls.length} Google CDN URL(s); first=${summarizeMediaUrlForDebug(
+      detail: `Probing ${allCandidateUrls.length} Google stream(s); first=${summarizeMediaUrlForDebug(
         allCandidateUrls[0]
       )}`,
     });
 
     let downloadedBytes = null;
     let downloadedContentType = "";
+    let downloadedTrackInfo = null;
     let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
 
     for (const candidateUrl of allCandidateUrls) {
@@ -299,11 +602,19 @@ export function createRuntimeDispatcher({
 
       let skipCandidateVariant = false;
       for (const credentialsMode of ["include", "omit"]) {
+        const headerAbort = new AbortController();
+        const headerTimer = setTimeout(
+          () => headerAbort.abort(),
+          MEDIA_HEADER_TIMEOUT_MS
+        );
         try {
           const res = await fetchImpl(candidateUrl, {
             method: "GET",
             credentials: credentialsMode,
+            signal: headerAbort.signal,
           });
+          clearTimeout(headerTimer);
+
           if (!res.ok) {
             lastDownloadErr = `Media CDN (${hostLabel}) returned HTTP ${res.status}`;
             await appendDebugEntry({
@@ -312,15 +623,83 @@ export function createRuntimeDispatcher({
               detail: `${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}] -> HTTP ${res.status}`,
             });
             if (res.status === 404 || res.status === 400) {
-              break; // Variant doesn't exist; skip straight to next URL variant
+              break;
             }
             continue;
           }
-          const ct = res.headers?.get?.("content-type") || "";
+
+          const ct = (res.headers?.get?.("content-type") || "").toLowerCase();
+          const contentLen = Number(res.headers?.get?.("content-length") || 0);
+
+          // FAST PATH A: If this is a large (>16 MB) video MP4 (`=m22` / `=m18`), abort the
+          // full-video download immediately and pull ONLY the `soun` track via HTTP 206 Range!
+          if (
+            contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES &&
+            ct.includes("video/mp4")
+          ) {
+            headerAbort.abort();
+            notifyTabProgress(tabId, {
+              cacheKey: artifact.cacheKey,
+              artifactId: artifact.artifactId,
+              mediaToken: artifact.mediaToken,
+              label: "Streaming audio track via HTTP Range…",
+              detail: `Skipping ${formatMegabytes(contentLen)} video frames`,
+            });
+
+            const ranged = await extractAudioViaHttpRange({
+              url: candidateUrl,
+              credentials: credentialsMode,
+              totalBytes: contentLen,
+              fetchImpl,
+            });
+
+            if (
+              ranged &&
+              ranged.bytes &&
+              ranged.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS
+            ) {
+              await appendDebugEntry({
+                layer: "SW",
+                event: "media.range_extracted",
+                detail: `HTTP Range extracted ${formatMegabytes(
+                  ranged.extractedBytes
+                )} .m4a (downloaded ${formatMegabytes(
+                  ranged.downloadedBytes
+                )} of ${formatMegabytes(contentLen)} MP4)`,
+                level: "ok",
+              });
+              return {
+                originalBytes: contentLen,
+                extractedBytes: ranged.extractedBytes,
+                durationSeconds: artifact.durationSeconds || null,
+                chunks: [
+                  {
+                    bytes: ranged.bytes,
+                    mimeType: "audio/mp4",
+                    fileName: "overview-audio.m4a",
+                    startOffsetSec: 0,
+                    durationSec: artifact.durationSeconds || null,
+                  },
+                ],
+              };
+            }
+
+            // Re-open stream if server did not support HTTP 206 Range
+            const fallbackRes = await fetchImpl(candidateUrl, {
+              method: "GET",
+              credentials: credentialsMode,
+            });
+            if (!fallbackRes.ok) continue;
+            const fullBuf = new Uint8Array(await fallbackRes.arrayBuffer());
+            downloadedBytes = validateMediaPayload(fullBuf, ct);
+            downloadedContentType = ct;
+            downloadedTrackInfo = inspectMp4Tracks(downloadedBytes);
+            break;
+          }
+
           const buf = new Uint8Array(await res.arrayBuffer());
           const validated = validateMediaPayload(buf, ct);
 
-          // Reject silent video-only preview thumbnails (e.g., `=s512-mm,22` card loops)
           const trackInfo = inspectMp4Tracks(validated);
           if (
             trackInfo.isMp4 &&
@@ -334,16 +713,15 @@ export function createRuntimeDispatcher({
             await appendDebugEntry({
               layer: "SW",
               event: "media.skip_silent",
-              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks, ${
-                validated.byteLength
-              } B) — advancing to next stream`,
+              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks) — advancing`,
             });
             skipCandidateVariant = true;
             break;
           }
 
           downloadedBytes = validated;
-          downloadedContentType = ct.toLowerCase();
+          downloadedContentType = ct;
+          downloadedTrackInfo = trackInfo;
           await appendDebugEntry({
             layer: "SW",
             event: "media.downloaded",
@@ -354,6 +732,7 @@ export function createRuntimeDispatcher({
           });
           break;
         } catch (err) {
+          clearTimeout(headerTimer);
           lastDownloadErr = `Media stream download failed (${hostLabel}): ${
             err?.message || String(err)
           }`;
@@ -377,7 +756,7 @@ export function createRuntimeDispatcher({
         const permErr = new Error(
           `Chrome withheld Google CDN host permissions (${permCheck.missingOrigins.join(
             ", "
-          )}). Open the extension popup and click "Grant Google Media Access".`
+          )}). Open the LM Subs popup and click "Grant Google Media Access".`
         );
         permErr.missingPermissions = true;
         throw permErr;
@@ -386,8 +765,47 @@ export function createRuntimeDispatcher({
     }
 
     const originalBytes = downloadedBytes.byteLength;
+    const isAlreadyPureAudio =
+      downloadedContentType.startsWith("audio/") ||
+      (downloadedTrackInfo?.isMp4 && !downloadedTrackInfo.hasVideo);
 
-    // Pure-JS lossless ISO-BMFF audio-track extraction (`mp4` -> `.m4a` `soun` track)
+    // FAST PATH B: Already pure audio (`=m140` DASH `.m4a`, `.webm`, `.wav`) <= 22 MB!
+    // Never waste 2-4 minutes inflating compact AAC into 45 MB uncompressed WAV over IPC!
+    if (isAlreadyPureAudio && originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
+      const isWebm = downloadedContentType.includes("webm");
+      const isWav = downloadedContentType.includes("wav");
+      notifyTabProgress(tabId, {
+        cacheKey: artifact.cacheKey,
+        artifactId: artifact.artifactId,
+        mediaToken: artifact.mediaToken,
+        label: "Audio stream ready · Transcribing…",
+        detail: `${formatMegabytes(originalBytes)} direct audio`,
+      });
+      return {
+        originalBytes,
+        extractedBytes: originalBytes,
+        durationSeconds: artifact.durationSeconds || null,
+        chunks: [
+          {
+            bytes: downloadedBytes,
+            mimeType: isWav
+              ? "audio/wav"
+              : isWebm
+                ? "audio/webm"
+                : "audio/mp4",
+            fileName: isWav
+              ? "overview-audio.wav"
+              : isWebm
+                ? "overview-audio.webm"
+                : "overview-audio.m4a",
+            startOffsetSec: 0,
+            durationSec: artifact.durationSeconds || null,
+          },
+        ],
+      };
+    }
+
+    // FAST PATH C: Lossless ISO-BMFF audio-track remux (`mp4` -> `.m4a` `soun` track)
     const extracted = extractAudioTrackFromMp4(downloadedBytes);
     if (
       extracted &&
@@ -419,7 +837,7 @@ export function createRuntimeDispatcher({
       };
     }
 
-    // If extracted `.m4a` is >22 MB, decode the compact `.m4a` (not the huge video!) into <=14 MB WAV chunks
+    // Long-recording fallback (>22 MB pure audio): decode into <=14 MB WAV chunks for parallel upload
     const decodeSourceBytes =
       extracted && extracted.bytes ? extracted.bytes : downloadedBytes;
 
@@ -463,7 +881,6 @@ export function createRuntimeDispatcher({
       }
     }
 
-    // If extracted `.m4a` exists (even if >22 MB, e.g. for Mistral 48 MB / Deepgram 50 MB), return it
     if (extracted && extracted.bytes) {
       return {
         originalBytes,
@@ -482,8 +899,6 @@ export function createRuntimeDispatcher({
     }
 
     if (originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
-      const isWebm = downloadedContentType.includes("webm");
-      const isWav = downloadedContentType.includes("wav");
       return {
         originalBytes,
         extractedBytes: originalBytes,
@@ -491,16 +906,8 @@ export function createRuntimeDispatcher({
         chunks: [
           {
             bytes: downloadedBytes,
-            mimeType: isWav
-              ? "audio/wav"
-              : isWebm
-                ? "audio/webm"
-                : "audio/mp4",
-            fileName: isWav
-              ? "overview-audio.wav"
-              : isWebm
-                ? "overview-audio.webm"
-                : "overview-audio.m4a",
+            mimeType: "audio/mp4",
+            fileName: "overview-audio.m4a",
             startOffsetSec: 0,
             durationSec: artifact.durationSeconds || null,
           },
@@ -541,6 +948,23 @@ export function createRuntimeDispatcher({
       );
       if (existing) {
         return { ok: true, cached: true, entry: existing };
+      }
+
+      // Check Neon Lakebase Cloud Cache before downloading any media!
+      const cloudEntry = await fetchCloudSubtitleIfAvailable({
+        cacheKey,
+        artifactId: artifact.artifactId,
+        mediaToken,
+      });
+      if (cloudEntry) {
+        const hydrated = await saveCachedSubtitles(cloudEntry, storageArea);
+        await appendDebugEntry({
+          layer: "SYNC",
+          event: "neon.cache_hit",
+          detail: `Loaded ${hydrated.cueCount} cues from Neon Postgres in 1 round-trip`,
+          level: "ok",
+        });
+        return { ok: true, cached: true, cloudCached: true, entry: hydrated };
       }
     }
 
@@ -584,7 +1008,7 @@ export function createRuntimeDispatcher({
 
       if (candidates.length === 0) {
         const noKeyMsg =
-          "No STT API key configured yet. Open the Subtitles for NotebookLM popup and save a free Groq or Mistral key.";
+          "No STT API key configured yet. Open LM Subs and add a free Groq or Mistral key (or sign in to Neon Sync).";
         await setLastStatus(
           {
             state: "error",
@@ -611,7 +1035,7 @@ export function createRuntimeDispatcher({
           cacheKey,
           artifactId: artifact.artifactId,
           mediaToken,
-          label: "Downloading & extracting audio track…",
+          label: "Fetching compact audio stream…",
           detail: artifact.title || "",
         });
 
@@ -626,7 +1050,7 @@ export function createRuntimeDispatcher({
           artifactId: artifact.artifactId,
           mediaToken,
           label: `Transcribing via ${getProviderSpec(candidates[0].providerId).name}…`,
-          detail: `${formatMegabytes(audioBundle.originalBytes)} video -> ${formatMegabytes(
+          detail: `${formatMegabytes(audioBundle.originalBytes)} -> ${formatMegabytes(
             audioBundle.extractedBytes
           )} audio`,
         });
@@ -640,9 +1064,9 @@ export function createRuntimeDispatcher({
       await appendDebugEntry({
         layer: "STT",
         event: "stt.dispatch",
-        detail: `Sending ${audioBundle.chunks.length} audio chunk(s) (${formatMegabytes(
+        detail: `Sending ${audioBundle.chunks.length} chunk(s) (${formatMegabytes(
           audioBundle.extractedBytes
-        )}) to queue [${candidates.map((c) => c.providerId).join(" -> ")}]`,
+        )}) to [${candidates.map((c) => c.providerId).join(" -> ")}]`,
       });
 
       const txResult = await transcribeWithQueue({
@@ -650,7 +1074,21 @@ export function createRuntimeDispatcher({
         candidates,
         language,
         translateTo: settings.translateTo || "original",
-        timeoutMs: 180000,
+        timeoutMs: 90000,
+        chunkConcurrency: 3,
+        onPartialCues: (partial) => {
+          notifyTabMessage(tabId, {
+            type: RUNTIME_MESSAGE.SUBTITLES_PARTIAL,
+            cacheKey,
+            artifactId: artifact.artifactId,
+            mediaToken,
+            title: artifact.title || "Video Overview",
+            language: language || "en",
+            completedChunks: partial.completedChunks,
+            totalChunks: partial.totalChunks,
+            cues: partial.cues,
+          });
+        },
         fetchImpl,
       });
 
@@ -673,7 +1111,7 @@ export function createRuntimeDispatcher({
           artifactId: artifact.artifactId || null,
           notebookId: artifact.notebookId || null,
           mediaToken: mediaToken || null,
-          title: artifact.title || "NotebookLM Video Overview",
+          title: artifact.title || "Video Overview",
           language: language || "en",
           provider: txResult.provider,
           model: txResult.model,
@@ -699,16 +1137,29 @@ export function createRuntimeDispatcher({
           extractedBytes: audioBundle.extractedBytes,
           originalBytes: audioBundle.originalBytes,
           latencyMs: txResult.latencyMs,
-          message: `Generated ${savedEntry.cueCount} cues via ${txResult.providerName}`,
+          message: `${savedEntry.cueCount} cues · ${(txResult.latencyMs / 1000).toFixed(1)}s via ${txResult.providerName}`,
         },
         storageArea
       );
 
+      // Push new subtitle transcript to Neon Postgres in background when connected
+      getCloudSyncProfile(storageArea)
+        .then((prof) => {
+          if (prof.connected && prof.autoSync) {
+            return runBidirectionalCloudSync({ pushOnly: true });
+          }
+          return null;
+        })
+        .catch(() => {});
+
       return { ok: true, cached: false, entry: savedEntry };
     })()
       .catch(async (err) => {
-        const secretsMap = await getSecretApiKeysMap(storageArea).catch(() => ({}));
-        const allSecrets = Object.values(secretsMap);
+        const [secretsMap, syncTok] = await Promise.all([
+          getSecretApiKeysMap(storageArea).catch(() => ({})),
+          getSecretCloudSyncToken(storageArea).catch(() => ""),
+        ]);
+        const allSecrets = [...Object.values(secretsMap), syncTok].filter(Boolean);
         const safeError = redactSecrets(err?.message || String(err), allSecrets);
         await appendDebugEntry(
           {
@@ -843,7 +1294,17 @@ export function createRuntimeDispatcher({
 
     if (msg.type === RUNTIME_MESSAGE.SAVE_IMPORTED_SUBTITLES && msg.entry) {
       saveCachedSubtitles(msg.entry, storageArea)
-        .then((saved) => sendResponse({ ok: true, entry: saved }))
+        .then((saved) => {
+          getCloudSyncProfile(storageArea)
+            .then((prof) => {
+              if (prof.connected && prof.autoSync) {
+                return runBidirectionalCloudSync({ pushOnly: true });
+              }
+              return null;
+            })
+            .catch(() => {});
+          sendResponse({ ok: true, entry: saved });
+        })
         .catch((err) =>
           sendResponse({ ok: false, error: err?.message || String(err) })
         );
@@ -859,11 +1320,70 @@ export function createRuntimeDispatcher({
       return true;
     }
 
+    // Neon Cloud Sync runtime actions
+    if (msg.type === RUNTIME_MESSAGE.SYNC_STATUS) {
+      getCloudSyncProfile(storageArea)
+        .then((profile) => sendResponse({ ok: true, profile }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNUP) {
+      handleSyncSignup(msg)
+        .then((res) => sendResponse(res))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNIN) {
+      handleSyncSignin(msg)
+        .then((res) => sendResponse(res))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNOUT) {
+      handleSyncSignout()
+        .then((res) => sendResponse(res))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.SYNC_NOW) {
+      runBidirectionalCloudSync({
+        deletedProviders: Array.isArray(msg.deletedProviders)
+          ? msg.deletedProviders
+          : [],
+        deletedCacheKeys: Array.isArray(msg.deletedCacheKeys)
+          ? msg.deletedCacheKeys
+          : [],
+        pushOnly: Boolean(msg.pushOnly),
+      })
+        .then((res) => sendResponse(res))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
     if (msg.type === RUNTIME_MESSAGE.APPEND_DEBUG_LOG && msg.entry) {
-      getSecretApiKeysMap(storageArea)
-        .catch(() => ({}))
-        .then((secretsMap) =>
-          appendDebugEntry(msg.entry, Object.values(secretsMap))
+      Promise.all([
+        getSecretApiKeysMap(storageArea).catch(() => ({})),
+        getSecretCloudSyncToken(storageArea).catch(() => ""),
+      ])
+        .then(([secretsMap, syncTok]) =>
+          appendDebugEntry(
+            msg.entry,
+            [...Object.values(secretsMap), syncTok].filter(Boolean)
+          )
         )
         .then((saved) => sendResponse({ ok: true, entry: saved }))
         .catch((err) =>
@@ -885,23 +1405,30 @@ export function createRuntimeDispatcher({
     if (msg.type === RUNTIME_MESSAGE.GET_DEBUG_REPORT) {
       (async () => {
         await ensureDebugLogsHydrated();
-        const [settings, presenceMap, lastStatus, permCheck] = await Promise.all([
-          getSettings(storageArea),
-          getSavedKeyPresenceMap(storageArea),
-          getLastStatus(storageArea),
-          checkGoogleHostPermissions(),
-        ]);
+        const [settings, presenceMap, lastStatus, permCheck, syncProfile] =
+          await Promise.all([
+            getSettings(storageArea),
+            getSavedKeyPresenceMap(storageArea),
+            getLastStatus(storageArea),
+            checkGoogleHostPermissions(),
+            getCloudSyncProfile(storageArea),
+          ]);
         const configuredProviders = Object.entries(presenceMap)
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          globalThis.chrome?.runtime?.getManifest?.()?.version || "0.1.2";
+          globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.0";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),
           extensionVersion: manifestVersion,
           permissionsOk: permCheck.ok,
           missingOrigins: permCheck.missingOrigins,
+          neonSync: {
+            connected: syncProfile.connected,
+            serverUrl: syncProfile.serverUrl,
+            lastSyncedAt: syncProfile.lastSyncedAt,
+          },
           settingsSummary: {
             enabled: settings.enabled,
             debugMode: settings.debugMode,
@@ -917,36 +1444,55 @@ export function createRuntimeDispatcher({
         };
 
         const lines = [
-          `# Subtitles for NotebookLM — Diagnostic Report (v${manifestVersion})`,
+          `# LM Subs — Diagnostic Report (v${manifestVersion})`,
           `Generated: ${reportObj.generatedAt}`,
           `Google CDN Permissions: ${
-            permCheck.ok ? "GRANTED" : `MISSING (${permCheck.missingOrigins.join(", ")})`
+            permCheck.ok
+              ? "GRANTED"
+              : `MISSING (${permCheck.missingOrigins.join(", ")})`
+          }`,
+          `Neon Cloud Sync: ${
+            syncProfile.connected
+              ? `CONNECTED (${syncProfile.serverUrl})`
+              : "OFFLINE"
           }`,
           `Enabled: ${settings.enabled} | Debug Mode: ${settings.debugMode} | Primary: ${settings.primaryProvider}`,
           `Configured Providers (keys redacted): ${
-            configuredProviders.length > 0 ? configuredProviders.join(", ") : "(none)"
+            configuredProviders.length > 0
+              ? configuredProviders.join(", ")
+              : "(none)"
           }`,
           `Last Status: ${
             lastStatus
-              ? `[${lastStatus.state}] ${lastStatus.title || ""} — ${lastStatus.message || ""}`
+              ? `[${lastStatus.state}] ${lastStatus.title || ""} — ${
+                  lastStatus.message || ""
+                }`
               : "(none)"
           }`,
         ];
 
         if (msg.tabContext) {
           lines.push(
-            `Tab Snapshot: host=${msg.tabContext.host}${msg.tabContext.pathname || ""} | artifacts=${
-              msg.tabContext.artifactCount
-            } | boundVideos=${msg.tabContext.videoCount}`
+            `Tab Snapshot: host=${msg.tabContext.host}${
+              msg.tabContext.pathname || ""
+            } | artifacts=${msg.tabContext.artifactCount} | boundVideos=${
+              msg.tabContext.videoCount
+            }`
           );
-          if (Array.isArray(msg.tabContext.artifacts) && msg.tabContext.artifacts.length > 0) {
+          if (
+            Array.isArray(msg.tabContext.artifacts) &&
+            msg.tabContext.artifacts.length > 0
+          ) {
             for (const a of msg.tabContext.artifacts) {
               lines.push(
                 `  - Artifact ${a.id} [${a.status}] (${a.origin}) variants=${a.variantCount} ${a.mediaSummary}`
               );
             }
           }
-          if (Array.isArray(msg.tabContext.videos) && msg.tabContext.videos.length > 0) {
+          if (
+            Array.isArray(msg.tabContext.videos) &&
+            msg.tabContext.videos.length > 0
+          ) {
             for (const v of msg.tabContext.videos) {
               lines.push(
                 `  - <video> overlayMounted=${v.overlayMounted} status=${v.status} cues=${v.cueCount} dur=${v.duration}s src=${v.srcSummary}`
@@ -960,9 +1506,7 @@ export function createRuntimeDispatcher({
           lines.push("(no debug events recorded yet)");
         } else {
           for (const l of memoryDebugLogs) {
-            lines.push(
-              `${l.ts} [${l.layer}] ${l.event}: ${l.detail}`
-            );
+            lines.push(`${l.ts} [${l.layer}] ${l.event}: ${l.detail}`);
           }
         }
 
