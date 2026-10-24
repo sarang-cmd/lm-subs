@@ -155,11 +155,10 @@ async function sendMultipartTranscription({
     form.append("response_format", "verbose_json");
     form.append("timestamp_granularities[]", "segment");
   } else {
+    // Request segment-level timestamps only: passing "word" triggers Whisper's slow
+    // server-side DTW cross-attention alignment pass and adds 30-120s of latency.
     form.append("response_format", "verbose_json");
     form.append("timestamp_granularities[]", "segment");
-    if (providerId === "groq" || providerId === "openai") {
-      form.append("timestamp_granularities[]", "word");
-    }
   }
 
   const headers = {};

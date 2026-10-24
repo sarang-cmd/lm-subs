@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Subtitles for NotebookLM</title>
+    <title>LM Subs</title>
     <link rel="stylesheet" href="ui.css" />
   </head>
   <body class="popup-body">
@@ -11,22 +11,23 @@
       <div class="brand">
         <span id="brand-icon-slot"></span>
         <div>
-          <h1 class="brand-title">Subtitles for NotebookLM</h1>
-          <p class="brand-sub">Audio-only BYOK captions · v0.1.2</p>
+          <h1 class="brand-title">LM Subs</h1>
+          <p class="brand-sub">NOTEBOOKLM CAPTIONS · V0.2.0</p>
         </div>
       </div>
       <label class="switch" title="Enable automatic subtitles on NotebookLM">
+        <span style="font-family: var(--mono); font-size: 10.5px; color: var(--text-muted)">AUTO</span>
         <input id="enabled-toggle" type="checkbox" checked />
       </label>
     </header>
 
-    <section id="permission-warning-card" class="card" style="display: none; border-color: #dc2626">
+    <section id="permission-warning-card" class="card" style="display: none; border-color: var(--red)">
       <div class="section-head" style="margin-bottom: 4px">
-        <h2 class="section-title" style="color: #dc2626">Google Media Access Required</h2>
+        <h2 class="section-title" style="color: var(--red)">Media Access Required</h2>
         <span class="badge badge-err">Withheld</span>
       </div>
       <div class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Chrome withheld Google CDN redirect permissions after updating. Grant access so audio extraction can download Video Overview streams.
+        Chrome withheld Google CDN redirect permissions. Grant access so LM Subs can read Video Overview audio streams.
       </div>
       <button id="grant-google-perms-btn" type="button" class="btn btn-primary" style="width: 100%">
         Grant Google Media Access
@@ -34,14 +35,14 @@
     </section>
 
     <div id="queue-summary" class="queue-pill">
-      <span>Failover queue: <strong id="queue-summary-text">None configured</strong></span>
-      <button id="open-queue-btn" type="button" class="btn btn-sm">Queue</button>
+      <span>QUEUE: <strong id="queue-summary-text">None configured</strong></span>
+      <button id="open-queue-btn" type="button" class="btn btn-sm">Order</button>
     </div>
 
     <section class="card">
       <div class="field">
         <label class="field-label" for="provider-select">
-          <span>Speech-to-Text Provider</span>
+          <span>01 · STT Provider</span>
           <span id="key-presence-badge" class="badge">Not set</span>
         </label>
         <select id="provider-select"></select>
@@ -79,16 +80,34 @@
     </section>
 
     <section class="card">
-      <div class="section-head">
-        <h2 class="section-title">Current NotebookLM Tab</h2>
-        <span id="tab-badge" class="badge">Checking…</span>
+      <div class="section-head" style="margin-bottom: 6px">
+        <h2 class="section-title">02 · Neon Cloud Sync</h2>
+        <span id="popup-sync-badge" class="badge">Offline</span>
+      </div>
+      <div id="popup-sync-summary" class="hint" style="margin-top: 0; margin-bottom: 8px">
+        Sync encrypted API keys &amp; transcripts across devices via Neon Postgres.
+      </div>
+      <div class="row">
+        <button id="popup-sync-now-btn" type="button" class="btn btn-sm btn-primary" style="display: none">
+          Sync Now
+        </button>
+        <button id="popup-open-sync-btn" type="button" class="btn btn-sm" style="flex: 1">
+          Account &amp; Sync Settings
+        </button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head" style="margin-bottom: 6px">
+        <h2 class="section-title">03 · Active Tab</h2>
+        <span id="tab-badge" class="badge">Checking</span>
       </div>
       <div id="tab-description" class="hint" style="margin-top: 0; margin-bottom: 8px">
         Open a NotebookLM notebook to generate or export Video Overview subtitles.
       </div>
       <div class="row">
-        <button id="generate-now-btn" type="button" class="btn btn-primary" style="flex: 1" disabled>
-          Generate Subtitles Now
+        <button id="generate-now-btn" type="button" class="btn btn-ink" style="flex: 1" disabled>
+          Generate Subtitles
         </button>
         <button id="download-latest-srt-btn" type="button" class="btn" style="display: none">
           .SRT
@@ -98,28 +117,24 @@
 
     <section id="last-status-card" class="card" style="display: none">
       <div class="section-head" style="margin-bottom: 4px">
-        <h2 class="section-title">Latest Transcription</h2>
+        <h2 class="section-title">Latest Output</h2>
         <span id="last-status-badge" class="badge">Idle</span>
       </div>
-      <div id="last-status-title" style="font-weight: 600; font-size: 12.5px"></div>
+      <div id="last-status-title" style="font-weight: 600; font-size: 12px"></div>
       <div id="last-status-meta" class="hint"></div>
     </section>
 
-    <section class="card" style="padding: 9px 12px">
-      <div class="row" style="justify-content: space-between; align-items: center">
-        <label class="switch" title="Show live in-page diagnostic drawer on NotebookLM">
-          <input id="debug-mode-toggle" type="checkbox" />
-          <span style="font-size: 12px; font-weight: 600">Debug Mode</span>
-        </label>
-        <button id="copy-debug-btn" type="button" class="btn btn-sm" title="Copy redacted pipeline report">
-          Copy Debug Report
-        </button>
-      </div>
-    </section>
-
     <footer class="footer-bar">
-      <span>12 providers · Audio-only extraction</span>
-      <button id="open-options-btn" type="button" class="btn btn-sm">Full Settings</button>
+      <label class="switch" title="Show live diagnostic monitor on NotebookLM">
+        <input id="debug-mode-toggle" type="checkbox" />
+        <span>DEBUG</span>
+      </label>
+      <div class="row">
+        <button id="copy-debug-btn" type="button" class="btn btn-sm" title="Copy redacted pipeline report">
+          Report
+        </button>
+        <button id="open-options-btn" type="button" class="btn btn-sm">Settings</button>
+      </div>
     </footer>
 
     <script src="popup.js"></script>

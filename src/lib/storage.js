@@ -17,6 +17,8 @@ export const STORAGE_KEYS = Object.freeze({
   HISTORY: "subtitleHistory",
   LAST_STATUS: "lastStatus",
   DEBUG_LOGS: "debugLogs",
+  CLOUD_SYNC_PROFILE: "cloudSyncProfile",
+  CLOUD_SYNC_SECRET: "cloudSyncSecret",
 });
 
 export const MAX_CACHE_ENTRIES = 35;
@@ -411,9 +413,189 @@ export async function setLastStatus(status, storageArea) {
 export function sanitizeDebugMessage(text) {
   if (typeof text !== "string") return String(text ?? "");
   return text
-    .replace(/\b(?:gsk_|sk-|AIza|hf_|xi-)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]")
+    .replace(/\b(?:gsk_|sk-|AIza|hf_|xi-|lms_)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]")
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]")
     .replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]")
     .slice(0, 600);
+}
+
+export const DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
+  serverUrl: "http://localhost:4173",
+  connected: false,
+  autoSync: true,
+  user: null,
+  keyHints: {},
+  subtitleCount: 0,
+  lastSyncedAt: null,
+});
+
+export function normalizeSyncServerUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl.trim()) {
+    return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+  }
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+    }
+    return `${parsed.origin}${parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/api$/, "")}`;
+  } catch {
+    return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+  }
+}
+
+export async function getCloudSyncProfile(storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
+  const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
+  if (!saved || typeof saved !== "object") {
+    return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+  }
+  return {
+    serverUrl: normalizeSyncServerUrl(saved.serverUrl),
+    connected: Boolean(saved.connected && saved.user?.email),
+    autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+    user:
+      saved.user && typeof saved.user === "object"
+        ? {
+            id: String(saved.user.id || ""),
+            email: String(saved.user.email || ""),
+            name: String(saved.user.name || ""),
+          }
+        : null,
+    keyHints:
+      saved.keyHints && typeof saved.keyHints === "object"
+        ? { ...saved.keyHints }
+        : {},
+    subtitleCount: Number(saved.subtitleCount) || 0,
+    lastSyncedAt: saved.lastSyncedAt || null,
+  };
+}
+
+export async function saveCloudSyncProfile(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getCloudSyncProfile(store);
+  const next = {
+    ...current,
+    ...partial,
+  };
+  next.serverUrl = normalizeSyncServerUrl(next.serverUrl);
+  next.connected = Boolean(next.connected && next.user?.email);
+  await store.set({ [STORAGE_KEYS.CLOUD_SYNC_PROFILE]: next });
+  return next;
+}
+
+/**
+ * RESTRICTED: Call ONLY inside `src/background/service-worker.js`.
+ */
+export async function getSecretCloudSyncToken(storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_SECRET);
+  const tok = raw?.[STORAGE_KEYS.CLOUD_SYNC_SECRET]?.token;
+  return typeof tok === "string" ? tok.trim() : "";
+}
+
+/**
+ * RESTRICTED: Call ONLY inside `src/background/service-worker.js`.
+ */
+export async function setSecretCloudSyncToken(token, storageArea) {
+  const store = resolveStorage(storageArea);
+  const trimmed = typeof token === "string" ? token.trim() : "";
+  if (!trimmed) {
+    await store.set({ [STORAGE_KEYS.CLOUD_SYNC_SECRET]: {} });
+    return;
+  }
+  await store.set({ [STORAGE_KEYS.CLOUD_SYNC_SECRET]: { token: trimmed } });
+}
+
+/**
+ * RESTRICTED: Call ONLY inside `src/background/service-worker.js`.
+ * Merges decrypted cloud API keys into `chrome.storage.local` without clobbering unsynced local keys.
+ */
+export async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
+  if (!cloudKeys || typeof cloudKeys !== "object") return;
+  const store = resolveStorage(storageArea);
+  const current = await getSecretApiKeysMap(store);
+  const merged = { ...current };
+  for (const [providerId, rawKey] of Object.entries(cloudKeys)) {
+    if (typeof rawKey === "string" && rawKey.trim()) {
+      merged[providerId] = rawKey.trim();
+    }
+  }
+  await store.set({ [STORAGE_KEYS.API_KEYS]: merged });
+}
+
+/**
+ * Merges subtitle transcripts pulled from Neon Lakebase Postgres into local cache & history.
+ */
+export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
+  if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) return;
+  const store = resolveStorage(storageArea);
+  const [localCache, localHistory] = await Promise.all([
+    getSubtitleCacheList(store),
+    getHistory(store),
+  ]);
+
+  const byKey = new Map();
+  for (const item of localCache) {
+    if (item?.cacheKey) byKey.set(item.cacheKey, item);
+  }
+
+  for (const sub of cloudSubtitles) {
+    if (!sub?.cacheKey || !Array.isArray(sub.cues) || sub.cues.length === 0) continue;
+    if (!byKey.has(sub.cacheKey)) {
+      byKey.set(sub.cacheKey, {
+        cacheKey: sub.cacheKey,
+        artifactId: sub.artifactId || null,
+        notebookId: sub.notebookId || null,
+        mediaToken: sub.mediaToken || null,
+        title: sub.title || "Video Overview",
+        language: sub.language || "en",
+        provider: sub.provider || "neon-sync",
+        model: sub.model || "",
+        failoverUsed: false,
+        cueCount: sub.cues.length,
+        durationSeconds: null,
+        extractedBytes: sub.extractedBytes || null,
+        originalBytes: sub.originalBytes || null,
+        latencyMs: sub.latencyMs || null,
+        cues: sub.cues,
+        createdAt: sub.savedAt || new Date().toISOString(),
+      });
+    }
+  }
+
+  const nextCache = [...byKey.values()].slice(0, MAX_CACHE_ENTRIES);
+
+  const histByKey = new Map();
+  for (const h of localHistory) {
+    if (h?.cacheKey) histByKey.set(h.cacheKey, h);
+  }
+  for (const item of nextCache) {
+    if (!histByKey.has(item.cacheKey)) {
+      histByKey.set(item.cacheKey, {
+        cacheKey: item.cacheKey,
+        artifactId: item.artifactId,
+        notebookId: item.notebookId,
+        title: item.title,
+        provider: item.provider,
+        model: item.model,
+        failoverUsed: Boolean(item.failoverUsed),
+        cueCount: item.cueCount,
+        extractedBytes: item.extractedBytes,
+        originalBytes: item.originalBytes,
+        latencyMs: item.latencyMs,
+        createdAt: item.createdAt,
+      });
+    }
+  }
+
+  const nextHistory = [...histByKey.values()].slice(0, MAX_HISTORY_ENTRIES);
+  await store.set({
+    [STORAGE_KEYS.SUBTITLE_CACHE]: nextCache,
+    [STORAGE_KEYS.HISTORY]: nextHistory,
+  });
 }
 
 export async function getDebugLogs(storageArea) {

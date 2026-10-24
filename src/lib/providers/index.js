@@ -229,8 +229,10 @@ export async function transcribeWithQueue({
   candidates,
   language = null,
   translateTo = "",
-  timeoutMs = 120000,
-  singleProviderRetryDelayMs = 1100,
+  timeoutMs = 90000,
+  singleProviderRetryDelayMs = 900,
+  chunkConcurrency = 3,
+  onPartialCues = null,
   fetchImpl = globalThis.fetch,
 }) {
   const audioChunks =
@@ -249,7 +251,7 @@ export async function transcribeWithQueue({
 
   if (runnableCandidates.length === 0) {
     throw new Error(
-      "No STT API key configured yet. Click the Subtitles for NotebookLM toolbar icon and paste a free Groq or Mistral API key."
+      "No STT API key configured yet. Click the LM Subs toolbar icon and paste a free Groq or Mistral API key."
     );
   }
 
@@ -280,24 +282,76 @@ export async function transcribeWithQueue({
     }
 
     const runCandidateOnce = async () => {
+      const partGroups = new Array(audioChunks.length).fill(null);
+      let nextIndex = 0;
+      let completedCount = 0;
+      let fatalErr = null;
+
+      const workerCount = Math.max(
+        1,
+        Math.min(Number(chunkConcurrency) || 3, audioChunks.length)
+      );
+
+      async function chunkWorker() {
+        while (!fatalErr) {
+          const i = nextIndex++;
+          if (i >= audioChunks.length) return;
+          const ch = audioChunks[i];
+          try {
+            const partCues = await transcribeSingleChunk({
+              providerId: spec.id,
+              model: resolvedModel,
+              apiKey: candidate.apiKey,
+              customBaseUrl: candidate.customBaseUrl || "",
+              audioBytes: ch.bytes,
+              mimeType: ch.mimeType || "audio/mp4",
+              fileName: ch.fileName || "audio.m4a",
+              language,
+              translateTo,
+              offsetSec: ch.startOffsetSec || 0,
+              durationHintSec: ch.durationSec || null,
+              timeoutMs,
+              fetchImpl,
+            });
+            partGroups[i] = partCues;
+            completedCount += 1;
+
+            if (
+              typeof onPartialCues === "function" &&
+              audioChunks.length > 1 &&
+              completedCount < audioChunks.length
+            ) {
+              const ready = [];
+              for (const g of partGroups) {
+                if (Array.isArray(g)) ready.push(...g);
+              }
+              const sortedPartial = normalizeAndSortCues(ready);
+              if (sortedPartial.length > 0) {
+                onPartialCues({
+                  cues: sortedPartial,
+                  provider: spec.id,
+                  providerName: spec.name,
+                  model: resolvedModel,
+                  completedChunks: completedCount,
+                  totalChunks: audioChunks.length,
+                });
+              }
+            }
+          } catch (workerErr) {
+            fatalErr = workerErr;
+          }
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: workerCount }, () => chunkWorker())
+      );
+
+      if (fatalErr) throw fatalErr;
+
       const merged = [];
-      for (const ch of audioChunks) {
-        const partCues = await transcribeSingleChunk({
-          providerId: spec.id,
-          model: resolvedModel,
-          apiKey: candidate.apiKey,
-          customBaseUrl: candidate.customBaseUrl || "",
-          audioBytes: ch.bytes,
-          mimeType: ch.mimeType || "audio/mp4",
-          fileName: ch.fileName || "audio.m4a",
-          language,
-          translateTo,
-          offsetSec: ch.startOffsetSec || 0,
-          durationHintSec: ch.durationSec || null,
-          timeoutMs,
-          fetchImpl,
-        });
-        merged.push(...partCues);
+      for (const g of partGroups) {
+        if (Array.isArray(g)) merged.push(...g);
       }
       return normalizeAndSortCues(merged);
     };

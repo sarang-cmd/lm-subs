@@ -75,8 +75,10 @@ test("Security invariant: getApiKey & getSecretApiKeysMap are strictly isolated 
     if (allowedFiles.has(file)) continue;
     const code = fs.readFileSync(file, "utf8");
     assert.ok(
-      !/\bgetApiKey\b|\bgetSecretApiKeysMap\b/.test(code),
-      `Security violation: ${file} must never reference getApiKey or getSecretApiKeysMap`
+      !/\bgetApiKey\b|\bgetSecretApiKeysMap\b|\bgetSecretCloudSyncToken\b|\bsetSecretCloudSyncToken\b|\bmergeSecretApiKeysFromCloud\b/.test(
+        code
+      ),
+      `Security violation: ${file} must never reference raw secret API keys or sync tokens`
     );
   }
 });

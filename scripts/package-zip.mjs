@@ -2,7 +2,7 @@
 /**
  * Pure-Node ZIP packager (`scripts/package-zip.mjs`).
  *
- * Packages `extension/` into `docs/releases/notebooklm-subtitles-v<version>.zip`
+ * Packages `extension/` into `docs/releases/lm-subs-v<version>.zip`
  * using Node's built-in `node:zlib` (`deflateRawSync`) with zero external CLI deps.
  */
 
@@ -62,11 +62,11 @@ function createZipBuffer(files) {
 
     const localHeader = Buffer.alloc(30 + nameBytes.length);
     localHeader.writeUInt32LE(0x04034b50, 0);
-    localHeader.writeUInt16LE(20, 4); // version needed
-    localHeader.writeUInt16LE(0x0800, 6); // UTF-8 flag
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0x0800, 6);
     localHeader.writeUInt16LE(method, 8);
-    localHeader.writeUInt16LE(0, 10); // mod time
-    localHeader.writeUInt16LE(0x5548, 12); // mod date (2026-10-24)
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0x5559, 12); // 2026-10-25
     localHeader.writeUInt32LE(sum, 14);
     localHeader.writeUInt32LE(payload.length, 18);
     localHeader.writeUInt32LE(raw.length, 22);
@@ -81,7 +81,7 @@ function createZipBuffer(files) {
     centralHeader.writeUInt16LE(0x0800, 8);
     centralHeader.writeUInt16LE(method, 10);
     centralHeader.writeUInt16LE(0, 12);
-    centralHeader.writeUInt16LE(0x5548, 14);
+    centralHeader.writeUInt16LE(0x5559, 14);
     centralHeader.writeUInt32LE(sum, 16);
     centralHeader.writeUInt32LE(payload.length, 20);
     centralHeader.writeUInt32LE(raw.length, 24);
@@ -114,17 +114,17 @@ function createZipBuffer(files) {
 }
 
 const manifest = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8"));
-const version = manifest.version || "0.1.0";
-const files = collectFiles("extension", "notebooklm-subtitles");
+const version = manifest.version || "0.2.0";
+const files = collectFiles("extension", "lm-subs");
 const zipBuf = createZipBuffer(files);
 
 fs.mkdirSync("docs/releases", { recursive: true });
 for (const existing of fs.readdirSync("docs/releases")) {
-  if (/^notebooklm-subtitles-v.*\.zip$/.test(existing)) {
+  if (/^(?:notebooklm-subtitles|lm-subs)-v.*\.zip$/.test(existing)) {
     fs.unlinkSync(path.join("docs/releases", existing));
   }
 }
-const outFile = `docs/releases/notebooklm-subtitles-v${version}.zip`;
+const outFile = `docs/releases/lm-subs-v${version}.zip`;
 fs.writeFileSync(outFile, zipBuf);
 console.log(
   `Packaged ${files.length} files -> ${outFile} (${(zipBuf.length / 1024).toFixed(1)} KB)`

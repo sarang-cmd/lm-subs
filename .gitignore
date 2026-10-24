@@ -4,3 +4,8 @@ node_modules/
 coverage/
 .playwright-cli/
 Unselected files/
+.neon
+.env
+.env.local
+.env.*.local
+.data/

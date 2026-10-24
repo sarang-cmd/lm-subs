@@ -1,8 +1,8 @@
 /**
- * Full Settings & Provider Failover Queue Page (`src/options/options.js` -> `extension/options.js`).
+ * Full Settings, Neon Cloud Sync & Provider Failover Queue (`src/options/options.js`).
  *
  * Security invariants:
- * - Never accesses raw API keys (`getSavedKeyPresenceMap` returns booleans only).
+ * - Never accesses raw API keys or raw sync bearer tokens (`getSavedKeyPresenceMap` returns booleans only).
  * - Requests optional host permissions directly inside user click gestures.
  */
 
@@ -15,10 +15,12 @@ import {
   clearAllCachedSubtitles,
   clearApiKey,
   deleteCachedSubtitles,
+  getCloudSyncProfile,
   getModelForProvider,
   getSavedKeyPresenceMap,
   getSettings,
   getSubtitleCacheList,
+  normalizeSyncServerUrl,
   saveSettings,
   setApiKey,
 } from "../lib/storage.js";
@@ -42,6 +44,16 @@ async function requestProviderOrigin(providerId, customBaseUrl = "") {
   if (!origin || !chrome.permissions?.request) return true;
   try {
     return await chrome.permissions.request({ origins: [origin] });
+  } catch {
+    return true;
+  }
+}
+
+async function requestSyncServerOrigin(rawUrl) {
+  if (!chrome.permissions?.request) return true;
+  try {
+    const u = new URL(normalizeSyncServerUrl(rawUrl));
+    return await chrome.permissions.request({ origins: [`${u.origin}/*`] });
   } catch {
     return true;
   }
@@ -87,6 +99,25 @@ async function initOptions() {
   const saveBehaviorBtn = document.getElementById("save-behavior-btn");
   const savedPill = document.getElementById("settings-saved-pill");
 
+  // Neon Sync elements
+  const optSyncBadge = document.getElementById("opt-sync-badge");
+  const syncServerUrlInput = document.getElementById("sync-server-url");
+  const syncLoggedOutPanel = document.getElementById("sync-logged-out-panel");
+  const syncLoggedInPanel = document.getElementById("sync-logged-in-panel");
+  const syncEmailInput = document.getElementById("sync-email-input");
+  const syncPasswordInput = document.getElementById("sync-password-input");
+  const syncNameInput = document.getElementById("sync-name-input");
+  const syncSigninBtn = document.getElementById("sync-signin-btn");
+  const syncSignupBtn = document.getElementById("sync-signup-btn");
+  const syncTokenInput = document.getElementById("sync-token-input");
+  const syncTokenBtn = document.getElementById("sync-token-btn");
+  const syncAccountLabel = document.getElementById("sync-account-label");
+  const syncMetaLabel = document.getElementById("sync-meta-label");
+  const syncNowBtn = document.getElementById("sync-now-btn");
+  const syncSignoutBtn = document.getElementById("sync-signout-btn");
+  const syncKeyHints = document.getElementById("sync-key-hints");
+  const syncStatusLine = document.getElementById("sync-status-line");
+
   const cacheEmpty = document.getElementById("cache-empty");
   const cacheTableWrap = document.getElementById("cache-table-wrap");
   const cacheTbody = document.getElementById("cache-tbody");
@@ -105,10 +136,11 @@ async function initOptions() {
   const debugLogViewer = document.getElementById("debug-log-viewer");
   let missingOriginsForOptions = [];
 
-  let [settings, presenceMap, cacheList] = await Promise.all([
+  let [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
     getSettings(),
     getSavedKeyPresenceMap(),
     getSubtitleCacheList(),
+    getCloudSyncProfile(),
   ]);
 
   function flashSavedPill() {
@@ -116,6 +148,75 @@ async function initOptions() {
     setTimeout(() => {
       savedPill.style.display = "none";
     }, 1800);
+  }
+
+  function setSyncFeedback(message, kind = "") {
+    if (!syncStatusLine) return;
+    syncStatusLine.dataset.kind = kind;
+    syncStatusLine.textContent = message;
+  }
+
+  function renderSyncPanel() {
+    if (syncServerUrlInput && syncProfile?.serverUrl) {
+      syncServerUrlInput.value = syncProfile.serverUrl;
+    }
+
+    if (syncProfile?.connected && syncProfile.user?.email) {
+      optSyncBadge.textContent = "Synced · Postgres";
+      optSyncBadge.className = "badge badge-saved";
+      syncLoggedOutPanel.style.display = "none";
+      syncLoggedInPanel.style.display = "block";
+
+      syncAccountLabel.textContent = syncProfile.user.name
+        ? `${syncProfile.user.name} (${syncProfile.user.email})`
+        : syncProfile.user.email;
+
+      const hintEntries = Object.entries(syncProfile.keyHints || {});
+      const lastStr = syncProfile.lastSyncedAt
+        ? new Date(syncProfile.lastSyncedAt).toLocaleTimeString()
+        : "just now";
+      syncMetaLabel.textContent = `${hintEntries.length} encrypted API key(s) · ${
+        syncProfile.subtitleCount || 0
+      } synced transcript(s) · Last sync ${lastStr}`;
+
+      syncKeyHints.textContent = "";
+      for (const [provId, hint] of hintEntries) {
+        const chip = document.createElement("span");
+        chip.className = "key-chip";
+        chip.textContent = `${provId}: ${hint}`;
+        syncKeyHints.appendChild(chip);
+      }
+    } else {
+      optSyncBadge.textContent = "Offline";
+      optSyncBadge.className = "badge";
+      syncLoggedOutPanel.style.display = "block";
+      syncLoggedInPanel.style.display = "none";
+    }
+  }
+
+  async function reloadAllLocalState() {
+    [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
+      getSettings(),
+      getSavedKeyPresenceMap(),
+      getSubtitleCacheList(),
+      getCloudSyncProfile(),
+    ]);
+    populateForm();
+    renderSyncPanel();
+    renderProviderQueue();
+    renderCacheTable();
+  }
+
+  async function triggerAutoSyncIfConnected(extra = {}) {
+    if (!syncProfile?.connected) return;
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.SYNC_NOW,
+      ...extra,
+    });
+    if (res?.ok && res.profile) {
+      syncProfile = res.profile;
+      renderSyncPanel();
+    }
   }
 
   function populateForm() {
@@ -139,9 +240,10 @@ async function initOptions() {
     if (target < 0 || target >= order.length) return;
     const [moved] = order.splice(index, 1);
     order.splice(target, 0, moved);
-    saveSettings({ queueOrder: order, primaryProvider: order[0] }).then((next) => {
+    saveSettings({ queueOrder: order, primaryProvider: order[0] }).then(async (next) => {
       settings = next;
       renderProviderQueue();
+      await triggerAutoSyncIfConnected({ pushOnly: true });
     });
   }
 
@@ -167,7 +269,7 @@ async function initOptions() {
 
       const rank = document.createElement("span");
       rank.className = "provider-rank";
-      rank.textContent = `#${idx + 1}`;
+      rank.textContent = String(idx + 1).padStart(2, "0");
 
       const name = document.createElement("strong");
       name.textContent = spec.name;
@@ -176,13 +278,16 @@ async function initOptions() {
       tierBadge.className = "badge";
       tierBadge.textContent = spec.badge;
 
+      const cloudHint = syncProfile?.keyHints?.[providerId];
       const keyStatus = document.createElement("span");
       keyStatus.className = isSaved ? "badge badge-saved" : "badge";
       keyStatus.textContent = isSaved
         ? spec.id === "custom"
-          ? "Active in queue"
-          : "Key saved"
-        : "Inactive";
+          ? "Active"
+          : cloudHint
+            ? `Synced (${cloudHint})`
+            : "Saved"
+        : "Unset";
 
       leftInfo.append(rank, name, tierBadge, keyStatus);
 
@@ -246,6 +351,7 @@ async function initOptions() {
 
       const modelInput = document.createElement("input");
       modelInput.type = "text";
+      modelInput.className = "mono-input";
       modelInput.value = getModelForProvider(settings, providerId);
       modelInput.title = `Model ID (default: ${spec.defaultModel})`;
       modelInput.placeholder = spec.defaultModel;
@@ -296,6 +402,7 @@ async function initOptions() {
 
         keyInput.value = "";
         presenceMap = await getSavedKeyPresenceMap();
+        await triggerAutoSyncIfConnected();
         renderProviderQueue();
       });
 
@@ -341,6 +448,7 @@ async function initOptions() {
           }
           await clearApiKey(providerId);
           presenceMap = await getSavedKeyPresenceMap();
+          await triggerAutoSyncIfConnected({ deletedProviders: [providerId] });
           renderProviderQueue();
         });
         actions.appendChild(clearBtn);
@@ -379,19 +487,21 @@ async function initOptions() {
       tdProv.appendChild(badge);
 
       const tdSlim = document.createElement("td");
+      tdSlim.style.fontFamily = "var(--mono)";
+      tdSlim.style.fontSize = "11px";
       if (item.originalBytes && item.extractedBytes) {
         const savedPct = Math.max(
           0,
           Math.round((1 - item.extractedBytes / item.originalBytes) * 100)
         );
-        tdSlim.textContent = `${(item.originalBytes / 1048576).toFixed(1)} MB → ${(
-          item.extractedBytes / 1048576
-        ).toFixed(1)} MB (-${savedPct}%)`;
+        const speedStr = item.latencyMs ? ` · ${(item.latencyMs / 1000).toFixed(1)}s` : "";
+        tdSlim.textContent = `${(item.extractedBytes / 1048576).toFixed(1)} MB (-${savedPct}%)${speedStr}`;
       } else {
         tdSlim.textContent = "—";
       }
 
       const tdCues = document.createElement("td");
+      tdCues.style.fontFamily = "var(--mono)";
       tdCues.textContent = String(item.cueCount || item.cues?.length || 0);
 
       const tdActions = document.createElement("td");
@@ -429,6 +539,7 @@ async function initOptions() {
       delBtn.addEventListener("click", async () => {
         await deleteCachedSubtitles(item.cacheKey);
         cacheList = await getSubtitleCacheList();
+        await triggerAutoSyncIfConnected({ deletedCacheKeys: [item.cacheKey] });
         renderCacheTable();
       });
 
@@ -441,12 +552,130 @@ async function initOptions() {
   }
 
   populateForm();
+  renderSyncPanel();
   renderProviderQueue();
   renderCacheTable();
+
+  // Neon Account & Cloud Sync event handlers
+  syncSignupBtn?.addEventListener("click", async () => {
+    const serverUrl = syncServerUrlInput.value.trim();
+    const email = syncEmailInput.value.trim();
+    const password = syncPasswordInput.value;
+    const name = syncNameInput.value.trim();
+
+    if (!email || password.length < 8) {
+      setSyncFeedback("Enter a valid email and at least 8-character password.", "err");
+      return;
+    }
+
+    await requestSyncServerOrigin(serverUrl);
+    syncSignupBtn.disabled = true;
+    setSyncFeedback("Creating Neon account & encrypting keys…", "");
+
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.SYNC_SIGNUP,
+      serverUrl,
+      email,
+      password,
+      name,
+    });
+
+    syncSignupBtn.disabled = false;
+    if (res?.ok) {
+      syncPasswordInput.value = "";
+      await reloadAllLocalState();
+      setSyncFeedback("Account created & synced with Neon Lakebase Postgres.", "ok");
+    } else {
+      setSyncFeedback(res?.error || "Account creation failed.", "err");
+    }
+  });
+
+  syncSigninBtn?.addEventListener("click", async () => {
+    const serverUrl = syncServerUrlInput.value.trim();
+    const email = syncEmailInput.value.trim();
+    const password = syncPasswordInput.value;
+
+    if (!email || !password) {
+      setSyncFeedback("Enter your email and password.", "err");
+      return;
+    }
+
+    await requestSyncServerOrigin(serverUrl);
+    syncSigninBtn.disabled = true;
+    setSyncFeedback("Signing in & pulling encrypted API keys from Neon…", "");
+
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.SYNC_SIGNIN,
+      serverUrl,
+      email,
+      password,
+    });
+
+    syncSigninBtn.disabled = false;
+    if (res?.ok) {
+      syncPasswordInput.value = "";
+      await reloadAllLocalState();
+      setSyncFeedback("Signed in & synchronized all settings, API keys, and transcripts.", "ok");
+    } else {
+      setSyncFeedback(res?.error || "Sign-in failed.", "err");
+    }
+  });
+
+  syncTokenBtn?.addEventListener("click", async () => {
+    const serverUrl = syncServerUrlInput.value.trim();
+    const token = syncTokenInput.value.trim();
+    if (!token) {
+      setSyncFeedback("Paste an Extension Sync Token (lms_...) or Neon Auth JWT.", "err");
+      return;
+    }
+
+    await requestSyncServerOrigin(serverUrl);
+    syncTokenBtn.disabled = true;
+    setSyncFeedback("Verifying token & pulling cloud vault…", "");
+
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.SYNC_SIGNIN,
+      serverUrl,
+      token,
+    });
+
+    syncTokenBtn.disabled = false;
+    if (res?.ok) {
+      syncTokenInput.value = "";
+      await reloadAllLocalState();
+      setSyncFeedback("Token verified & synced with Neon Postgres.", "ok");
+    } else {
+      setSyncFeedback(res?.error || "Token verification failed.", "err");
+    }
+  });
+
+  syncNowBtn?.addEventListener("click", async () => {
+    syncNowBtn.disabled = true;
+    syncNowBtn.textContent = "Syncing…";
+    setSyncFeedback("Running bidirectional Postgres sync…", "");
+
+    const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
+    syncNowBtn.disabled = false;
+    syncNowBtn.textContent = "Sync Now";
+
+    if (res?.ok) {
+      await reloadAllLocalState();
+      setSyncFeedback("All API keys, preferences, and subtitles synced.", "ok");
+    } else {
+      setSyncFeedback(res?.error || "Sync failed.", "err");
+    }
+  });
+
+  syncSignoutBtn?.addEventListener("click", async () => {
+    await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_SIGNOUT });
+    await reloadAllLocalState();
+    setSyncFeedback("Signed out of Neon Cloud Sync. Local keys remain intact.", "");
+  });
 
   optEnabled.addEventListener("change", async () => {
     settings = await saveSettings({ enabled: optEnabled.checked });
     flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
   });
 
   saveBehaviorBtn.addEventListener("click", async () => {
@@ -466,6 +695,7 @@ async function initOptions() {
       excludePatterns: patterns,
     });
     flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
   });
 
   clearCacheBtn.addEventListener("click", async () => {
@@ -484,6 +714,7 @@ async function initOptions() {
     }
     settings = await saveSettings({ rpcOverrides });
     flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
   });
 
   async function refreshDiagnosticsPanel() {
@@ -500,7 +731,7 @@ async function initOptions() {
     missingOriginsForOptions = report.missingOrigins || [];
     if (optPermBadge) {
       if (report.permissionsOk) {
-        optPermBadge.textContent = "Google CDN Perms: OK";
+        optPermBadge.textContent = "Google CDN: OK";
         optPermBadge.className = "badge badge-saved";
         if (optGrantPermsBtn) optGrantPermsBtn.style.display = "none";
       } else {
@@ -540,12 +771,12 @@ async function initOptions() {
     const text = report?.reportText || "";
     try {
       await navigator.clipboard.writeText(text);
-      optCopyDebugBtn.textContent = "Copied!";
+      optCopyDebugBtn.textContent = "Copied";
     } catch {
-      optCopyDebugBtn.textContent = "Copy Failed";
+      optCopyDebugBtn.textContent = "Failed";
     }
     setTimeout(() => {
-      optCopyDebugBtn.textContent = "Copy Redacted Debug Report";
+      optCopyDebugBtn.textContent = "Copy Redacted Report";
     }, 1600);
   });
 

@@ -92,7 +92,7 @@
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
     DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
-    TRACK_LABEL: "NotebookLM Auto-Subtitles"
+    TRACK_LABEL: "LM Subs"
   });
   var PAGE_MESSAGE = Object.freeze({
     BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
@@ -112,12 +112,18 @@
     SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
     TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
+    SUBTITLES_PARTIAL: "NOTEBOOKLM_SUBTITLES_PARTIAL",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
     TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
     APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
     GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
-    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
+    SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
+    SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+    SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
+    SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
+    SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
   });
 
   // src/lib/providers/registry.js
@@ -356,7 +362,9 @@
     SUBTITLE_CACHE: "subtitleCache",
     HISTORY: "subtitleHistory",
     LAST_STATUS: "lastStatus",
-    DEBUG_LOGS: "debugLogs"
+    DEBUG_LOGS: "debugLogs",
+    CLOUD_SYNC_PROFILE: "cloudSyncProfile",
+    CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
@@ -508,6 +516,51 @@
     const raw = await store.get(STORAGE_KEYS.LAST_STATUS);
     return raw?.[STORAGE_KEYS.LAST_STATUS] || null;
   }
+  var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
+    serverUrl: "http://localhost:4173",
+    connected: false,
+    autoSync: true,
+    user: null,
+    keyHints: {},
+    subtitleCount: 0,
+    lastSyncedAt: null
+  });
+  function normalizeSyncServerUrl(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl.trim()) {
+      return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+    }
+    const trimmed = rawUrl.trim().replace(/\/+$/, "");
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+      }
+      return `${parsed.origin}${parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/api$/, "")}`;
+    } catch {
+      return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+    }
+  }
+  async function getCloudSyncProfile(storageArea) {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
+    const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
+    if (!saved || typeof saved !== "object") {
+      return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+    }
+    return {
+      serverUrl: normalizeSyncServerUrl(saved.serverUrl),
+      connected: Boolean(saved.connected && saved.user?.email),
+      autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+      user: saved.user && typeof saved.user === "object" ? {
+        id: String(saved.user.id || ""),
+        email: String(saved.user.email || ""),
+        name: String(saved.user.name || "")
+      } : null,
+      keyHints: saved.keyHints && typeof saved.keyHints === "object" ? { ...saved.keyHints } : {},
+      subtitleCount: Number(saved.subtitleCount) || 0,
+      lastSyncedAt: saved.lastSyncedAt || null
+    };
+  }
 
   // src/lib/subtitles.js
   var DEFAULT_MAX_LINE_CHARS = 42;
@@ -630,39 +683,39 @@ ${body}`;
     const bg = doc.createElementNS(SVG_NS, "rect");
     bg.setAttribute("width", "32");
     bg.setAttribute("height", "32");
-    bg.setAttribute("rx", "7");
-    bg.setAttribute("fill", "#14171A");
+    bg.setAttribute("rx", "4");
+    bg.setAttribute("fill", "#161615");
     const border = doc.createElementNS(SVG_NS, "rect");
     border.setAttribute("x", "0.5");
     border.setAttribute("y", "0.5");
     border.setAttribute("width", "31");
     border.setAttribute("height", "31");
-    border.setAttribute("rx", "6.5");
-    border.setAttribute("stroke", "#2C323B");
+    border.setAttribute("rx", "3.5");
+    border.setAttribute("stroke", "#2E2D2A");
     const play = doc.createElementNS(SVG_NS, "path");
-    play.setAttribute("d", "M13 8.5L20.5 13L13 17.5V8.5Z");
-    play.setAttribute("fill", "#F4F4F0");
+    play.setAttribute("d", "M12.5 8L20.5 12.75L12.5 17.5V8Z");
+    play.setAttribute("fill", "#F4F2ED");
     const bar1 = doc.createElementNS(SVG_NS, "rect");
-    bar1.setAttribute("x", "6");
-    bar1.setAttribute("y", "21");
-    bar1.setAttribute("width", "12");
+    bar1.setAttribute("x", "5.5");
+    bar1.setAttribute("y", "21.5");
+    bar1.setAttribute("width", "12.5");
     bar1.setAttribute("height", "2.5");
-    bar1.setAttribute("rx", "1.25");
-    bar1.setAttribute("fill", "#22C55E");
+    bar1.setAttribute("rx", "0.75");
+    bar1.setAttribute("fill", "#E96A26");
     const bar2 = doc.createElementNS(SVG_NS, "rect");
     bar2.setAttribute("x", "20");
-    bar2.setAttribute("y", "21");
-    bar2.setAttribute("width", "6");
+    bar2.setAttribute("y", "21.5");
+    bar2.setAttribute("width", "6.5");
     bar2.setAttribute("height", "2.5");
-    bar2.setAttribute("rx", "1.25");
-    bar2.setAttribute("fill", "#F4F4F0");
+    bar2.setAttribute("rx", "0.75");
+    bar2.setAttribute("fill", "#F4F2ED");
     const bar3 = doc.createElementNS(SVG_NS, "rect");
-    bar3.setAttribute("x", "8.5");
-    bar3.setAttribute("y", "25");
-    bar3.setAttribute("width", "15");
-    bar3.setAttribute("height", "2.2");
-    bar3.setAttribute("rx", "1.1");
-    bar3.setAttribute("fill", "#9CA3AF");
+    bar3.setAttribute("x", "5.5");
+    bar3.setAttribute("y", "25.5");
+    bar3.setAttribute("width", "16");
+    bar3.setAttribute("height", "2");
+    bar3.setAttribute("rx", "0.75");
+    bar3.setAttribute("fill", "#8C8980");
     svg.append(bg, border, play, bar1, bar2, bar3);
     return svg;
   }
@@ -718,6 +771,10 @@ ${body}`;
     const saveKeyBtn = document.getElementById("save-key-btn");
     const testKeyBtn = document.getElementById("test-key-btn");
     const keyFeedback = document.getElementById("key-feedback");
+    const popupSyncBadge = document.getElementById("popup-sync-badge");
+    const popupSyncSummary = document.getElementById("popup-sync-summary");
+    const popupSyncNowBtn = document.getElementById("popup-sync-now-btn");
+    const popupOpenSyncBtn = document.getElementById("popup-open-sync-btn");
     const tabBadge = document.getElementById("tab-badge");
     const tabDescription = document.getElementById("tab-description");
     const generateNowBtn = document.getElementById("generate-now-btn");
@@ -737,11 +794,12 @@ ${body}`;
       opt.textContent = `${spec.name} \u2014 ${spec.badge}`;
       providerSelect.appendChild(opt);
     }
-    let [settings, presenceMap, lastStatus, cacheList] = await Promise.all([
+    let [settings, presenceMap, lastStatus, cacheList, syncProfile] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getLastStatus(),
-      getSubtitleCacheList()
+      getSubtitleCacheList(),
+      getCloudSyncProfile()
     ]);
     let activeTabId = null;
     let activeTabDiagnostics = null;
@@ -772,9 +830,9 @@ ${body}`;
         (id) => id === "custom" ? settings.customEnabled : presenceMap[id]
       );
       if (activeIds.length === 0) {
-        queueSummaryText.textContent = "Add Groq or Mistral key below";
+        queueSummaryText.textContent = "Add Groq or Mistral key";
       } else {
-        queueSummaryText.textContent = activeIds.slice(0, 3).map((id, i) => `#${i + 1} ${getProviderSpec(id).name.split(" ")[0]}`).join(" \u2192 ");
+        queueSummaryText.textContent = activeIds.slice(0, 3).map((id, i) => `#${i + 1} ${getProviderSpec(id).name.split(" ")[0]}`).join(" -> ");
       }
     }
     function renderSelectedProvider() {
@@ -788,7 +846,7 @@ ${body}`;
       customUrlInput.value = settings.customBaseUrl || "";
       const isConfigured = spec.id === "custom" ? settings.customEnabled : Boolean(presenceMap[spec.id]);
       if (isConfigured) {
-        keyPresenceBadge.textContent = spec.id === "custom" ? "Enabled" : "Key saved";
+        keyPresenceBadge.textContent = spec.id === "custom" ? "Enabled" : "Saved";
         keyPresenceBadge.className = "badge badge-saved";
       } else {
         keyPresenceBadge.textContent = "Not set";
@@ -796,6 +854,23 @@ ${body}`;
       }
       keyFeedback.textContent = "";
       keyFeedback.dataset.kind = "";
+    }
+    function renderSyncStatus() {
+      if (!popupSyncBadge || !popupSyncSummary) return;
+      if (syncProfile?.connected && syncProfile.user?.email) {
+        popupSyncBadge.textContent = "Synced";
+        popupSyncBadge.className = "badge badge-saved";
+        const keyCount = Object.keys(syncProfile.keyHints || {}).length;
+        popupSyncSummary.textContent = `${syncProfile.user.email} \xB7 ${keyCount} key(s) \xB7 ${syncProfile.subtitleCount || 0} transcript(s)`;
+        if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
+        if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Manage Account";
+      } else {
+        popupSyncBadge.textContent = "Offline";
+        popupSyncBadge.className = "badge";
+        popupSyncSummary.textContent = "Create a Neon account to sync encrypted API keys & captions across browsers.";
+        if (popupSyncNowBtn) popupSyncNowBtn.style.display = "none";
+        if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign In / Create Account";
+      }
     }
     function renderLastStatus() {
       if (!lastStatus) {
@@ -807,8 +882,9 @@ ${body}`;
       if (lastStatus.state === "success") {
         lastStatusBadge.textContent = lastStatus.failoverUsed ? `${lastStatus.provider} (failover)` : lastStatus.provider || "Ready";
         lastStatusBadge.className = "badge badge-saved";
-        const ratioPart = lastStatus.originalBytes && lastStatus.extractedBytes ? ` \xB7 ${(lastStatus.originalBytes / 1048576).toFixed(1)} MB \u2192 ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB` : "";
-        lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${ratioPart}`;
+        const speedPart = lastStatus.latencyMs ? ` \xB7 ${(lastStatus.latencyMs / 1e3).toFixed(1)}s` : "";
+        const ratioPart = lastStatus.originalBytes && lastStatus.extractedBytes ? ` \xB7 ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio` : "";
+        lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${speedPart}${ratioPart}`;
       } else if (lastStatus.state === "working") {
         lastStatusBadge.textContent = "Working";
         lastStatusBadge.className = "badge badge-warn";
@@ -834,7 +910,7 @@ ${body}`;
         host = "";
       }
       if (!tab?.id || !NOTEBOOKLM_HOSTS.includes(host)) {
-        tabBadge.textContent = "Not on NotebookLM";
+        tabBadge.textContent = "Standby";
         tabBadge.className = "badge";
         generateNowBtn.disabled = true;
         return;
@@ -845,9 +921,9 @@ ${body}`;
         { type: RUNTIME_MESSAGE.GET_ACTIVE_TAB_STATE },
         (state) => {
           if (chrome.runtime.lastError || !state?.ok) {
-            tabBadge.textContent = "NotebookLM open";
+            tabBadge.textContent = "NotebookLM";
             tabBadge.className = "badge";
-            tabDescription.textContent = "Reload the NotebookLM tab once if you just installed the extension.";
+            tabDescription.textContent = "Reload the NotebookLM tab once if you just installed LM Subs.";
             generateNowBtn.disabled = false;
             return;
           }
@@ -855,19 +931,19 @@ ${body}`;
             activeTabDiagnostics = state.diagnostics;
           }
           if (state.hasVideoElement || state.readyArtifactCount > 0) {
-            tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Video ready`;
+            tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Ready`;
             tabBadge.className = "badge badge-saved";
-            tabDescription.textContent = state.activeArtifact?.title ? `Ready: "${state.activeArtifact.title}"` : "Video Overview detected and ready for captioning.";
+            tabDescription.textContent = state.activeArtifact?.title ? `Video: "${state.activeArtifact.title}"` : "Video Overview ready for instant captioning.";
             generateNowBtn.disabled = false;
           } else if (state.generatingCount > 0) {
-            tabBadge.textContent = "Rendering video\u2026";
+            tabBadge.textContent = "Rendering";
             tabBadge.className = "badge badge-warn";
-            tabDescription.textContent = "Video Overview is currently rendering \u2014 subtitles will start automatically.";
+            tabDescription.textContent = "Studio is rendering the Video Overview \u2014 captions start automatically.";
             generateNowBtn.disabled = true;
           } else {
-            tabBadge.textContent = "No video yet";
+            tabBadge.textContent = "Idle";
             tabBadge.className = "badge";
-            tabDescription.textContent = "Click Video Overview in NotebookLM Studio to generate a captioned overview.";
+            tabDescription.textContent = "Open a Video Overview in NotebookLM Studio to generate captions.";
             generateNowBtn.disabled = false;
           }
         }
@@ -878,6 +954,7 @@ ${body}`;
     providerSelect.value = settings.primaryProvider || "groq";
     renderQueueSummary();
     renderSelectedProvider();
+    renderSyncStatus();
     renderLastStatus();
     inspectGoogleHostPermissions();
     inspectActiveTab();
@@ -908,14 +985,14 @@ ${body}`;
       const text = report?.reportText || "No diagnostic data available.";
       try {
         await navigator.clipboard.writeText(text);
-        copyDebugBtn.textContent = "Copied Report!";
+        copyDebugBtn.textContent = "Copied";
       } catch {
-        copyDebugBtn.textContent = "Copy Failed";
+        copyDebugBtn.textContent = "Failed";
       }
       setTimeout(() => {
         copyDebugBtn.disabled = false;
-        copyDebugBtn.textContent = "Copy Debug Report";
-      }, 1800);
+        copyDebugBtn.textContent = "Report";
+      }, 1600);
     });
     providerSelect.addEventListener("change", async () => {
       const nextProvider = providerSelect.value;
@@ -955,7 +1032,15 @@ ${body}`;
       renderQueueSummary();
       renderSelectedProvider();
       keyFeedback.dataset.kind = "ok";
-      keyFeedback.textContent = `${spec.name} saved and active in queue.`;
+      keyFeedback.textContent = syncProfile?.connected ? `${spec.name} saved locally & syncing to Neon\u2026` : `${spec.name} saved and active in queue.`;
+      if (syncProfile?.connected) {
+        const syncRes = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
+        if (syncRes?.ok && syncRes.profile) {
+          syncProfile = syncRes.profile;
+          renderSyncStatus();
+          keyFeedback.textContent = `${spec.name} saved & encrypted in Neon Postgres.`;
+        }
+      }
     });
     testKeyBtn.addEventListener("click", async () => {
       const providerId = providerSelect.value;
@@ -973,10 +1058,31 @@ ${body}`;
       testKeyBtn.disabled = false;
       if (res?.ok) {
         keyFeedback.dataset.kind = "ok";
-        keyFeedback.textContent = `Connected to ${res.providerName} (${res.latencyMs} ms).`;
+        keyFeedback.textContent = `Verified ${res.providerName} (${res.latencyMs} ms).`;
       } else {
         keyFeedback.dataset.kind = "err";
         keyFeedback.textContent = res?.error || "Connection test failed.";
+      }
+    });
+    popupSyncNowBtn?.addEventListener("click", async () => {
+      popupSyncNowBtn.disabled = true;
+      popupSyncNowBtn.textContent = "Syncing\u2026";
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
+      popupSyncNowBtn.disabled = false;
+      popupSyncNowBtn.textContent = "Sync Now";
+      if (res?.ok && res.profile) {
+        syncProfile = res.profile;
+        [settings, presenceMap, cacheList] = await Promise.all([
+          getSettings(),
+          getSavedKeyPresenceMap(),
+          getSubtitleCacheList()
+        ]);
+        renderQueueSummary();
+        renderSelectedProvider();
+        renderSyncStatus();
+        renderLastStatus();
+      } else if (res?.error) {
+        popupSyncSummary.textContent = res.error;
       }
     });
     generateNowBtn.addEventListener("click", () => {
@@ -998,6 +1104,7 @@ ${body}`;
     const openOptions = () => chrome.runtime.openOptionsPage();
     openQueueBtn.addEventListener("click", openOptions);
     openOptionsBtn.addEventListener("click", openOptions);
+    popupOpenSyncBtn?.addEventListener("click", openOptions);
   }
   document.addEventListener("DOMContentLoaded", initPopup);
 })();

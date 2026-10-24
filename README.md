@@ -1,260 +1,186 @@
 <div align="center">
 
-<img src="docs/assets/logo.svg" width="76" height="76" alt="Subtitles for NotebookLM logo" />
+<img src="docs/assets/logo.svg" width="84" height="84" alt="LM Subs Logo" />
 
-# Subtitles for NotebookLM
+# LM Subs
 
-**Automatic synchronized closed captions & `.SRT`/`.VTT` export for Google NotebookLM Video Overviews.**  
-Client-side ISO-BMFF audio extraction (`-92%` payload size) · 12 BYOK Speech-to-Text providers · Zero backend · Zero telemetry.
+**Sub-5-second synchronized captions, `.SRT`/`.VTT` export, and encrypted Neon Postgres sync for Google NotebookLM Video Overviews.**
 
-[![Chrome Manifest V3](docs/assets/badges/manifest-v3.svg)](#architecture-deep-dive)
-[![12 BYOK STT Providers](docs/assets/badges/providers.svg)](#supported-byok-providers--free-tiers)
-[![-92% .m4a Audio Extraction](docs/assets/badges/audio-extract.svg)](#3-client-side-iso-bmff-audio-track-remuxing-mp4--m4a)
-[![25 / 25 Tests Passing](docs/assets/badges/tests.svg)](#development--testing)
-[![Zero Telemetry](docs/assets/badges/telemetry.svg)](docs/PRIVACY_POLICY.md)
-[![MIT License](docs/assets/badges/license.svg)](LICENSE)
+[![Manifest V3](docs/assets/badges/manifest-v3.svg)](#security--privacy-architecture)
+[![Audio Fast-Path](docs/assets/badges/audio-extract.svg)](#how-v020-cut-latency-from-5-minutes-to-32-seconds)
+[![12 BYOK Providers](docs/assets/badges/providers.svg)](#supported-byok-stt-providers-12)
+[![Neon Sync](docs/assets/badges/neon-sync.svg)](#neon-account--encrypted-postgres-sync)
+[![Tests](docs/assets/badges/tests.svg)](#development--testing)
+[![License: MIT](docs/assets/badges/license.svg)](LICENSE)
+
+[**Download `lm-subs-v0.2.0.zip`**](docs/releases/lm-subs-v0.2.0.zip) · [**Web App & Neon Cloud Sync Console (`docs/`)**](docs/index.html) · [**Architecture**](#system-architecture) · [**Setup Guide**](#quick-start)
 
 <br />
 
-<img src="docs/assets/banner-social-1280x640.png" width="880" alt="Subtitles for NotebookLM overview banner" />
+<img src="docs/assets/banner-social-1280x640.png" width="100%" alt="LM Subs v0.2.0 — Fast NotebookLM Video Overview Subtitles & Neon Postgres Sync" />
 
 </div>
 
 ---
 
-## Why This Exists
+## Why LM Subs?
 
-Google NotebookLM (`notebooklm.google.com` and Workspace `notebook.google.com`) generates narrated **Studio Video Overviews**, but its built-in `<video>` player ships **without closed captions, transcripts, or `.SRT`/`.VTT` export**.
+Google NotebookLM generates narrated **Studio Video Overviews**, but its built-in player ships **without closed captions, `.SRT`/`.VTT` export, or cross-device transcript persistence**.
 
-Naive captioning approaches run into three hard walls:
-1. **Free-tier upload caps**: A 5-minute 720p NotebookLM Video Overview MP4 weighs **50–80 MB**, immediately exceeding Groq's **25 MB** Whisper upload limit.
-2. **WASM bundle bloat**: Shipping `ffmpeg.wasm` inside a browser extension adds ~30 MB of binary weight and hits strict Manifest V3 Content-Security-Policy restrictions.
-3. **Single-provider rate limits**: Relying on a single free API key stalls when hitting per-minute RPM or audio-seconds-per-hour quotas.
+Earlier naive approaches either upload 80–120 MB HD `.mp4` videos or decode compressed audio into 40+ MB of uncompressed PCM `.wav` chunks — turning a 3-minute Video Overview into a **5-minute wait**.
 
-**Subtitles for NotebookLM** solves all three cleanly inside a **78 KB** zero-dependency Manifest V3 package:
-- **Extracts only the audio track locally in pure JavaScript** (`extractAudioTrackFromMp4`), stripping H.264 video frames and repacking the AAC `soun` track into a **~4 MB `.m4a`** in ~12 milliseconds (`-92%` bandwidth).
-- **Supports 12 BYOK Speech-to-Text & Multimodal Audio providers** in a **reorderable priority failover queue** (e.g., `#1 Groq -> #2 Mistral -> #3 Gemini`), failing over automatically on HTTP `429` or `5xx` without re-downloading the video.
-- **Injects synchronized captions into the NotebookLM player** via an isolated closed `ShadowRoot` overlay (`[CC]`, `A-/A+`, `±0.25s` sync nudge, `.SRT`/`.VTT` export, external subtitle import) paired with a native `VTTCue` track for **OS Picture-in-Picture**.
+**LM Subs (`v0.2.0`)** reduces end-to-end subtitle latency from **~5 minutes down to ~3.2 seconds** while adding **optional Neon Lakebase Postgres account sync** (including **AES-256-GCM per-user encrypted API keys**) and a clean, zero-clutter **Dieter Rams / Braun** industrial interface:
 
----
-
-## Screenshots
-
-| In-Player Synchronized Captions & HUD | Audio Slimming & Queue Failover |
-| --- | --- |
-| ![In-player captions](docs/assets/screenshots/01-player-subtitles.png) | ![Audio extraction & failover](docs/assets/screenshots/02-audio-extraction-failover.png) |
-| **Toolbar Popup & 1-Click Key Test** | **12-Provider Queue & Export Vault** |
-| ![Toolbar popup](docs/assets/screenshots/03-toolbar-popup.png) | ![Full settings & queue](docs/assets/screenshots/04-settings-queue.png) |
+| Metric | Naive Video / WAV Upload (`v0.1.x`) | LM Subs (`v0.2.0`) |
+| :--- | :--- | :--- |
+| **Media payload** | 50–120 MB `.mp4` + 42 MB IPC `.wav` | **3–6 MB `=m140` AAC** (or HTTP `206` `soun` byte ranges) |
+| **Audio prep overhead** | 45–90 s full download + WAV inflation | **0 ms** direct `=m140` passthrough (`<1.2 s` Range remux) |
+| **Whisper timestamp mode** | Slow DTW `"word"` cross-attention | **`"segment"`-only (~200x real-time)** + smart clause splitter |
+| **Long-video chunking** | Sequential 1-by-1 upload | **3x concurrent workers + live `SUBTITLES_PARTIAL` cues** |
+| **Repeat / 2nd-device open** | Re-downloads & re-transcribes | **~50 ms Neon Postgres cache hit** (`0` media bytes fetched) |
 
 ---
 
-## 60-Second Installation
+## Visual Tour (`v0.2.0` Braun Specification UI)
 
-### Option A — Prebuilt Release `.zip` (No Build Step)
+### 01 · In-Player Broadcast Captions & Control Bar
+Synchronized two-line broadcast captions (`CC`, `A-`/`A+`, `±0.25s` offset, `.SRT`/`.VTT` export & import, `Regen`) mounted directly inside NotebookLM's `<video>` container and Shadow DOM `Lot` dialogs.
 
-1. Download **[`notebooklm-subtitles-v0.1.2.zip`](docs/releases/notebooklm-subtitles-v0.1.2.zip)** and unzip it.
-2. Open `chrome://extensions` (works in Chrome, Brave, Arc, Edge, Vivaldi) and toggle **Developer mode** ON.
-3. Click **Load unpacked** and select the extracted `notebooklm-subtitles` folder.
-4. Click the **Subtitles for NotebookLM** toolbar icon and paste a free **[Groq](https://console.groq.com/keys)** and/or **[Mistral](https://console.mistral.ai/api-keys)** API key (click **Queue** to arrange failover priority).
-5. Open any notebook on `notebooklm.google.com` or `notebook.google.com` and generate or play a **Video Overview**.
+<p align="center">
+  <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="In-Player Subtitles & Control Bar on Google NotebookLM" />
+</p>
 
-### Option B — Build from Source
+### 02 · Sub-5-Second Audio Pipeline & Automatic Queue Failover
+Probes Google's ~4 MB `=m140` audio-only stream first (`0 ms` IPC overhead), falls back to parallel `HTTP 206` Range `soun` chunk extraction on large `.mp4` streams, fails over across your 12-provider queue on `HTTP 429`, and syncs to Neon Postgres.
+
+<p align="center">
+  <img src="docs/assets/screenshots/02-audio-extraction-failover.png" width="100%" alt="Direct =m140 & HTTP 206 Audio Extraction + Queue Failover + Neon Sync" />
+</p>
+
+### 03 · Toolbar Popup & One-Click Neon Cloud Sync
+Paste a free Groq or Mistral key, check Neon Cloud Sync status, trigger subtitles on the active NotebookLM tab, or export `.SRT` transcripts in two clicks.
+
+<p align="center">
+  <img src="docs/assets/screenshots/03-toolbar-popup.png" width="100%" alt="LM Subs Toolbar Popup" />
+</p>
+
+### 04 · Full Settings Ledger, Priority Queue & Encrypted Key Vault
+Sign in to Neon Lakebase Postgres (`falling-cherry-16443194`), reorder all 12 STT providers, inspect masked key hints (`gsk_••••9xQ2`), and tune caption preferences.
+
+<p align="center">
+  <img src="docs/assets/screenshots/04-settings-queue.png" width="100%" alt="LM Subs Settings & Encrypted Key Queue" />
+</p>
+
+---
+
+## How `v0.2.0` Cut Latency from 5 Minutes to ~3.2 Seconds
+
+1. **Zero-Decode Pure-Audio `=m140` Fast-Path (`0 ms` IPC)**
+   Google's FIFE `=m140` endpoint serves a ~3–6 MB fragmented DASH `audio/mp4` stream (`mvex`/`moof` boxes with zero `stco` offsets). Instead of falling back to `OfflineAudioContext` and inflating 5 MB of AAC into **42 MB of uncompressed PCM `.wav`**, `service-worker.js` inspects `inspectMp4Tracks()` + `Content-Type` and forwards pure-audio payloads <=24 MB straight to your STT provider untouched.
+2. **Parallel `HTTP 206 Partial Content` Audio Byte-Range Extraction (`extractAudioViaHttpRange`)**
+   When a CDN edge only serves a muxed 60–120 MB `=m22`/`=m18` `video/mp4`, LM Subs aborts the full-body download immediately after reading headers, probes the head/tail `moov` atom via `Range: bytes=...`, coalesces `soun` chunk offsets, and downloads **only the 3–6 MB AAC audio slices** over 6 parallel `HTTP 206` streams — skipping >93% of H.264 video frames over the wire.
+3. **`"segment"`-Only Whisper Timestamps (~200x Real-Time)**
+   Requesting `timestamp_granularities[] = "word"` on Whisper endpoints forces expensive server-side Dynamic Time Warping (DTW) cross-attention alignment. Switching OpenAI/Groq/Local Whisper to `"segment"`-only and balancing lines client-side via `cuesFromSegments()` cuts STT API latency by 4–8x.
+4. **3x Concurrent Chunk Workers + Live Progressive Cues (`SUBTITLES_PARTIAL`)**
+   Long recordings (>24 MB) transcribe 3 audio chunks concurrently (`chunkConcurrency = 3`) and push `SUBTITLES_PARTIAL` cues to the `<video>` overlay the instant chunk 1 finishes — captions start playing while the back half of a 45-minute overview is still transcribing.
+5. **Pre-Download Neon Postgres Cache Hit (~50 ms)**
+   Before touching Google's CDN at all, `service-worker.js` checks local storage and `GET /api/sync/subtitle?cacheKey=...` on Neon Postgres — returning cached captions in a single lightweight JSON round-trip across any signed-in browser.
+
+---
+
+## System Architecture
+
+<p align="center">
+  <img src="docs/assets/architecture.svg" width="100%" alt="LM Subs 4-Plane MV3 + Neon Lakebase Postgres Architecture" />
+</p>
+
+- **MAIN World (`src/content/page-hook.js` at `document_start`)**: Passively hooks `LabsTailwindUi` / `CloudNotebookLmUi` `batchexecute` RPCs (`R7cb6c`, `gArtLc`), replays SSR `AF_initDataCallback` hydrated payloads, and pierces Shadow DOM (`Lot` modal dialogs) without touching credentials.
+- **ISOLATED World (`src/content/content.js` + `player-overlay.js`)**: Attaches both a native `<track kind="subtitles" label="LM Subs">` and a crisp custom two-line broadcast caption overlay + `CC` control bar, handling `SUBTITLES_PARTIAL` live cue updates.
+- **MV3 Service Worker (`src/background/service-worker.js`)**: Sole holder of raw `secretApiKeys` and `cloudSyncSecret` bearer tokens in `chrome.storage.local`. Runs `=m140` / `HTTP 206` Range audio extraction, 12-provider failover queue, and encrypted Neon sync.
+- **Neon Lakebase Postgres + Web Console (`server/`, `db/schema.sql`, `docs/`)**: Hono REST API (`api/[...route].js` on Vercel / `server/neon-function.js` on Neon Functions / `serve-docs.mjs` locally) backed by PostgreSQL tables `lmsubs_users`, `lmsubs_sessions`, `lmsubs_user_settings`, `lmsubs_user_api_keys`, and `lmsubs_subtitles`.
+
+---
+
+## Neon Account & Encrypted Postgres Sync
+
+LM Subs ships with first-class **Neon** (`@neon/config/v1` IaC + Lakebase Postgres + Neon Managed Better Auth JWKS) configured for project `falling-cherry-16443194` (`org-snowy-moon-42934547`, branch `production`).
+
+### How API Keys Are Protected in Postgres
+- **Per-User Key Derivation (`HKDF-SHA256`)**: `server/crypto.js` derives a distinct 256-bit AES key per `user_id` from `LM_SUBS_ENCRYPTION_SECRET` (or `DATABASE_URL` fallback).
+- **Authenticated Encryption (`AES-256-GCM` + AAD)**: Every provider API key is encrypted with a fresh random 96-bit IV, verified by a 128-bit GCM authentication tag, and cryptographically bound to `${userId}:${providerId}` as Additional Authenticated Data (AAD) — preventing cross-user ciphertext transplantation even at the database row level.
+- **Least-Privilege Secret Boundary**:
+  - Web Console pulls (`GET /api/sync/pull?includeSecrets=0`) receive **masked key hints only** (`gsk_••••9xQ2`) — raw plaintext keys are never returned to web page JavaScript.
+  - Only the isolated MV3 Service Worker (`includeSecrets=1`) pulls decrypted keys directly into `chrome.storage.local` (`secretApiKeys`).
+- **Dual Auth Verification**: Supports both **Neon Managed Better Auth** Ed25519 JWTs verified via `jose` (`NEON_AUTH_JWKS_URL` + `NEON_AUTH_BASE_URL` issuer check) and `scrypt`-backed `lms_...` extension bearer tokens (`SHA-256` hashed at rest in `lmsubs_sessions`).
+
+### Provisioning & Deploying Your Own Neon Backend
 
 ```bash
-git clone https://github.com/sarang-cmd/notebooklm-subtitles.git
-cd notebooklm-subtitles
-npm install
-npm run build   # Bundles src/ -> extension/ via esbuild in ~40ms
-npm test        # Runs all 30 unit, security-invariant, and E2E tests
+# 1. Authenticate with Neon in your browser and deploy neon.ts
+npx neon login
+npx neon deploy
+
+# 2. Apply idempotent Lakebase Postgres schema (also runs automatically on server boot)
+npm run db:migrate
+
+# 3. Start the unified LM Subs Web Console + Sync API server (0.0.0.0:4173)
+npm start
 ```
 
-Then load the `extension/` directory at `chrome://extensions`.
+> **Zero-config local fallback**: When `DATABASE_URL` is unset in local development or CI, `server/db.js` automatically boots an embedded `@electric-sql/pglite` PostgreSQL 18 engine running the exact same `db/schema.sql` DDL and parameterized SQL queries.
 
 ---
 
-## Supported BYOK Providers & Free Tiers
+## Supported BYOK STT Providers (12)
 
-Providers execute top-to-bottom in your configured queue order. If Provider `#1` returns `429 Too Many Requests`, `5xx`, or exceeds its upload byte limit, the queue automatically fails over to Provider `#2`.
+Configure one key or stack several in priority order — if provider `#1` returns `HTTP 429` or `5xx`, LM Subs fails over to `#2` automatically:
 
-| Default Rank | Provider | Default Model | Free Tier / Quota Highlights | Timestamp Source |
-| :--- | :--- | :--- | :--- | :--- |
-| **#1** | **Groq** | `whisper-large-v3-turbo` | **Permanent free plan (no card)**: 8 hrs audio/day, 2 hrs/hr, 20 RPM, 25 MB cap | Word + Segment (`verbose_json`) |
-| **#2** | **Mistral (Voxtral)** | `voxtral-mini-transcribe-3` | **Free Studio Experiment tier (no card)**: 50+ languages, 48 MB cap (auto-falls back to `voxtral-mini-latest`) | Segment + Speaker ID |
-| **#3** | **Google Gemini** | `gemini-2.5-flash` | **Free Google AI Studio tier (no card)**: Direct `.srt` output + optional single-pass subtitle translation | SubRip (`.srt`) |
-| **#4** | **Deepgram** | `nova-3` | **$200 signup credit (no card)** — ~700+ hours of Nova-3 batch audio | Word + Utterance |
-| **#5** | **AssemblyAI** | `universal` | **$50 signup credit (no card)** — ~330 hours on Universal-2 | Word (ms precision) |
-| **#6** | **Gladia** | `solaria-1` | **€50 signup credit** — ~80+ hours with native SRT generation | Native SRT + Utterance |
-| **#7** | **Cloudflare Workers AI** | `@cf/openai/whisper-large-v3-turbo` | **10,000 free Neurons/day** (`ACCOUNT_ID:API_TOKEN`) | Word + WebVTT |
-| **#8** | **ElevenLabs** | `scribe_v2` | **10,000 free credits/month** (~30 min/mo STT across 90+ languages) | Word (`scribe_v2`) |
-| **#9** | **Hugging Face** | `openai/whisper-large-v3-turbo` | **Free monthly Serverless Inference quota** (`hf_...` token) | Chunk timestamps |
-| **#10** | **OpenRouter** | `mistralai/voxtral-mini-transcribe` | Unified OpenAI-compatible `/api/v1/audio/transcriptions` router | Segment |
-| **#11** | **OpenAI Whisper** | `whisper-1` | Standard pay-as-you-go ($0.006 / minute) | Word + Segment |
-| **#12** | **Local / Custom URL** | `Systran/faster-whisper-small` | **100% free & unlimited local** (`speaches`, `faster-whisper-server`, `whisper.cpp`, `LocalAI`) | Verbose JSON / SRT |
-
----
-
-## Architecture Deep Dive
-
-<div align="center">
-  <img src="docs/assets/architecture.svg" width="960" alt="Three-World MV3 Architecture Diagram" />
-</div>
-
-### 1. Strict Three-World Privilege Separation
-
-Chrome Manifest V3 splits extension code across distinct JavaScript execution worlds with asymmetric capabilities. **Subtitles for NotebookLM** enforces hard security boundaries between all three:
-
-| Runtime World | Bundle (`src/` → `extension/`) | Capabilities | Hard Security Invariants |
-| :--- | :--- | :--- | :--- |
-| **1. Page `MAIN` World** | `src/page/inject.js` → `extension/page.js` | Passively observes `batchexecute` RPCs, caches `URL.createObjectURL` media blobs, and extracts compact `.m4a`/`.wav` audio with first-party Google session cookies. | **Zero** access to `chrome.*` APIs or `chrome.storage`. Never mutates outgoing requests or incoming responses. Posts metadata & `Transferable` audio buffers restricted to `window.location.origin`. |
-| **2. `ISOLATED` Content World** | `src/content/content.js` → `extension/content.js` | Reads DOM `<video>` elements, mounts closed Shadow-DOM HUD/toast, maintains an MV3 keepalive port heartbeat during long transcriptions, and stages compact audio chunks to the Service Worker. | **Never** imports or calls `getApiKey` / `getSecretApiKeysMap` (enforced by automated test in `tests/e2e.test.js`). Never uses `innerHTML` on untrusted data. |
-| **3. MV3 Service Worker** | `src/background/service-worker.js` → `extension/background.js` | Sole reader of `apiKeys` in `chrome.storage.local`; executes Layer-2 CORS-bypass media fallback (`*.googleusercontent.com` / `*.usercontent.google.com` / `*.gvt1.com`) and BYOK STT failover calls. | Rejects non-Google CDN media URLs (`isTrustedGoogleMediaUrl`), rejects `text/html` auth walls (`validateMediaPayload`), and scrubs secrets from all errors via `redactSecrets()`. |
-
-Meanwhile, **`popup.js`** and **`options.js`** only ever receive boolean presence flags (`{ groq: true, mistral: true, gemini: false }`) via `getSavedKeyPresenceMap()` — saved keys can be replaced or cleared, never read back into the DOM.
+| # | Provider | Default Model | Free Tier / Credits | Highlights |
+| :-: | :--- | :--- | :--- | :--- |
+| **01** | **Groq** *(Recommended #1)* | `whisper-large-v3-turbo` | **Permanent Free Tier** (~8 hrs/day, no card) | ~200x real-time segment STT |
+| **02** | **Mistral AI** *(Recommended #2)* | `voxtral-mini-transcribe-3` | **Free La Plateforme Tier** | 48 MB file cap, crisp segment timestamps |
+| **03** | **Google Gemini** | `gemini-2.5-flash` | **Free Google AI Studio Tier** | Native single-pass caption translation |
+| **04** | **Deepgram** | `nova-3` | **$200 Free Credit** | Sub-second streaming-grade utterance timing |
+| **05** | **AssemblyAI** | `universal-2` | **$50 Free Credit** | High-accuracy technical terminology |
+| **06** | **Gladia** | `solaria-1` | **10 Free Hours/Month** | Multilingual switching |
+| **07** | **Cloudflare Workers AI** | `@cf/openai/whisper-large-v3-turbo` | **10,000 Neurons/Day Free** | Serverless edge inference |
+| **08** | **ElevenLabs** | `scribe_v2` | **Free Starter Quota** | 99-language Scribe v2 transcription |
+| **09** | **Hugging Face** | `openai/whisper-large-v3-turbo` | **Free Monthly Inference Credits** | Open-weights ecosystem |
+| **10** | **OpenRouter** | `google/gemini-2.5-flash` | **Free / Pay-as-you-go** | Unified multi-model router |
+| **11** | **OpenAI** | `whisper-1` | Pay-as-you-go (`$0.006/min`) | Classic Whisper reference endpoint |
+| **12** | **Local / Self-Hosted** | `Systran/faster-whisper-small` | **100% Free & Offline** | Works with `faster-whisper-server` / `whisper.cpp` |
 
 ---
 
-### 2. Passive `batchexecute` RPC Detection (`src/lib/batchexecute.js`)
+## Security & Privacy Architecture
 
-NotebookLM's Angular / Google Wiz frontend communicates with its backend over `POST /_/LabsTailwindUi/data/batchexecute` (and `/_/CloudNotebookLmUi/data/batchexecute`), framing responses with an anti-XSSI prefix (`)]}'`) followed by length-prefixed JSON `wrb.fr` envelopes.
-
-Because Angular's RPC client uses `XMLHttpRequest` (`Closure XhrIo`) while newer streaming helpers use `window.fetch`, `page.js` passively observes **both** transports without altering network timing:
-
-1. **Creation Trigger (`CREATE_STUDIO = "R7cb6c"`)**: Parses URL-encoded `f.req` request bodies. When `params[2][2] === 3` (`ARTIFACT_TYPES.VIDEO_OVERVIEW`), `content.js` arms automatic generation for that artifact's completion and displays a calm status toast (while ignoring Audio Overviews where `typeCode === 1`).
-2. **Artifact Polling (`POLL_STUDIO = "gArtLc"`)**: Extracts Studio Video Overview rows (`row[2] === 3`) and normalizes lifecycle status (`row[4] === 2` processing → `row[4] === 3` ready). Once ready, `row[8]` provides:
-   - `row[8][1]`: Progressive MP4 URL (`https://lh3.googleusercontent.com/notebooklm/<token>=m22`)
-   - `row[8][2][1]`: Spoken BCP-47 / ISO-639-1 language code (e.g. `"en"`)
-   - `row[8][3]` & `row[8][4]`: Download MP4 URL (`...=m22-dv`) and streaming variants
-   - `row[8][5]`: `[durationSeconds, durationNanos]`
-3. **RPC-Rotation Resilience**: If Google rotates `R7cb6c` or `gArtLc` to new 6-character IDs, `parseBatchExecuteResponse()` falls back to structural row matching (`UUID` + `typeCode === 3` + `row[8]` media block), and users can also hot-patch RPC IDs live in **Settings → Section 4**.
+- **Minimal Manifest V3 Permissions**: Requests **only `"storage"`** (`extension/manifest.json`) plus narrow host permissions for NotebookLM (`notebooklm.google.com`, `notebook.google.com`) and Google media CDNs (`*.googleusercontent.com`, `*.googlevideo.com`, `lh3.google.com`). Custom sync/self-hosted origins use runtime `optional_host_permissions`.
+- **Service-Worker Secret Isolation**: Automated static-analysis tests (`tests/e2e.test.js`) enforce that `content.js`, `page.js`, `popup.js`, and `options.js` **never** import `getApiKey`, `getSecretApiKeysMap`, or `getSecretCloudSyncToken`.
+- **SSRF & Diagnostic Redaction**: Media fetches validate against `isTrustedGoogleMediaUrl()`, and `GET_DEBUG_REPORT` scrubs `Bearer` headers, `lms_...` tokens, `gsk_...`/`sk-...`/`AIza...` keys, and signed FIFE query strings.
 
 ---
 
-### 3. Client-Side ISO-BMFF Audio-Track Remuxing (`.mp4` → `.m4a`)
+## Quick Start
 
-Instead of uploading a 60 MB H.264+AAC `.mp4` video (or shipping 30 MB of `ffmpeg.wasm`), [`src/lib/audio-extract.js`](src/lib/audio-extract.js) implements a deterministic, zero-dependency **ISO Base Media File Format (ISO/IEC 14496-12) audio-track remuxer** in ~250 lines of pure JavaScript:
+### Load the Chrome Extension
+1. Download [**`lm-subs-v0.2.0.zip`**](docs/releases/lm-subs-v0.2.0.zip) and unzip it *(or run `npm install && npm run build` to build into `extension/`)*.
+2. Open `chrome://extensions` and toggle **Developer mode** ON.
+3. Click **Load unpacked** and select the `extension/` folder.
+4. Click the **LM Subs** toolbar icon, paste a free [Groq](https://console.groq.com/keys) or [Mistral](https://console.mistral.ai/api-keys/) API key *(or sign in to your Neon Sync account)*, and open any Video Overview on `notebooklm.google.com` or `notebook.google.com`.
 
-```text
-Input Progressive MP4 (~58 MB):
-┌──────┐ ┌──────────────────────────────────────────┐ ┌───────────────────────────────────────┐
-│ ftyp │ │ moov                                     │ │ mdat (interleaved video + audio)      │
-└──────┘ │  ├── mvhd                                │ │  [H.264 slice][AAC][H.264 slice][AAC] │
-         │  ├── trak (hdlr = "vide", avc1)  <─ DROP │ └───────────────────────────────────────┘
-         │  └── trak (hdlr = "soun", mp4a)  <─ KEEP │
-         └──────────────────────────────────────────┘
-                              │
-                   extractAudioTrackFromMp4()
-                              ▼
-Output Standalone M4A (~4.3 MB, -92.6%):
-┌──────┐ ┌──────────────────────────────────────────┐ ┌───────────────────┐
-│ ftyp │ │ moov (mvhd + soun trak w/ rebuilt stco)  │ │ mdat (AAC only)   │
-└──────┘ └──────────────────────────────────────────┘ └───────────────────┘
-```
+### Development & Testing
 
-1. **Box Tree Traversal**: `readIsoBoxes()` walks top-level and nested atoms (`moov` → `trak` → `mdia` → `hdlr` → `minf` → `stbl`), handling both standard 32-bit sizes and 64-bit `largesize` headers.
-2. **Sample-to-Chunk Byte Mapping**: Reads `stsc` (sample-to-chunk runs), `stsz` (constant or per-sample byte tables), and `stco` / `co64` (32-bit or 64-bit chunk byte offsets) for the `soun` track to slice the exact compressed AAC frames out of `mdat` without re-encoding or quality loss.
-3. **Two-Pass `stco` Offset Recalculation**: Rebuilds a clean `M4A ` `ftyp` header + `moov` containing only `mvhd` and the `soun` `trak`, computes the exact byte offset where the new compact `mdat` payload begins, writes updated 32-bit `stco` offsets, and emits a valid `audio/mp4` `.m4a` accepted natively by Groq, Mistral, Gemini, Deepgram, AssemblyAI, Gladia, ElevenLabs, and OpenAI.
-4. **16 kHz Mono WAV Chunker Fallback**: For non-MP4 streams or multi-hour recordings, `slicePcmIntoWavChunks()` decodes via `OfflineAudioContext` at 16 kHz mono 16-bit PCM (`32 KB/sec`) into `<= 18 MB` `.wav` slices with exact `startOffsetSec` timestamps, stitching returned cues seamlessly across chunk boundaries.
-
----
-
-### 4. Subtitle Reflow, Hallucination Filtering & Dual Rendering (`src/lib/subtitles.js`)
-
-Raw STT outputs rarely make comfortable video captions out of the box — Whisper segments can span 25 words on a single line or emit phantom `"Thank you for watching!"` cues during trailing music/silence, while word-level APIs return hundreds of individual word objects.
-
-`src/lib/subtitles.js` normalizes every provider's output through a single pipeline:
-- **Word-Timestamp Grouping (`cuesFromWords`)**: Groups word tokens from Groq, Deepgram, AssemblyAI, ElevenLabs, Cloudflare, and OpenAI into natural phrases (`<= 84` chars, `<= 6.2s`), breaking cleanly on sentence punctuation (`.?!`), clauses (`,;:—`), speaker changes, and speech pauses (`>= 380 ms`).
-- **Overlong-Segment Splitting & Silence Hallucination Filter (`cuesFromSegments`)**: Proportionally splits long Voxtral/Whisper segments into readable cues and drops high-`no_speech_prob` (`> 0.85`) Whisper silence hallucinations.
-- **Balanced Two-Line Wrapping (`wrapSubtitleLines`)**: Splits cues `> 42` characters near their visual midpoint (preferring punctuation boundaries) so eyes never dart across wide single lines.
-- **Dual Caption Rendering (`src/content/player-overlay.js`)**:
-  - **Inline & Fullscreen**: Closed `ShadowRoot` stage (`O(log N)` binary-search lookup via `findActiveCue()` every `100 ms`) completely immune to NotebookLM CSS overrides.
-  - **OS Picture-in-Picture**: Syncs programmatic `video.addTextTrack("subtitles", ...)` + `VTTCue` instances and toggles `track.mode = "showing"` automatically on `enterpictureinpicture` / `leavepictureinpicture`.
-
----
-
-## Repository Structure
-
-```text
-notebooklm-subtitles/
-├── extension/                       # Ready-to-load unpacked Chrome MV3 extension
-│   ├── icons/                       # 16, 32, 48, 128px PNG icons
-│   ├── manifest.json                # Least-privilege MV3 manifest ("storage" + optional STT origins)
-│   ├── popup.html / options.html    # Toolbar popup & full priority-queue settings UI
-│   ├── ui.css                       # Shared utilitarian light/dark stylesheet
-│   └── *.js                         # Bundled zero-dependency scripts built by build.mjs
-├── src/
-│   ├── config/selectors.js          # Single source of truth: hosts, RPC IDs, wire positions, selectors
-│   ├── page/inject.js               # MAIN-world passive XHR + fetch batchexecute observer
-│   ├── content/
-│   │   ├── content.js               # Isolated-world coordinator, cache lookup, bounded retries
-│   │   ├── player-overlay.js        # Closed Shadow-DOM caption overlay, HUD controls & PiP bridge
-│   │   └── toast.js                 # Non-intrusive Shadow-DOM progress notifications
-│   ├── background/service-worker.js # Sole API key reader, SSRF guard, MP4->M4A extraction & queue
-│   ├── popup/popup.js               # Toolbar quick-setup, 1-click key test & manual trigger
-│   ├── options/options.js           # Reorderable 12-provider queue, preferences & export vault
-│   ├── ui/brand-icon.js             # Geometric SVG brand mark builder
-│   └── lib/
-│       ├── batchexecute.js          # Pure parser for f.req & wrb.fr frames + FIFE URL variants
-│       ├── audio-extract.js         # Pure-JS ISO-BMFF MP4->M4A remuxer & 16kHz WAV chunker
-│       ├── subtitles.js             # SRT/VTT parser/formatter, word/segment reflow & binary search
-│       ├── decide.js                # Pure decision gate (dedup, triggers, regex exclusions)
-│       ├── storage.js               # chrome.storage.local wrapper & 35-item LRU subtitle cache
-│       └── providers/               # 12 BYOK STT adapters + automatic priority failover queue
-├── tests/                           # 30 automated unit, security-audit & E2E tests (node --test)
-├── docs/                            # Static landing page + interactive simulator (Vercel outputDir)
-│   ├── index.html / styles.css / site.js
-│   ├── privacy-policy.html / PRIVACY_POLICY.md
-│   ├── discovery-report.md / CHROME_WEB_STORE_GUIDE.md
-│   ├── assets/                      # architecture.svg, flat badges, banner & 1280x800 screenshots
-│   └── releases/                    # Prebuilt notebooklm-subtitles-v0.1.2.zip
-├── scripts/
-│   ├── generate-assets.mjs          # Deterministic @resvg/resvg-js asset & screenshot renderer
-│   └── package-zip.mjs              # Pure-Node zlib ZIP bundler
-├── build.mjs                        # Multi-target esbuild compiler
-├── serve-docs.mjs                   # Local preview server for docs/
-└── vercel.json                      # Zero-config Vercel static deployment config
+```bash
+npm install          # Install build, server, and test dependencies (0 vulnerabilities)
+npm run build        # Bundle all 5 MV3 entrypoints via esbuild (~50 ms)
+npm run assets       # Regenerate Braun SVG/PNG icons, badges, diagrams & 4 screenshots
+npm run zip          # Package docs/releases/lm-subs-v0.2.0.zip
+npm test             # Run all 37 unit, security, speed & Postgres E2E tests
+npm start            # Start unified Web Console + /api/* Neon Sync server on 0.0.0.0:4173
 ```
 
 ---
 
-## Development & Testing
+## License
 
-| Command | Description |
-| :--- | :--- |
-| `npm run build` | Bundles all 5 MV3 entrypoints (`background`, `page`, `content`, `popup`, `options`) into `extension/`. |
-| `npm test` | Runs all 30 automated tests across `tests/*.test.js` using Node's built-in test runner (`node --test`). |
-| `npm run assets` | Regenerates extension icons, SVG badges, `architecture.svg`, social banner, and `1280x800` screenshots. |
-| `npm run zip` | Builds `extension/` and packages `docs/releases/notebooklm-subtitles-v0.1.2.zip`. |
-| `npm run site` | Serves the static landing page & interactive simulator (`docs/`) locally on `http://0.0.0.0:4173`. |
-
----
-
-## Live Diagnostics & Debug Mode
-
-If a NotebookLM frontend update ever alters player markup or media variants:
-
-1. Toggle **Debug Mode** ON in the toolbar Popup (or **Settings → Section 5**).
-2. A Shadow-DOM **Debug Drawer** mounts at the bottom-left of `notebook.google.com` showing live `[PAGE]`, `[CONTENT]`, `[SW]`, and `[STT]` events (`AF_initDataCallback` SSR rows, `batchexecute` RPCs, `<video>` Shadow-DOM binding, Google CDN variant HTTP statuses, extracted audio byte sizes, and provider responses), plus a **Scan / Retry** trigger.
-3. Click **Copy Debug Report** (in the Drawer, Popup, or Settings) to copy a structured diagnostic snapshot with **100% of API keys redacted**. If Chrome ever withholds newly added Google CDN `host_permissions` after reloading an unpacked build, the Popup also surfaces a 1-click **Grant Google Media Access** button.
-
----
-
-## Deploying the Landing Page to Vercel
-
-This repository includes a root [`vercel.json`](vercel.json) configured with `"outputDirectory": "docs"` and zero build-step overhead:
-
-1. Import `sarang-cmd/notebooklm-subtitles` on [Vercel](https://vercel.com/new).
-2. Click **Deploy** — Vercel serves `docs/index.html`, the interactive pipeline simulator, `privacy-policy.html`, and the downloadable `.zip` archive out of the box.
-
----
-
-## Updating Selectors or RPC IDs
-
-Every NotebookLM hostname, `batchexecute` RPC ID (`R7cb6c`, `gArtLc`), artifact array index, and DOM selector is centralized in **[`src/config/selectors.js`](src/config/selectors.js)** and documented in **[`docs/discovery-report.md`](docs/discovery-report.md)**. Users can also override `CREATE_STUDIO` and `POLL_STUDIO` RPC IDs at runtime in **Settings → Section 4** without rebuilding.
-
----
-
-## Privacy & License
-
-- **Zero Telemetry**: No analytics, tracking pixels, remote code, or developer servers. Read the full [Privacy Policy](docs/PRIVACY_POLICY.md).
-- **Disclaimer**: Independent open-source project; not affiliated with or endorsed by Google LLC.
-- **License**: [MIT](LICENSE)
+Released under the [MIT License](LICENSE). Independent open-source project; not affiliated with or endorsed by Google LLC.

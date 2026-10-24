@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="186" height="20" role="img" aria-label="Payload: -92% .m4a Audio">
-  <rect width="186" height="20" rx="4" fill="#181b20"/>
-  <rect x="66" width="120" height="20" rx="4" fill="#0f766e"/>
-  <rect x="66" width="4" height="20" fill="#0f766e"/>
-  <g fill="#f9fafb" text-anchor="middle" font-family="DejaVu Sans, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="11" font-weight="600">
-    <text x="33.0" y="14">Payload</text>
-    <text x="126.0" y="14">-92% .m4a Audio</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="236" height="20" role="img" aria-label="LATENCY: ~3.2S =M140 / HTTP 206">
+  <rect width="236" height="20" rx="2" fill="#161615"/>
+  <rect x="66" width="170" height="20" rx="2" fill="#1B6E38"/>
+  <rect x="66" width="2" height="20" fill="#1B6E38"/>
+  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
+    <text x="33.0" y="14">LATENCY</text>
+    <text x="151.0" y="14">~3.2S =M140 / HTTP 206</text>
   </g>
 </svg>

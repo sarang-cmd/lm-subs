@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * Zero-dependency static preview server for `docs/` (`npm run site`).
- * Binds to `0.0.0.0` so live browser previews work out of the box.
+ * Unified LM Subs Web App + Neon Cloud Sync Server (`serve-docs.mjs`).
+ *
+ * - Serves `/api/*` via the Hono + Lakebase Postgres sync application (`server/app.js`).
+ * - Serves `docs/` static assets (`index.html`, simulator, `.zip` releases) at `/`.
+ * - Binds to `0.0.0.0:4173` so live browser previews and local extension sync work out of the box.
  */
 
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { getRequestListener } from "@hono/node-server";
+import { createSyncApp } from "./server/app.js";
+import { getSharedDatabase } from "./server/db.js";
 
 const PORT = Number(process.env.PORT) || 4173;
 const DOCS_ROOT = path.resolve("docs");
@@ -24,9 +30,29 @@ const MIME_MAP = {
   ".woff2": "font/woff2",
 };
 
+const syncApp = createSyncApp();
+const apiListener = getRequestListener(syncApp.fetch);
+
+// Warm up database schema on boot
+getSharedDatabase()
+  .then((db) => {
+    console.log(
+      `[LM Subs] Postgres ready (${db.mode}, project=${db.projectId})`
+    );
+  })
+  .catch((err) => {
+    console.error("[LM Subs] Database init error:", err?.message || err);
+  });
+
 const server = http.createServer((req, res) => {
-  const reqUrl = new URL(req.url || "/", "http://localhost");
+  const reqUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   let pathname = decodeURIComponent(reqUrl.pathname);
+
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
+    apiListener(req, res);
+    return;
+  }
+
   if (pathname === "/") pathname = "/index.html";
 
   const resolved = path.resolve(DOCS_ROOT, `.${pathname}`);
@@ -63,5 +89,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Serving docs/ at http://0.0.0.0:${PORT}`);
+  console.log(`Serving LM Subs Web + Neon Sync API at http://0.0.0.0:${PORT}`);
 });

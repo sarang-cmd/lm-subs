@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="152" height="20" role="img" aria-label="Chrome: Manifest V3">
-  <rect width="152" height="20" rx="4" fill="#181b20"/>
-  <rect x="59" width="93" height="20" rx="4" fill="#1f2937"/>
-  <rect x="59" width="4" height="20" fill="#1f2937"/>
-  <g fill="#f9fafb" text-anchor="middle" font-family="DejaVu Sans, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="11" font-weight="600">
-    <text x="29.5" y="14">Chrome</text>
-    <text x="105.5" y="14">Manifest V3</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="153" height="20" role="img" aria-label="CHROME: MANIFEST V3">
+  <rect width="153" height="20" rx="2" fill="#161615"/>
+  <rect x="59" width="94" height="20" rx="2" fill="#2E2D2A"/>
+  <rect x="59" width="2" height="20" fill="#2E2D2A"/>
+  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
+    <text x="29.5" y="14">CHROME</text>
+    <text x="106.0" y="14">MANIFEST V3</text>
   </g>
 </svg>

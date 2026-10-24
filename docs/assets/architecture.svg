@@ -1,116 +1,125 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="460" viewBox="0 0 1040 460" fill="none" role="img" aria-label="Subtitles for NotebookLM 3-World MV3 Architecture Diagram">
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="460" viewBox="0 0 1120 460" fill="none" role="img" aria-label="LM Subs MV3 + Neon Lakebase Postgres Architecture Diagram">
   <style>
-    .bg { fill: #0e1013; }
-    .lane { fill: #15181d; stroke: #272c35; stroke-width: 1.5; }
-    .box { fill: #1b1f26; stroke: #313844; stroke-width: 1.25; }
-    .box-hi { fill: #132219; stroke: #22c55e; stroke-width: 1.5; }
-    .hdr { font-family: DejaVu Sans, -apple-system, Segoe UI, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; fill: #4ade80; }
-    .title { font-family: DejaVu Sans, -apple-system, Segoe UI, sans-serif; font-size: 13px; font-weight: 700; fill: #f3f4f6; }
-    .sub { font-family: DejaVu Sans Mono, ui-monospace, monospace; font-size: 10.5px; fill: #9ca3af; }
-    .lbl { font-family: DejaVu Sans, -apple-system, Segoe UI, sans-serif; font-size: 10.5px; font-weight: 600; fill: #d1d5db; }
-    .num { fill: #16a34a; }
-    .num-txt { font-family: DejaVu Sans, sans-serif; font-size: 10px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
-    .arrow { stroke: #22c55e; stroke-width: 1.75; fill: none; }
-    .arrow-dim { stroke: #6b7280; stroke-width: 1.4; stroke-dasharray: 4 4; fill: none; }
+    .bg { fill: #F4F2ED; }
+    .lane { fill: #FCFBF8; stroke: #D5D1C8; stroke-width: 1.5; }
+    .box { fill: #F4F2ED; stroke: #B6B0A3; stroke-width: 1; }
+    .box-hi { fill: #FCFBF8; stroke: #D9531E; stroke-width: 1.5; }
+    .box-db { fill: #E3F1E7; stroke: #1B6E38; stroke-width: 1.5; }
+    .hdr { font-family: DejaVu Sans Mono, monospace; font-size: 10.5px; font-weight: 700; fill: #D9531E; }
+    .title { font-family: DejaVu Sans, sans-serif; font-size: 12.5px; font-weight: 700; fill: #161615; }
+    .sub { font-family: DejaVu Sans Mono, monospace; font-size: 10px; fill: #5C5A55; }
+    .lbl { font-family: DejaVu Sans Mono, monospace; font-size: 9.5px; font-weight: 700; fill: #161615; }
+    .arrow { stroke: #D9531E; stroke-width: 1.5; fill: none; }
+    .arrow-db { stroke: #1B6E38; stroke-width: 1.5; fill: none; }
   </style>
   <defs>
     <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#22c55e"/>
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#D9531E"/>
     </marker>
-    <marker id="ahd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#6b7280"/>
+    <marker id="ahg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#1B6E38"/>
     </marker>
   </defs>
 
-  <rect width="1040" height="460" rx="12" class="bg"/>
+  <rect width="1120" height="460" rx="4" class="bg"/>
+  <rect x="1" y="1" width="1118" height="458" rx="4" stroke="#D5D1C8" stroke-width="1.5"/>
 
-  <!-- Column 1: MAIN World -->
-  <rect x="22" y="22" width="310" height="416" rx="10" class="lane"/>
-  <text x="40" y="46" class="hdr">1 · PAGE "MAIN" WORLD (page.js)</text>
-  <text x="40" y="63" class="sub">Zero chrome.storage or API key access</text>
+  <!-- Lane 01: MAIN World -->
+  <rect x="20" y="20" width="252" height="420" rx="4" class="lane"/>
+  <text x="34" y="42" class="hdr">01 · PAGE MAIN WORLD (page.js)</text>
+  <text x="34" y="57" class="sub">Zero storage or secret access</text>
 
-  <rect x="40" y="84" width="274" height="96" rx="8" class="box"/>
-  <circle cx="57" cy="105" r="9" class="num"/><text x="57" y="109" class="num-txt">1</text>
-  <text x="73" y="109" class="title">Passive RPC Stream Observer</text>
-  <text x="54" y="130" class="sub">Hooks XHR + fetch on batchexecute</text>
-  <text x="54" y="147" class="sub">Never mutates requests or responses</text>
-  <text x="54" y="164" class="sub">Works on notebooklm &amp; notebook.google</text>
+  <rect x="34" y="76" width="224" height="104" rx="3" class="box"/>
+  <text x="46" y="98" class="title">SSR + RPC Stream Observer</text>
+  <text x="46" y="117" class="sub">AF_initDataCallback + gArtLc</text>
+  <text x="46" y="134" class="sub">Captures FIFE =m140 / =m22 URL</text>
+  <text x="46" y="151" class="sub">notebook &amp; notebooklm.google</text>
 
-  <rect x="40" y="204" width="274" height="106" rx="8" class="box"/>
-  <circle cx="57" cy="225" r="9" class="num"/><text x="57" y="229" class="num-txt">2</text>
-  <text x="73" y="229" class="title">Proto Wire Frame Parser</text>
-  <text x="54" y="250" class="sub">R7cb6c create + gArtLc poll frames</text>
-  <text x="54" y="267" class="sub">Detects row[2]===3 (Video Overview)</text>
-  <text x="54" y="284" class="sub">Extracts =m22-dv CDN URL &amp; language</text>
-  <text x="54" y="300" class="sub">Structural fallback if RPC ID rotates</text>
+  <rect x="34" y="202" width="224" height="96" rx="3" class="box"/>
+  <text x="46" y="224" class="title">In-Memory Blob Extractor</text>
+  <text x="46" y="243" class="sub">Hooks URL.createObjectURL</text>
+  <text x="46" y="260" class="sub">Stages blob: audio chunks</text>
+  <text x="46" y="277" class="sub">Zero cross-origin stalls</text>
 
-  <rect x="40" y="334" width="274" height="84" rx="8" class="box"/>
-  <text x="54" y="358" class="title">NotebookLM &lt;video&gt; Element</text>
-  <text x="54" y="378" class="sub">Inline Studio player &amp; Fullscreen</text>
-  <text x="54" y="395" class="sub">+ Native VTTCue track for OS PiP</text>
+  <rect x="34" y="320" width="224" height="98" rx="3" class="box"/>
+  <text x="46" y="342" class="title">Studio &lt;video&gt; Element</text>
+  <text x="46" y="361" class="sub">Lot dialog + Fullscreen</text>
+  <text x="46" y="378" class="sub">Native VTTCue PiP track</text>
 
-  <!-- Column 2: ISOLATED World -->
-  <rect x="364" y="22" width="310" height="416" rx="10" class="lane"/>
-  <text x="382" y="46" class="hdr">2 · ISOLATED WORLD (content.js)</text>
-  <text x="382" y="63" class="sub">Origin-checked bridge · Closed Shadow DOM</text>
+  <!-- Lane 02: ISOLATED World -->
+  <rect x="292" y="20" width="252" height="420" rx="4" class="lane"/>
+  <text x="306" y="42" class="hdr">02 · ISOLATED WORLD (content.js)</text>
+  <text x="306" y="57" class="sub">document_start · Closed Shadow DOM</text>
 
-  <rect x="382" y="96" width="274" height="114" rx="8" class="box"/>
-  <circle cx="399" cy="117" r="9" class="num"/><text x="399" y="121" class="num-txt">3</text>
-  <text x="415" y="121" class="title">Decision Gate (decide.js)</text>
-  <text x="396" y="142" class="sub">• Instant 0 ms lookup in LRU cache</text>
-  <text x="396" y="159" class="sub">• Deduplicates in-flight &amp; retries</text>
-  <text x="396" y="176" class="sub">• Checks regex title exclusions</text>
-  <text x="396" y="193" class="sub">• Max 2 bounded backoff retries</text>
+  <rect x="306" y="76" width="224" height="112" rx="3" class="box"/>
+  <text x="318" y="98" class="title">Decision Gate (decide.js)</text>
+  <text x="318" y="117" class="sub">0 ms local LRU lookup</text>
+  <text x="318" y="134" class="sub">Shadow-DOM &lt;video&gt; scanner</text>
+  <text x="318" y="151" class="sub">Progressive live cue mount</text>
+  <text x="318" y="168" class="sub">Keepalive port for long talks</text>
 
-  <rect x="382" y="238" width="274" height="178" rx="8" class="box-hi"/>
-  <circle cx="399" cy="259" r="9" class="num"/><text x="399" y="263" class="num-txt">6</text>
-  <text x="415" y="263" class="title">Player Caption Overlay + HUD</text>
-  <text x="396" y="285" class="sub">• Closed ShadowRoot (zero CSS bleed)</text>
-  <text x="396" y="302" class="sub">• O(log N) binary-search cue sync</text>
-  <text x="396" y="319" class="sub">• Balanced 2-line caption wrapping</text>
-  <text x="396" y="336" class="sub">• [CC] [A-/A+] [±0.25s] controls</text>
-  <text x="396" y="353" class="sub">• 1-click .SRT &amp; .VTT file export</text>
-  <text x="396" y="370" class="sub">• External .SRT/.VTT file import</text>
-  <text x="396" y="387" class="sub">• Bottom-right progress toast</text>
+  <rect x="306" y="214" width="224" height="204" rx="3" class="box-hi"/>
+  <text x="318" y="238" class="title">Broadcast Caption HUD</text>
+  <text x="318" y="258" class="sub">Closed ShadowRoot isolation</text>
+  <text x="318" y="276" class="sub">O(log N) binary-search sync</text>
+  <text x="318" y="294" class="sub">[CC] [A-/A+] [+-0.25s] HUD</text>
+  <text x="318" y="312" class="sub">1-click .SRT &amp; .VTT export</text>
+  <text x="318" y="330" class="sub">External .SRT/.VTT import</text>
+  <text x="318" y="348" class="sub">Live Debug Monitor drawer</text>
 
-  <!-- Column 3: Service Worker -->
-  <rect x="706" y="22" width="312" height="416" rx="10" class="lane"/>
-  <text x="724" y="46" class="hdr">3 · MV3 SERVICE WORKER (background.js)</text>
-  <text x="724" y="63" class="sub">Sole reader of BYOK keys in storage</text>
+  <!-- Lane 03: Service Worker -->
+  <rect x="564" y="20" width="262" height="420" rx="4" class="lane"/>
+  <text x="578" y="42" class="hdr">03 · SERVICE WORKER (background.js)</text>
+  <text x="578" y="57" class="sub">Sole reader of keys &amp; sync tokens</text>
 
-  <rect x="724" y="84" width="276" height="106" rx="8" class="box-hi"/>
-  <circle cx="741" cy="105" r="9" class="num"/><text x="741" y="109" class="num-txt">4</text>
-  <text x="757" y="109" class="title">ISO-BMFF Audio Extractor</text>
-  <text x="738" y="130" class="sub">SSRF-checked Google CDN download</text>
-  <text x="738" y="147" class="sub">Strips H.264 vide track in pure JS</text>
-  <text x="738" y="164" class="sub">56 MB MP4 -&gt; ~4.2 MB .m4a (-92%)</text>
-  <text x="738" y="180" class="sub">16 kHz mono WAV chunking fallback</text>
+  <rect x="578" y="76" width="234" height="116" rx="3" class="box-hi"/>
+  <text x="590" y="98" class="title">Sub-5s Audio Fast-Path</text>
+  <text x="590" y="117" class="sub">1. Direct =m140 AAC (~4 MB)</text>
+  <text x="590" y="134" class="sub">2. HTTP 206 Range soun slices</text>
+  <text x="590" y="151" class="sub">3. Pure-JS ISO-BMFF remuxer</text>
+  <text x="590" y="168" class="sub">Skips 120 MB video &amp; WAV IPC</text>
 
-  <rect x="724" y="208" width="276" height="114" rx="8" class="box-hi"/>
-  <circle cx="741" cy="229" r="9" class="num"/><text x="741" y="233" class="num-txt">5</text>
-  <text x="757" y="233" class="title">12-Provider Failover Queue</text>
-  <text x="738" y="254" class="sub">#1 Groq -&gt; #2 Mistral -&gt; #3 Gemini</text>
-  <text x="738" y="271" class="sub">+ Deepgram / AssemblyAI / Gladia</text>
-  <text x="738" y="288" class="sub">+ ElevenLabs / CF / HF / Local URL</text>
-  <text x="738" y="305" class="sub">Auto-failover on HTTP 429 / 5xx</text>
+  <rect x="578" y="210" width="234" height="114" rx="3" class="box-hi"/>
+  <text x="590" y="232" class="title">12-Provider Parallel STT</text>
+  <text x="590" y="251" class="sub">01 Groq -&gt; 02 Mistral -&gt; 03 Gemini</text>
+  <text x="590" y="268" class="sub">Segment-only timestamps (no DTW)</text>
+  <text x="590" y="285" class="sub">3x concurrent chunk workers</text>
+  <text x="590" y="302" class="sub">Auto-failover on HTTP 429 / 5xx</text>
 
-  <rect x="724" y="340" width="276" height="78" rx="8" class="box"/>
-  <text x="740" y="363" class="title">chrome.storage.local + UI</text>
-  <text x="740" y="382" class="sub">API keys isolated to Service Worker</text>
-  <text x="740" y="399" class="sub">Popup/Options read boolean flags only</text>
+  <rect x="578" y="342" width="234" height="76" rx="3" class="box"/>
+  <text x="590" y="364" class="title">Isolated Local Storage</text>
+  <text x="590" y="382" class="sub">Popup/Options read booleans only</text>
+  <text x="590" y="399" class="sub">Strict secret redaction on logs</text>
+
+  <!-- Lane 04: Neon Lakebase Cloud Sync -->
+  <rect x="846" y="20" width="254" height="420" rx="4" class="lane"/>
+  <text x="860" y="42" class="hdr" style="fill:#1B6E38">04 · NEON LAKEBASE POSTGRES</text>
+  <text x="860" y="57" class="sub">falling-cherry-16443194 · Auth</text>
+
+  <rect x="860" y="76" width="226" height="106" rx="3" class="box-db"/>
+  <text x="872" y="98" class="title">Neon Auth &amp; Sessions</text>
+  <text x="872" y="117" class="sub">NEON_AUTH_JWKS_URL EdDSA JWT</text>
+  <text x="872" y="134" class="sub">+ scrypt account signup/signin</text>
+  <text x="872" y="151" class="sub">SHA-256 hashed lms_ tokens</text>
+
+  <rect x="860" y="202" width="226" height="114" rx="3" class="box-db"/>
+  <text x="872" y="224" class="title">AES-256-GCM Key Vault</text>
+  <text x="872" y="243" class="sub">Per-user HKDF-SHA256 key</text>
+  <text x="872" y="260" class="sub">96-bit IV + 128-bit GCM tag</text>
+  <text x="872" y="277" class="sub">AAD bound to user_id</text>
+  <text x="872" y="294" class="sub">UI sees masked hints only</text>
+
+  <rect x="860" y="336" width="226" height="82" rx="3" class="box"/>
+  <text x="872" y="358" class="title">Cross-Device Transcripts</text>
+  <text x="872" y="376" class="sub">lmsubs_subtitles + settings</text>
+  <text x="872" y="393" class="sub">50 ms cloud cache hit</text>
 
   <!-- Connectors -->
-  <path d="M 177 180 L 177 201" class="arrow" marker-end="url(#ah)"/>
-  <path d="M 314 242 L 379 156" class="arrow" marker-end="url(#ah)"/>
-  <text x="319" y="184" class="lbl">postMessage</text>
-
-  <path d="M 656 138 L 721 138" class="arrow" marker-end="url(#ah)"/>
-  <text x="660" y="130" class="lbl">ENSURE</text>
-
-  <path d="M 862 190 L 862 205" class="arrow" marker-end="url(#ah)"/>
-  <path d="M 724 275 L 659 295" class="arrow" marker-end="url(#ah)"/>
-  <text x="664" y="276" class="lbl">Timed Cues</text>
-
-  <path d="M 382 355 L 317 372" class="arrow" marker-end="url(#ah)"/>
-  <path d="M 862 340 L 862 325" class="arrow-dim" marker-end="url(#ahd)"/>
+  <path d="M 258 128 L 303 128" class="arrow" marker-end="url(#ah)"/>
+  <path d="M 530 132 L 575 132" class="arrow" marker-end="url(#ah)"/>
+  <path d="M 695 192 L 695 207" class="arrow" marker-end="url(#ah)"/>
+  <path d="M 578 272 L 533 272" class="arrow" marker-end="url(#ah)"/>
+  <path d="M 306 355 L 261 355" class="arrow" marker-end="url(#ah)"/>
+  <path d="M 812 135 L 857 135" class="arrow-db" marker-end="url(#ahg)"/>
+  <path d="M 857 258 L 812 258" class="arrow-db" marker-end="url(#ahg)"/>
 </svg>

@@ -92,7 +92,7 @@
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
     DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
-    TRACK_LABEL: "NotebookLM Auto-Subtitles"
+    TRACK_LABEL: "LM Subs"
   });
   var PAGE_MESSAGE = Object.freeze({
     BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
@@ -112,12 +112,18 @@
     SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
     TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
+    SUBTITLES_PARTIAL: "NOTEBOOKLM_SUBTITLES_PARTIAL",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
     TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
     APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
     GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
-    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
+    SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
+    SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+    SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
+    SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
+    SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
   });
 
   // src/lib/audio-extract.js
@@ -592,24 +598,35 @@
     };
     const isTrusted = isTrustedGoogleMediaUrl(mediaUrl);
     const tokenMatch = isTrusted ? mediaUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE) : null;
-    if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/")) {
+    const isFifeNonRd = isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/");
+    const isGoogleUserContent = isFifeNonRd && mediaUrl.includes("googleusercontent.com/notebooklm/");
+    if (isFifeNonRd) {
       const base = mediaUrl.replace(FIFE_SUFFIX_RE, "");
+      const token = tokenMatch[1];
       if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
         pushUnique(`${base}=m140`);
-        pushUnique(`${base}=m18`);
-        pushUnique(`${base}=m22`);
         pushUnique(`${base}=m140-dv`);
+      }
+      if (isGoogleUserContent) {
+        pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
+        pushUnique(`https://lh3.google.com/notebooklm/${token}=m140-dv`);
+      }
+      if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
+        pushUnique(`${base}=m18`);
+      }
+      if (isGoogleUserContent) {
+        pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
+      }
+      if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
+        pushUnique(`${base}=m22`);
         pushUnique(`${base}=m22-dv`);
+      }
+      if (isGoogleUserContent) {
+        pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
       }
     }
     if (!isThumbnailOrManifestUrl(mediaUrl)) {
       pushUnique(mediaUrl);
-    }
-    if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/") && mediaUrl.includes("googleusercontent.com/notebooklm/")) {
-      const token = tokenMatch[1];
-      pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
-      pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
-      pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
     }
     return out;
   }

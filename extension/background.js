@@ -93,7 +93,7 @@ var DOM_SELECTORS = Object.freeze({
   OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
   TOAST_HOST_ID: "nlm-subtitles-toast-root",
   DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
-  TRACK_LABEL: "NotebookLM Auto-Subtitles"
+  TRACK_LABEL: "LM Subs"
 });
 var PAGE_MESSAGE = Object.freeze({
   BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
@@ -113,12 +113,18 @@ var RUNTIME_MESSAGE = Object.freeze({
   SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
   TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
   SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
+  SUBTITLES_PARTIAL: "NOTEBOOKLM_SUBTITLES_PARTIAL",
   SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
   GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
   TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
   APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
   GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
-  CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
+  CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
+  SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
+  SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+  SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
+  SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
+  SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
 });
 
 // src/lib/audio-extract.js
@@ -486,6 +492,313 @@ function extractAudioTrackFromMp4(inputBuffer) {
     chunkCount: origOffsets.length
   };
 }
+function planMp4AudioExtractionFromSlice(sliceBytesInput, {
+  totalFileBytes = 0,
+  maxGapBytes = 98304,
+  maxRangeSpanBytes = 2 * 1024 * 1024
+} = {}) {
+  const bytes = sliceBytesInput instanceof Uint8Array ? sliceBytesInput : new Uint8Array(sliceBytesInput || 0);
+  if (bytes.byteLength < 32) return null;
+  const topBoxes = readIsoBoxes(bytes, 0, bytes.byteLength);
+  const moovBox = topBoxes.find((b) => b.type === "moov");
+  if (!moovBox) return null;
+  const moovChildren = readIsoBoxes(bytes, moovBox.dataOffset, moovBox.endOffset);
+  const mvhdBox = moovChildren.find((b) => b.type === "mvhd");
+  if (!mvhdBox) return null;
+  if (moovChildren.some((b) => b.type === "mvex")) return null;
+  const trakBoxes = moovChildren.filter((b) => b.type === "trak");
+  let soundTrak = null;
+  let hasVideoTrak = false;
+  for (const trak of trakBoxes) {
+    const trakChildren = readIsoBoxes(bytes, trak.dataOffset, trak.endOffset);
+    const mdia = trakChildren.find((b) => b.type === "mdia");
+    if (!mdia) continue;
+    const mdiaChildren = readIsoBoxes(bytes, mdia.dataOffset, mdia.endOffset);
+    const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+    if (!hdlr || hdlr.dataOffset + 12 > hdlr.endOffset) continue;
+    const subtype = fourCC(bytes, hdlr.dataOffset + 8);
+    if (subtype === "vide") {
+      hasVideoTrak = true;
+    } else if (subtype === "soun" && !soundTrak) {
+      const minf = mdiaChildren.find((b) => b.type === "minf");
+      if (!minf) continue;
+      const minfChildren = readIsoBoxes(bytes, minf.dataOffset, minf.endOffset);
+      const stbl = minfChildren.find((b) => b.type === "stbl");
+      if (!stbl) continue;
+      const stblChildren = readIsoBoxes(bytes, stbl.dataOffset, stbl.endOffset);
+      soundTrak = {
+        trak,
+        trakChildren,
+        mdia,
+        mdiaChildren,
+        minf,
+        minfChildren,
+        stbl,
+        stblChildren
+      };
+    }
+  }
+  if (!soundTrak) return null;
+  const stscBox = soundTrak.stblChildren.find((b) => b.type === "stsc");
+  const stszBox = soundTrak.stblChildren.find((b) => b.type === "stsz");
+  const stcoBox = soundTrak.stblChildren.find((b) => b.type === "stco");
+  const co64Box = soundTrak.stblChildren.find((b) => b.type === "co64");
+  if (!stscBox || !stszBox || !stcoBox && !co64Box) return null;
+  const stsc = parseStsc(bytes, stscBox);
+  const stsz = parseStsz(bytes, stszBox);
+  const origOffsets = parseChunkOffsets(bytes, stcoBox, co64Box);
+  if (stsc.length === 0 || stsz.sampleCount === 0 || origOffsets.length === 0) {
+    return null;
+  }
+  const audioChunks = [];
+  const relativeChunkOffsets = [];
+  let sampleCursor = 0;
+  let stscIdx = 0;
+  let totalAudioBytes = 0;
+  for (let c = 0; c < origOffsets.length; c++) {
+    const chunkNum1Based = c + 1;
+    while (stscIdx + 1 < stsc.length && stsc[stscIdx + 1].firstChunk <= chunkNum1Based) {
+      stscIdx++;
+    }
+    const samplesInChunk = stsc[stscIdx].samplesPerChunk;
+    let chunkByteLen = 0;
+    if (stsz.constantSize > 0) {
+      chunkByteLen = samplesInChunk * stsz.constantSize;
+      sampleCursor += samplesInChunk;
+    } else {
+      if (sampleCursor + samplesInChunk > stsz.sizes.length) return null;
+      for (let s = 0; s < samplesInChunk; s++) {
+        chunkByteLen += stsz.sizes[sampleCursor++];
+      }
+    }
+    const startByte = origOffsets[c];
+    const endByteExclusive = startByte + chunkByteLen;
+    if (startByte < 0 || chunkByteLen <= 0 || totalFileBytes > 0 && endByteExclusive > totalFileBytes) {
+      return null;
+    }
+    relativeChunkOffsets.push(totalAudioBytes);
+    audioChunks.push({
+      startByte,
+      endByteExclusive,
+      length: chunkByteLen,
+      destRelOffset: totalAudioBytes
+    });
+    totalAudioBytes += chunkByteLen;
+  }
+  if (totalAudioBytes === 0 || totalAudioBytes > 2147483647) return null;
+  const rebuildMoovWithOffsets = (chunkAbsOffsets) => {
+    const newStco = buildStcoBox(chunkAbsOffsets);
+    const stblParts = [];
+    for (const child of soundTrak.stblChildren) {
+      if (child.type === "stco" || child.type === "co64") continue;
+      stblParts.push(bytes.subarray(child.offset, child.endOffset));
+    }
+    stblParts.push(newStco);
+    const newStbl = makeBox("stbl", stblParts);
+    const minfParts = soundTrak.minfChildren.map(
+      (child) => child.type === "stbl" ? newStbl : bytes.subarray(child.offset, child.endOffset)
+    );
+    const newMinf = makeBox("minf", minfParts);
+    const mdiaParts = soundTrak.mdiaChildren.map(
+      (child) => child.type === "minf" ? newMinf : bytes.subarray(child.offset, child.endOffset)
+    );
+    const newMdia = makeBox("mdia", mdiaParts);
+    const trakParts = soundTrak.trakChildren.map(
+      (child) => child.type === "mdia" ? newMdia : bytes.subarray(child.offset, child.endOffset)
+    );
+    const newTrak = makeBox("trak", trakParts);
+    const mvhdSlice = bytes.subarray(mvhdBox.offset, mvhdBox.endOffset);
+    return makeBox("moov", [mvhdSlice, newTrak]);
+  };
+  const ftypBytes = buildM4aFtypBox();
+  const placeholderMoov = rebuildMoovWithOffsets(
+    new Array(origOffsets.length).fill(0)
+  );
+  const mdatPayloadStart = ftypBytes.byteLength + placeholderMoov.byteLength + 8;
+  const finalAbsOffsets = relativeChunkOffsets.map(
+    (rel) => mdatPayloadStart + rel
+  );
+  const finalMoov = rebuildMoovWithOffsets(finalAbsOffsets);
+  const sortedChunks = [...audioChunks].sort((a, b) => a.startByte - b.startByte);
+  const coalescedRanges = [];
+  for (const ch of sortedChunks) {
+    const prev = coalescedRanges[coalescedRanges.length - 1];
+    if (prev && ch.startByte - prev.endExclusive <= maxGapBytes && ch.endByteExclusive - prev.start <= maxRangeSpanBytes) {
+      prev.endExclusive = Math.max(prev.endExclusive, ch.endByteExclusive);
+      prev.chunks.push(ch);
+    } else {
+      coalescedRanges.push({
+        start: ch.startByte,
+        endExclusive: ch.endByteExclusive,
+        chunks: [ch]
+      });
+    }
+  }
+  return {
+    ftypBytes,
+    finalMoov,
+    mdatPayloadStart,
+    totalAudioBytes,
+    hasVideoTrak,
+    chunkCount: origOffsets.length,
+    coalescedRanges
+  };
+}
+async function extractAudioViaHttpRange({
+  url,
+  credentials = "include",
+  totalBytes = 0,
+  fetchImpl = globalThis.fetch,
+  concurrency = 6,
+  probeBytes = 1024 * 1024
+}) {
+  async function fetchRangeSlice(start, endInclusive) {
+    const res = await fetchImpl(url, {
+      method: "GET",
+      credentials,
+      headers: {
+        Range: `bytes=${start}-${endInclusive}`
+      }
+    });
+    if (res.status !== 206) {
+      return null;
+    }
+    let resolvedTotal = totalBytes;
+    const contentRange = res.headers?.get?.("content-range") || "";
+    const crMatch = contentRange.match(/\/(\d+)$/);
+    if (crMatch) {
+      resolvedTotal = Number(crMatch[1]) || resolvedTotal;
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return { bytes: buf, totalBytes: resolvedTotal };
+  }
+  const headEnd = totalBytes > 0 ? Math.min(totalBytes - 1, probeBytes - 1) : probeBytes - 1;
+  const headRes = await fetchRangeSlice(0, headEnd);
+  if (!headRes || headRes.bytes.byteLength < 32) return null;
+  const knownTotal = headRes.totalBytes || totalBytes;
+  let plan = planMp4AudioExtractionFromSlice(headRes.bytes, {
+    totalFileBytes: knownTotal
+  });
+  if (!plan && knownTotal > headRes.bytes.byteLength) {
+    const view = new DataView(
+      headRes.bytes.buffer,
+      headRes.bytes.byteOffset,
+      headRes.bytes.byteLength
+    );
+    let pos = 0;
+    let moovOffset = -1;
+    let moovSize = 0;
+    while (pos + 8 <= headRes.bytes.byteLength) {
+      const sz = view.getUint32(pos, false);
+      const tp = fourCC(headRes.bytes, pos + 4);
+      if (tp === "moov" && sz >= 32) {
+        moovOffset = pos;
+        moovSize = sz;
+        break;
+      }
+      if (sz < 8) break;
+      pos += sz;
+    }
+    if (moovOffset >= 0 && moovOffset + moovSize <= knownTotal && moovSize <= 16 * 1024 * 1024) {
+      const fullMoov = await fetchRangeSlice(moovOffset, moovOffset + moovSize - 1);
+      if (fullMoov) {
+        plan = planMp4AudioExtractionFromSlice(fullMoov.bytes, {
+          totalFileBytes: knownTotal
+        });
+      }
+    } else {
+      const tailLen = Math.min(knownTotal, Math.round(1.5 * 1024 * 1024));
+      const tailStart = Math.max(0, knownTotal - tailLen);
+      const tailRes = await fetchRangeSlice(tailStart, knownTotal - 1);
+      if (tailRes) {
+        const tb = tailRes.bytes;
+        const tv = new DataView(tb.buffer, tb.byteOffset, tb.byteLength);
+        for (let i = 0; i + 8 <= tb.byteLength; i++) {
+          if (tb[i + 4] === 109 && // m
+          tb[i + 5] === 111 && // o
+          tb[i + 6] === 111 && // o
+          tb[i + 7] === 118) {
+            const sz = tv.getUint32(i, false);
+            if (sz >= 32 && i + sz <= tb.byteLength) {
+              plan = planMp4AudioExtractionFromSlice(tb.subarray(i, i + sz), {
+                totalFileBytes: knownTotal
+              });
+              if (plan) break;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!plan) return null;
+  const plannedDownloadBytes = plan.coalescedRanges.reduce(
+    (sum, r) => sum + (r.endExclusive - r.start),
+    0
+  );
+  if (plannedDownloadBytes > 64 * 1024 * 1024) {
+    return null;
+  }
+  const mdatTotalSize = 8 + plan.totalAudioBytes;
+  const outputSize = plan.ftypBytes.byteLength + plan.finalMoov.byteLength + mdatTotalSize;
+  const out = new Uint8Array(outputSize);
+  const outView = new DataView(out.buffer);
+  let cursor = 0;
+  out.set(plan.ftypBytes, cursor);
+  cursor += plan.ftypBytes.byteLength;
+  out.set(plan.finalMoov, cursor);
+  cursor += plan.finalMoov.byteLength;
+  outView.setUint32(cursor, mdatTotalSize, false);
+  out.set(FOURCC_Encoder.encode("mdat"), cursor + 4);
+  let rangeIndex = 0;
+  let downloadedRangeBytes = headRes.bytes.byteLength;
+  let rangeErr = null;
+  async function rangeWorker() {
+    while (!rangeErr) {
+      const idx = rangeIndex++;
+      if (idx >= plan.coalescedRanges.length) return;
+      const r = plan.coalescedRanges[idx];
+      try {
+        let sliceBytes;
+        if (r.endExclusive <= headRes.bytes.byteLength) {
+          sliceBytes = headRes.bytes.subarray(r.start, r.endExclusive);
+        } else {
+          const fetched = await fetchRangeSlice(r.start, r.endExclusive - 1);
+          if (!fetched || fetched.bytes.byteLength < r.endExclusive - r.start) {
+            throw new Error("Incomplete HTTP 206 range response");
+          }
+          downloadedRangeBytes += fetched.bytes.byteLength;
+          sliceBytes = fetched.bytes;
+        }
+        for (const ch of r.chunks) {
+          const localStart = ch.startByte - r.start;
+          const localEnd = localStart + ch.length;
+          out.set(
+            sliceBytes.subarray(localStart, localEnd),
+            plan.mdatPayloadStart + ch.destRelOffset
+          );
+        }
+      } catch (e) {
+        rangeErr = e;
+      }
+    }
+  }
+  const workers = Math.max(
+    1,
+    Math.min(concurrency, plan.coalescedRanges.length)
+  );
+  await Promise.all(Array.from({ length: workers }, () => rangeWorker()));
+  if (rangeErr) return null;
+  return {
+    bytes: out,
+    mimeType: "audio/mp4",
+    fileName: "audio.m4a",
+    strippedVideo: plan.hasVideoTrak,
+    originalBytes: knownTotal || outputSize,
+    downloadedBytes: downloadedRangeBytes,
+    extractedBytes: out.byteLength,
+    rangeCount: plan.coalescedRanges.length
+  };
+}
 function encodeMonoWav16Bit(float32Samples, sampleRate = 16e3) {
   const numSamples = float32Samples.length;
   const dataBytes = numSamples * 2;
@@ -603,24 +916,35 @@ function deriveGoogleMediaVariants(mediaUrl) {
   };
   const isTrusted = isTrustedGoogleMediaUrl(mediaUrl);
   const tokenMatch = isTrusted ? mediaUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE) : null;
-  if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/")) {
+  const isFifeNonRd = isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/");
+  const isGoogleUserContent = isFifeNonRd && mediaUrl.includes("googleusercontent.com/notebooklm/");
+  if (isFifeNonRd) {
     const base = mediaUrl.replace(FIFE_SUFFIX_RE, "");
+    const token = tokenMatch[1];
     if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
       pushUnique(`${base}=m140`);
-      pushUnique(`${base}=m18`);
-      pushUnique(`${base}=m22`);
       pushUnique(`${base}=m140-dv`);
+    }
+    if (isGoogleUserContent) {
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m140-dv`);
+    }
+    if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
+      pushUnique(`${base}=m18`);
+    }
+    if (isGoogleUserContent) {
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
+    }
+    if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
+      pushUnique(`${base}=m22`);
       pushUnique(`${base}=m22-dv`);
+    }
+    if (isGoogleUserContent) {
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
     }
   }
   if (!isThumbnailOrManifestUrl(mediaUrl)) {
     pushUnique(mediaUrl);
-  }
-  if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/") && mediaUrl.includes("googleusercontent.com/notebooklm/")) {
-    const token = tokenMatch[1];
-    pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
-    pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
-    pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
   }
   return out;
 }
@@ -1322,9 +1646,6 @@ async function sendMultipartTranscription({
   } else {
     form.append("response_format", "verbose_json");
     form.append("timestamp_granularities[]", "segment");
-    if (providerId === "groq" || providerId === "openai") {
-      form.append("timestamp_granularities[]", "word");
-    }
   }
   const headers = {};
   if (apiKey) {
@@ -2058,8 +2379,10 @@ async function transcribeWithQueue({
   candidates,
   language = null,
   translateTo = "",
-  timeoutMs = 12e4,
-  singleProviderRetryDelayMs = 1100,
+  timeoutMs = 9e4,
+  singleProviderRetryDelayMs = 900,
+  chunkConcurrency = 3,
+  onPartialCues = null,
   fetchImpl = globalThis.fetch
 }) {
   const audioChunks = Array.isArray(chunks) && chunks.length > 0 ? chunks : [];
@@ -2075,7 +2398,7 @@ async function transcribeWithQueue({
   });
   if (runnableCandidates.length === 0) {
     throw new Error(
-      "No STT API key configured yet. Click the Subtitles for NotebookLM toolbar icon and paste a free Groq or Mistral API key."
+      "No STT API key configured yet. Click the LM Subs toolbar icon and paste a free Groq or Mistral API key."
     );
   }
   const allSecrets = runnableCandidates.map((c) => c.apiKey).filter(Boolean);
@@ -2100,24 +2423,66 @@ async function transcribeWithQueue({
       continue;
     }
     const runCandidateOnce = async () => {
+      const partGroups = new Array(audioChunks.length).fill(null);
+      let nextIndex = 0;
+      let completedCount = 0;
+      let fatalErr = null;
+      const workerCount = Math.max(
+        1,
+        Math.min(Number(chunkConcurrency) || 3, audioChunks.length)
+      );
+      async function chunkWorker() {
+        while (!fatalErr) {
+          const i = nextIndex++;
+          if (i >= audioChunks.length) return;
+          const ch = audioChunks[i];
+          try {
+            const partCues = await transcribeSingleChunk({
+              providerId: spec.id,
+              model: resolvedModel,
+              apiKey: candidate.apiKey,
+              customBaseUrl: candidate.customBaseUrl || "",
+              audioBytes: ch.bytes,
+              mimeType: ch.mimeType || "audio/mp4",
+              fileName: ch.fileName || "audio.m4a",
+              language,
+              translateTo,
+              offsetSec: ch.startOffsetSec || 0,
+              durationHintSec: ch.durationSec || null,
+              timeoutMs,
+              fetchImpl
+            });
+            partGroups[i] = partCues;
+            completedCount += 1;
+            if (typeof onPartialCues === "function" && audioChunks.length > 1 && completedCount < audioChunks.length) {
+              const ready = [];
+              for (const g of partGroups) {
+                if (Array.isArray(g)) ready.push(...g);
+              }
+              const sortedPartial = normalizeAndSortCues(ready);
+              if (sortedPartial.length > 0) {
+                onPartialCues({
+                  cues: sortedPartial,
+                  provider: spec.id,
+                  providerName: spec.name,
+                  model: resolvedModel,
+                  completedChunks: completedCount,
+                  totalChunks: audioChunks.length
+                });
+              }
+            }
+          } catch (workerErr) {
+            fatalErr = workerErr;
+          }
+        }
+      }
+      await Promise.all(
+        Array.from({ length: workerCount }, () => chunkWorker())
+      );
+      if (fatalErr) throw fatalErr;
       const merged = [];
-      for (const ch of audioChunks) {
-        const partCues = await transcribeSingleChunk({
-          providerId: spec.id,
-          model: resolvedModel,
-          apiKey: candidate.apiKey,
-          customBaseUrl: candidate.customBaseUrl || "",
-          audioBytes: ch.bytes,
-          mimeType: ch.mimeType || "audio/mp4",
-          fileName: ch.fileName || "audio.m4a",
-          language,
-          translateTo,
-          offsetSec: ch.startOffsetSec || 0,
-          durationHintSec: ch.durationSec || null,
-          timeoutMs,
-          fetchImpl
-        });
-        merged.push(...partCues);
+      for (const g of partGroups) {
+        if (Array.isArray(g)) merged.push(...g);
       }
       return normalizeAndSortCues(merged);
     };
@@ -2178,7 +2543,9 @@ var STORAGE_KEYS = Object.freeze({
   SUBTITLE_CACHE: "subtitleCache",
   HISTORY: "subtitleHistory",
   LAST_STATUS: "lastStatus",
-  DEBUG_LOGS: "debugLogs"
+  DEBUG_LOGS: "debugLogs",
+  CLOUD_SYNC_PROFILE: "cloudSyncProfile",
+  CLOUD_SYNC_SECRET: "cloudSyncSecret"
 });
 var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
@@ -2272,6 +2639,33 @@ async function getSettings(storageArea) {
     excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
     rpcOverrides
   };
+}
+async function saveSettings(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getSettings(store);
+  const next = {
+    ...current,
+    ...partial
+  };
+  if (partial?.queueOrder) {
+    next.queueOrder = normalizeQueueOrder(partial.queueOrder);
+  }
+  if (partial?.primaryProvider && DEFAULT_QUEUE_ORDER.includes(partial.primaryProvider)) {
+    next.primaryProvider = partial.primaryProvider;
+    if (!partial.queueOrder) {
+      next.queueOrder = normalizeQueueOrder([
+        partial.primaryProvider,
+        ...next.queueOrder
+      ]);
+    }
+  } else if (next.queueOrder.length > 0) {
+    next.primaryProvider = next.queueOrder[0];
+  }
+  if (Array.isArray(partial?.excludePatterns)) {
+    next.excludePatterns = partial.excludePatterns.map((s) => String(s).trim()).filter(Boolean);
+  }
+  await store.set({ [STORAGE_KEYS.SETTINGS]: next });
+  return next;
 }
 function getModelForProvider(settings, providerId) {
   const saved = settings?.providerModels?.[providerId];
@@ -2399,7 +2793,154 @@ async function setLastStatus(status, storageArea) {
 }
 function sanitizeDebugMessage(text) {
   if (typeof text !== "string") return String(text ?? "");
-  return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
+  return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-|lms_)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
+}
+var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
+  serverUrl: "http://localhost:4173",
+  connected: false,
+  autoSync: true,
+  user: null,
+  keyHints: {},
+  subtitleCount: 0,
+  lastSyncedAt: null
+});
+function normalizeSyncServerUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl.trim()) {
+    return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+  }
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+    }
+    return `${parsed.origin}${parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/api$/, "")}`;
+  } catch {
+    return DEFAULT_CLOUD_SYNC_PROFILE.serverUrl;
+  }
+}
+async function getCloudSyncProfile(storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
+  const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
+  if (!saved || typeof saved !== "object") {
+    return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+  }
+  return {
+    serverUrl: normalizeSyncServerUrl(saved.serverUrl),
+    connected: Boolean(saved.connected && saved.user?.email),
+    autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+    user: saved.user && typeof saved.user === "object" ? {
+      id: String(saved.user.id || ""),
+      email: String(saved.user.email || ""),
+      name: String(saved.user.name || "")
+    } : null,
+    keyHints: saved.keyHints && typeof saved.keyHints === "object" ? { ...saved.keyHints } : {},
+    subtitleCount: Number(saved.subtitleCount) || 0,
+    lastSyncedAt: saved.lastSyncedAt || null
+  };
+}
+async function saveCloudSyncProfile(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getCloudSyncProfile(store);
+  const next = {
+    ...current,
+    ...partial
+  };
+  next.serverUrl = normalizeSyncServerUrl(next.serverUrl);
+  next.connected = Boolean(next.connected && next.user?.email);
+  await store.set({ [STORAGE_KEYS.CLOUD_SYNC_PROFILE]: next });
+  return next;
+}
+async function getSecretCloudSyncToken(storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_SECRET);
+  const tok = raw?.[STORAGE_KEYS.CLOUD_SYNC_SECRET]?.token;
+  return typeof tok === "string" ? tok.trim() : "";
+}
+async function setSecretCloudSyncToken(token, storageArea) {
+  const store = resolveStorage(storageArea);
+  const trimmed = typeof token === "string" ? token.trim() : "";
+  if (!trimmed) {
+    await store.set({ [STORAGE_KEYS.CLOUD_SYNC_SECRET]: {} });
+    return;
+  }
+  await store.set({ [STORAGE_KEYS.CLOUD_SYNC_SECRET]: { token: trimmed } });
+}
+async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
+  if (!cloudKeys || typeof cloudKeys !== "object") return;
+  const store = resolveStorage(storageArea);
+  const current = await getSecretApiKeysMap(store);
+  const merged = { ...current };
+  for (const [providerId, rawKey] of Object.entries(cloudKeys)) {
+    if (typeof rawKey === "string" && rawKey.trim()) {
+      merged[providerId] = rawKey.trim();
+    }
+  }
+  await store.set({ [STORAGE_KEYS.API_KEYS]: merged });
+}
+async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
+  if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) return;
+  const store = resolveStorage(storageArea);
+  const [localCache, localHistory] = await Promise.all([
+    getSubtitleCacheList(store),
+    getHistory(store)
+  ]);
+  const byKey = /* @__PURE__ */ new Map();
+  for (const item of localCache) {
+    if (item?.cacheKey) byKey.set(item.cacheKey, item);
+  }
+  for (const sub of cloudSubtitles) {
+    if (!sub?.cacheKey || !Array.isArray(sub.cues) || sub.cues.length === 0) continue;
+    if (!byKey.has(sub.cacheKey)) {
+      byKey.set(sub.cacheKey, {
+        cacheKey: sub.cacheKey,
+        artifactId: sub.artifactId || null,
+        notebookId: sub.notebookId || null,
+        mediaToken: sub.mediaToken || null,
+        title: sub.title || "Video Overview",
+        language: sub.language || "en",
+        provider: sub.provider || "neon-sync",
+        model: sub.model || "",
+        failoverUsed: false,
+        cueCount: sub.cues.length,
+        durationSeconds: null,
+        extractedBytes: sub.extractedBytes || null,
+        originalBytes: sub.originalBytes || null,
+        latencyMs: sub.latencyMs || null,
+        cues: sub.cues,
+        createdAt: sub.savedAt || (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+  }
+  const nextCache = [...byKey.values()].slice(0, MAX_CACHE_ENTRIES);
+  const histByKey = /* @__PURE__ */ new Map();
+  for (const h of localHistory) {
+    if (h?.cacheKey) histByKey.set(h.cacheKey, h);
+  }
+  for (const item of nextCache) {
+    if (!histByKey.has(item.cacheKey)) {
+      histByKey.set(item.cacheKey, {
+        cacheKey: item.cacheKey,
+        artifactId: item.artifactId,
+        notebookId: item.notebookId,
+        title: item.title,
+        provider: item.provider,
+        model: item.model,
+        failoverUsed: Boolean(item.failoverUsed),
+        cueCount: item.cueCount,
+        extractedBytes: item.extractedBytes,
+        originalBytes: item.originalBytes,
+        latencyMs: item.latencyMs,
+        createdAt: item.createdAt
+      });
+    }
+  }
+  const nextHistory = [...histByKey.values()].slice(0, MAX_HISTORY_ENTRIES);
+  await store.set({
+    [STORAGE_KEYS.SUBTITLE_CACHE]: nextCache,
+    [STORAGE_KEYS.HISTORY]: nextHistory
+  });
 }
 async function getDebugLogs(storageArea) {
   try {
@@ -2433,6 +2974,8 @@ async function clearDebugLogs(storageArea) {
 var STAGED_AUDIO_TTL_MS = 5 * 60 * 1e3;
 var MAX_SINGLE_M4A_FOR_ALL_PROVIDERS = 22 * 1024 * 1024;
 var MAX_SAFE_IPC_DECODE_BYTES = 38 * 1024 * 1024;
+var RANGE_EXTRACTION_THRESHOLD_BYTES = 16 * 1024 * 1024;
+var MEDIA_HEADER_TIMEOUT_MS = 9e3;
 function base64ToUint8(b64) {
   if (typeof Buffer !== "undefined") {
     return new Uint8Array(Buffer.from(b64, "base64"));
@@ -2444,7 +2987,9 @@ function base64ToUint8(b64) {
 }
 function uint8ToBase642(bytes) {
   if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString(
+      "base64"
+    );
   }
   let s = "";
   const CHUNK = 32768;
@@ -2577,21 +3122,20 @@ function createRuntimeDispatcher({
       chunks
     };
   }
-  function notifyTabProgress(tabId, payload) {
+  function notifyTabMessage(tabId, message) {
     if (!tabId || !tabsApi?.sendMessage) return;
     try {
-      tabsApi.sendMessage(
-        tabId,
-        {
-          type: RUNTIME_MESSAGE.SUBTITLES_PROGRESS,
-          ...payload
-        },
-        () => {
-          void globalThis.chrome?.runtime?.lastError;
-        }
-      );
+      tabsApi.sendMessage(tabId, message, () => {
+        void globalThis.chrome?.runtime?.lastError;
+      });
     } catch {
     }
+  }
+  function notifyTabProgress(tabId, payload) {
+    notifyTabMessage(tabId, {
+      type: RUNTIME_MESSAGE.SUBTITLES_PROGRESS,
+      ...payload
+    });
   }
   async function checkProviderOriginPermission(providerId, customBaseUrl = "") {
     if (providerId !== "custom") return true;
@@ -2604,6 +3148,249 @@ function createRuntimeDispatcher({
       return true;
     }
   }
+  async function callSyncApi(serverUrl, path, { method = "GET", token = "", body = null, timeoutMs = 1e4 } = {}) {
+    const base = normalizeSyncServerUrl(serverUrl);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const headers = {};
+    if (body !== null) headers["Content-Type"] = "application/json";
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+      const res = await fetchImpl(`${base}${path}`, {
+        method,
+        headers,
+        body: body !== null ? JSON.stringify(body) : void 0,
+        signal: controller.signal
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        const errMsg = json?.error || `Sync server returned HTTP ${res.status}`;
+        const err = new Error(errMsg);
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function fetchCloudSubtitleIfAvailable({ cacheKey, artifactId, mediaToken }) {
+    try {
+      const [profile, token] = await Promise.all([
+        getCloudSyncProfile(storageArea),
+        getSecretCloudSyncToken(storageArea)
+      ]);
+      if (!profile.connected || !token) return null;
+      const qs = new URLSearchParams();
+      if (cacheKey) qs.set("cacheKey", cacheKey);
+      if (artifactId) qs.set("artifactId", artifactId);
+      if (mediaToken) qs.set("mediaToken", mediaToken);
+      const res = await callSyncApi(
+        profile.serverUrl,
+        `/api/sync/subtitle?${qs.toString()}`,
+        { token, timeoutMs: 3500 }
+      );
+      if (res?.entry?.cues?.length > 0) {
+        return res.entry;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  async function runBidirectionalCloudSync({
+    deletedProviders = [],
+    deletedCacheKeys = [],
+    pushOnly = false
+  } = {}) {
+    const [profile, token] = await Promise.all([
+      getCloudSyncProfile(storageArea),
+      getSecretCloudSyncToken(storageArea)
+    ]);
+    if (!token) {
+      throw new Error("Sign in to your LM Subs Neon account first.");
+    }
+    const [localSettings, localKeys, localSubtitles] = await Promise.all([
+      getSettings(storageArea),
+      getSecretApiKeysMap(storageArea),
+      getSubtitleCacheList(storageArea)
+    ]);
+    const pushRes = await callSyncApi(profile.serverUrl, "/api/sync/push", {
+      method: "POST",
+      token,
+      body: {
+        settings: localSettings,
+        apiKeys: localKeys,
+        deletedProviders,
+        deletedCacheKeys,
+        subtitles: localSubtitles.slice(0, 35)
+      },
+      timeoutMs: 12e3
+    });
+    if (pushOnly) {
+      const updated = await saveCloudSyncProfile(
+        {
+          connected: true,
+          keyHints: pushRes.summary?.keyHints || profile.keyHints,
+          subtitleCount: pushRes.summary?.subtitleCount ?? profile.subtitleCount,
+          lastSyncedAt: pushRes.syncedAt || (/* @__PURE__ */ new Date()).toISOString()
+        },
+        storageArea
+      );
+      return { ok: true, profile: updated };
+    }
+    const pullRes = await callSyncApi(
+      profile.serverUrl,
+      "/api/sync/pull?includeSecrets=1",
+      {
+        method: "GET",
+        token,
+        timeoutMs: 12e3
+      }
+    );
+    if (pullRes.settings && typeof pullRes.settings === "object") {
+      await saveSettings(pullRes.settings, storageArea);
+    }
+    if (pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
+      await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
+    }
+    if (Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
+      await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
+    }
+    const updatedProfile = await saveCloudSyncProfile(
+      {
+        connected: true,
+        user: pullRes.user || profile.user,
+        keyHints: pullRes.keyHints || {},
+        subtitleCount: Array.isArray(pullRes.subtitles) ? pullRes.subtitles.length : 0,
+        lastSyncedAt: pullRes.syncedAt || (/* @__PURE__ */ new Date()).toISOString()
+      },
+      storageArea
+    );
+    await appendDebugEntry(
+      {
+        layer: "SYNC",
+        event: "neon.sync_ok",
+        detail: `Synced ${Object.keys(pullRes.keyHints || {}).length} encrypted key(s) & ${pullRes.subtitles?.length || 0} subtitle(s) with Neon Postgres`,
+        level: "ok"
+      },
+      [token, ...Object.values(pullRes.apiKeys || {})]
+    );
+    return { ok: true, profile: updatedProfile };
+  }
+  async function handleSyncSignup(msg) {
+    const serverUrl = normalizeSyncServerUrl(msg?.serverUrl);
+    const email = String(msg?.email || "").trim().toLowerCase();
+    const password = String(msg?.password || "");
+    const name = String(msg?.name || "").trim();
+    const res = await callSyncApi(serverUrl, "/api/auth/signup", {
+      method: "POST",
+      body: {
+        email,
+        password,
+        name,
+        deviceLabel: "chrome-extension"
+      }
+    });
+    await setSecretCloudSyncToken(res.token, storageArea);
+    await saveCloudSyncProfile(
+      {
+        serverUrl,
+        connected: true,
+        user: res.user,
+        keyHints: res.summary?.keyHints || {},
+        subtitleCount: res.summary?.subtitleCount || 0,
+        lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      storageArea
+    );
+    return runBidirectionalCloudSync();
+  }
+  async function handleSyncSignin(msg) {
+    const serverUrl = normalizeSyncServerUrl(msg?.serverUrl);
+    const pastedToken = String(msg?.token || "").trim();
+    if (pastedToken) {
+      const meRes = await callSyncApi(serverUrl, "/api/auth/me", {
+        method: "GET",
+        token: pastedToken
+      });
+      await setSecretCloudSyncToken(pastedToken, storageArea);
+      await saveCloudSyncProfile(
+        {
+          serverUrl,
+          connected: true,
+          user: meRes.user,
+          keyHints: meRes.summary?.keyHints || {},
+          subtitleCount: meRes.summary?.subtitleCount || 0,
+          lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString()
+        },
+        storageArea
+      );
+      return runBidirectionalCloudSync();
+    }
+    const email = String(msg?.email || "").trim().toLowerCase();
+    const password = String(msg?.password || "");
+    const res = await callSyncApi(serverUrl, "/api/auth/signin", {
+      method: "POST",
+      body: {
+        email,
+        password,
+        deviceLabel: "chrome-extension"
+      }
+    });
+    await setSecretCloudSyncToken(res.token, storageArea);
+    await saveCloudSyncProfile(
+      {
+        serverUrl,
+        connected: true,
+        user: res.user,
+        keyHints: res.summary?.keyHints || {},
+        subtitleCount: res.summary?.subtitleCount || 0,
+        lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      storageArea
+    );
+    const pullRes = await callSyncApi(
+      serverUrl,
+      "/api/sync/pull?includeSecrets=1",
+      { method: "GET", token: res.token, timeoutMs: 12e3 }
+    );
+    if (pullRes.settings && typeof pullRes.settings === "object") {
+      await saveSettings(pullRes.settings, storageArea);
+    }
+    if (pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
+      await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
+    }
+    if (Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
+      await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
+    }
+    return runBidirectionalCloudSync();
+  }
+  async function handleSyncSignout() {
+    const [profile, token] = await Promise.all([
+      getCloudSyncProfile(storageArea),
+      getSecretCloudSyncToken(storageArea)
+    ]);
+    if (token) {
+      await callSyncApi(profile.serverUrl, "/api/auth/signout", {
+        method: "POST",
+        token,
+        timeoutMs: 4e3
+      }).catch(() => {
+      });
+    }
+    await setSecretCloudSyncToken("", storageArea);
+    const cleared = await saveCloudSyncProfile(
+      {
+        connected: false,
+        user: null,
+        keyHints: {},
+        subtitleCount: 0
+      },
+      storageArea
+    );
+    return { ok: true, profile: cleared };
+  }
   async function fetchAndExtractCompactAudio(artifact, tabId, pageFetchError = null) {
     const seedUrl = artifact.progressiveUrl || artifact.mediaUrl;
     const rawCandidates = [
@@ -2613,13 +3400,17 @@ function createRuntimeDispatcher({
       artifact.progressiveUrl,
       artifact.mediaUrl
     ].filter(Boolean);
-    const allCandidateUrls = [...new Set(rawCandidates)].filter(
+    const audioFirstCandidates = [
+      ...rawCandidates.filter((u) => /=m140(?:-dv)?(?:$|\?)/i.test(u)),
+      ...rawCandidates.filter((u) => !/=m140(?:-dv)?(?:$|\?)/i.test(u))
+    ];
+    const allCandidateUrls = [...new Set(audioFirstCandidates)].filter(
       (u) => isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u)
     );
     if (allCandidateUrls.length === 0) {
       if (String(artifact.mediaUrl || "").startsWith("blob:")) {
         throw new Error(
-          "Reload this NotebookLM tab once (Ctrl+R / Cmd+R) so the extension can capture the Video Overview media stream."
+          "Reload this NotebookLM tab once (Ctrl+R / Cmd+R) so LM Subs can capture the Video Overview stream."
         );
       }
       throw new Error(
@@ -2629,12 +3420,13 @@ function createRuntimeDispatcher({
     await appendDebugEntry({
       layer: "SW",
       event: "media.candidates",
-      detail: `Trying ${allCandidateUrls.length} Google CDN URL(s); first=${summarizeMediaUrlForDebug(
+      detail: `Probing ${allCandidateUrls.length} Google stream(s); first=${summarizeMediaUrlForDebug(
         allCandidateUrls[0]
       )}`
     });
     let downloadedBytes = null;
     let downloadedContentType = "";
+    let downloadedTrackInfo = null;
     let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
     for (const candidateUrl of allCandidateUrls) {
       let hostLabel = "googleusercontent.com";
@@ -2644,11 +3436,18 @@ function createRuntimeDispatcher({
       }
       let skipCandidateVariant = false;
       for (const credentialsMode of ["include", "omit"]) {
+        const headerAbort = new AbortController();
+        const headerTimer = setTimeout(
+          () => headerAbort.abort(),
+          MEDIA_HEADER_TIMEOUT_MS
+        );
         try {
           const res = await fetchImpl(candidateUrl, {
             method: "GET",
-            credentials: credentialsMode
+            credentials: credentialsMode,
+            signal: headerAbort.signal
           });
+          clearTimeout(headerTimer);
           if (!res.ok) {
             lastDownloadErr = `Media CDN (${hostLabel}) returned HTTP ${res.status}`;
             await appendDebugEntry({
@@ -2661,7 +3460,60 @@ function createRuntimeDispatcher({
             }
             continue;
           }
-          const ct = res.headers?.get?.("content-type") || "";
+          const ct = (res.headers?.get?.("content-type") || "").toLowerCase();
+          const contentLen = Number(res.headers?.get?.("content-length") || 0);
+          if (contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES && ct.includes("video/mp4")) {
+            headerAbort.abort();
+            notifyTabProgress(tabId, {
+              cacheKey: artifact.cacheKey,
+              artifactId: artifact.artifactId,
+              mediaToken: artifact.mediaToken,
+              label: "Streaming audio track via HTTP Range\u2026",
+              detail: `Skipping ${formatMegabytes(contentLen)} video frames`
+            });
+            const ranged = await extractAudioViaHttpRange({
+              url: candidateUrl,
+              credentials: credentialsMode,
+              totalBytes: contentLen,
+              fetchImpl
+            });
+            if (ranged && ranged.bytes && ranged.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
+              await appendDebugEntry({
+                layer: "SW",
+                event: "media.range_extracted",
+                detail: `HTTP Range extracted ${formatMegabytes(
+                  ranged.extractedBytes
+                )} .m4a (downloaded ${formatMegabytes(
+                  ranged.downloadedBytes
+                )} of ${formatMegabytes(contentLen)} MP4)`,
+                level: "ok"
+              });
+              return {
+                originalBytes: contentLen,
+                extractedBytes: ranged.extractedBytes,
+                durationSeconds: artifact.durationSeconds || null,
+                chunks: [
+                  {
+                    bytes: ranged.bytes,
+                    mimeType: "audio/mp4",
+                    fileName: "overview-audio.m4a",
+                    startOffsetSec: 0,
+                    durationSec: artifact.durationSeconds || null
+                  }
+                ]
+              };
+            }
+            const fallbackRes = await fetchImpl(candidateUrl, {
+              method: "GET",
+              credentials: credentialsMode
+            });
+            if (!fallbackRes.ok) continue;
+            const fullBuf = new Uint8Array(await fallbackRes.arrayBuffer());
+            downloadedBytes = validateMediaPayload(fullBuf, ct);
+            downloadedContentType = ct;
+            downloadedTrackInfo = inspectMp4Tracks(downloadedBytes);
+            break;
+          }
           const buf = new Uint8Array(await res.arrayBuffer());
           const validated = validateMediaPayload(buf, ct);
           const trackInfo = inspectMp4Tracks(validated);
@@ -2672,13 +3524,14 @@ function createRuntimeDispatcher({
             await appendDebugEntry({
               layer: "SW",
               event: "media.skip_silent",
-              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks, ${validated.byteLength} B) \u2014 advancing to next stream`
+              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks) \u2014 advancing`
             });
             skipCandidateVariant = true;
             break;
           }
           downloadedBytes = validated;
-          downloadedContentType = ct.toLowerCase();
+          downloadedContentType = ct;
+          downloadedTrackInfo = trackInfo;
           await appendDebugEntry({
             layer: "SW",
             event: "media.downloaded",
@@ -2687,6 +3540,7 @@ function createRuntimeDispatcher({
           });
           break;
         } catch (err) {
+          clearTimeout(headerTimer);
           lastDownloadErr = `Media stream download failed (${hostLabel}): ${err?.message || String(err)}`;
           await appendDebugEntry({
             layer: "SW",
@@ -2704,7 +3558,7 @@ function createRuntimeDispatcher({
         const permErr = new Error(
           `Chrome withheld Google CDN host permissions (${permCheck.missingOrigins.join(
             ", "
-          )}). Open the extension popup and click "Grant Google Media Access".`
+          )}). Open the LM Subs popup and click "Grant Google Media Access".`
         );
         permErr.missingPermissions = true;
         throw permErr;
@@ -2712,6 +3566,32 @@ function createRuntimeDispatcher({
       throw new Error(lastDownloadErr);
     }
     const originalBytes = downloadedBytes.byteLength;
+    const isAlreadyPureAudio = downloadedContentType.startsWith("audio/") || downloadedTrackInfo?.isMp4 && !downloadedTrackInfo.hasVideo;
+    if (isAlreadyPureAudio && originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
+      const isWebm = downloadedContentType.includes("webm");
+      const isWav = downloadedContentType.includes("wav");
+      notifyTabProgress(tabId, {
+        cacheKey: artifact.cacheKey,
+        artifactId: artifact.artifactId,
+        mediaToken: artifact.mediaToken,
+        label: "Audio stream ready \xB7 Transcribing\u2026",
+        detail: `${formatMegabytes(originalBytes)} direct audio`
+      });
+      return {
+        originalBytes,
+        extractedBytes: originalBytes,
+        durationSeconds: artifact.durationSeconds || null,
+        chunks: [
+          {
+            bytes: downloadedBytes,
+            mimeType: isWav ? "audio/wav" : isWebm ? "audio/webm" : "audio/mp4",
+            fileName: isWav ? "overview-audio.wav" : isWebm ? "overview-audio.webm" : "overview-audio.m4a",
+            startOffsetSec: 0,
+            durationSec: artifact.durationSeconds || null
+          }
+        ]
+      };
+    }
     const extracted = extractAudioTrackFromMp4(downloadedBytes);
     if (extracted && extracted.bytes && extracted.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
       notifyTabProgress(tabId, {
@@ -2787,8 +3667,6 @@ function createRuntimeDispatcher({
       };
     }
     if (originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
-      const isWebm = downloadedContentType.includes("webm");
-      const isWav = downloadedContentType.includes("wav");
       return {
         originalBytes,
         extractedBytes: originalBytes,
@@ -2796,8 +3674,8 @@ function createRuntimeDispatcher({
         chunks: [
           {
             bytes: downloadedBytes,
-            mimeType: isWav ? "audio/wav" : isWebm ? "audio/webm" : "audio/mp4",
-            fileName: isWav ? "overview-audio.wav" : isWebm ? "overview-audio.webm" : "overview-audio.m4a",
+            mimeType: "audio/mp4",
+            fileName: "overview-audio.m4a",
             startOffsetSec: 0,
             durationSec: artifact.durationSeconds || null
           }
@@ -2831,6 +3709,21 @@ function createRuntimeDispatcher({
       if (existing) {
         return { ok: true, cached: true, entry: existing };
       }
+      const cloudEntry = await fetchCloudSubtitleIfAvailable({
+        cacheKey,
+        artifactId: artifact.artifactId,
+        mediaToken
+      });
+      if (cloudEntry) {
+        const hydrated = await saveCachedSubtitles(cloudEntry, storageArea);
+        await appendDebugEntry({
+          layer: "SYNC",
+          event: "neon.cache_hit",
+          detail: `Loaded ${hydrated.cueCount} cues from Neon Postgres in 1 round-trip`,
+          level: "ok"
+        });
+        return { ok: true, cached: true, cloudCached: true, entry: hydrated };
+      }
     }
     if (inFlightPromises.has(cacheKey)) {
       return inFlightPromises.get(cacheKey);
@@ -2862,7 +3755,7 @@ function createRuntimeDispatcher({
         });
       }
       if (candidates.length === 0) {
-        const noKeyMsg = "No STT API key configured yet. Open the Subtitles for NotebookLM popup and save a free Groq or Mistral key.";
+        const noKeyMsg = "No STT API key configured yet. Open LM Subs and add a free Groq or Mistral key (or sign in to Neon Sync).";
         await setLastStatus(
           {
             state: "error",
@@ -2887,7 +3780,7 @@ function createRuntimeDispatcher({
           cacheKey,
           artifactId: artifact.artifactId,
           mediaToken,
-          label: "Downloading & extracting audio track\u2026",
+          label: "Fetching compact audio stream\u2026",
           detail: artifact.title || ""
         });
         audioBundle = await fetchAndExtractCompactAudio(
@@ -2901,7 +3794,7 @@ function createRuntimeDispatcher({
           artifactId: artifact.artifactId,
           mediaToken,
           label: `Transcribing via ${getProviderSpec(candidates[0].providerId).name}\u2026`,
-          detail: `${formatMegabytes(audioBundle.originalBytes)} video -> ${formatMegabytes(
+          detail: `${formatMegabytes(audioBundle.originalBytes)} -> ${formatMegabytes(
             audioBundle.extractedBytes
           )} audio`
         });
@@ -2910,16 +3803,30 @@ function createRuntimeDispatcher({
       await appendDebugEntry({
         layer: "STT",
         event: "stt.dispatch",
-        detail: `Sending ${audioBundle.chunks.length} audio chunk(s) (${formatMegabytes(
+        detail: `Sending ${audioBundle.chunks.length} chunk(s) (${formatMegabytes(
           audioBundle.extractedBytes
-        )}) to queue [${candidates.map((c) => c.providerId).join(" -> ")}]`
+        )}) to [${candidates.map((c) => c.providerId).join(" -> ")}]`
       });
       const txResult = await transcribeWithQueue({
         chunks: audioBundle.chunks,
         candidates,
         language,
         translateTo: settings.translateTo || "original",
-        timeoutMs: 18e4,
+        timeoutMs: 9e4,
+        chunkConcurrency: 3,
+        onPartialCues: (partial) => {
+          notifyTabMessage(tabId, {
+            type: RUNTIME_MESSAGE.SUBTITLES_PARTIAL,
+            cacheKey,
+            artifactId: artifact.artifactId,
+            mediaToken,
+            title: artifact.title || "Video Overview",
+            language: language || "en",
+            completedChunks: partial.completedChunks,
+            totalChunks: partial.totalChunks,
+            cues: partial.cues
+          });
+        },
         fetchImpl
       });
       if (!txResult.cues || txResult.cues.length === 0) {
@@ -2939,7 +3846,7 @@ function createRuntimeDispatcher({
           artifactId: artifact.artifactId || null,
           notebookId: artifact.notebookId || null,
           mediaToken: mediaToken || null,
-          title: artifact.title || "NotebookLM Video Overview",
+          title: artifact.title || "Video Overview",
           language: language || "en",
           provider: txResult.provider,
           model: txResult.model,
@@ -2963,14 +3870,24 @@ function createRuntimeDispatcher({
           extractedBytes: audioBundle.extractedBytes,
           originalBytes: audioBundle.originalBytes,
           latencyMs: txResult.latencyMs,
-          message: `Generated ${savedEntry.cueCount} cues via ${txResult.providerName}`
+          message: `${savedEntry.cueCount} cues \xB7 ${(txResult.latencyMs / 1e3).toFixed(1)}s via ${txResult.providerName}`
         },
         storageArea
       );
+      getCloudSyncProfile(storageArea).then((prof) => {
+        if (prof.connected && prof.autoSync) {
+          return runBidirectionalCloudSync({ pushOnly: true });
+        }
+        return null;
+      }).catch(() => {
+      });
       return { ok: true, cached: false, entry: savedEntry };
     })().catch(async (err) => {
-      const secretsMap = await getSecretApiKeysMap(storageArea).catch(() => ({}));
-      const allSecrets = Object.values(secretsMap);
+      const [secretsMap, syncTok] = await Promise.all([
+        getSecretApiKeysMap(storageArea).catch(() => ({})),
+        getSecretCloudSyncToken(storageArea).catch(() => "")
+      ]);
+      const allSecrets = [...Object.values(secretsMap), syncTok].filter(Boolean);
       const safeError = redactSecrets(err?.message || String(err), allSecrets);
       await appendDebugEntry(
         {
@@ -3077,7 +3994,16 @@ function createRuntimeDispatcher({
       return true;
     }
     if (msg.type === RUNTIME_MESSAGE.SAVE_IMPORTED_SUBTITLES && msg.entry) {
-      saveCachedSubtitles(msg.entry, storageArea).then((saved) => sendResponse({ ok: true, entry: saved })).catch(
+      saveCachedSubtitles(msg.entry, storageArea).then((saved) => {
+        getCloudSyncProfile(storageArea).then((prof) => {
+          if (prof.connected && prof.autoSync) {
+            return runBidirectionalCloudSync({ pushOnly: true });
+          }
+          return null;
+        }).catch(() => {
+        });
+        sendResponse({ ok: true, entry: saved });
+      }).catch(
         (err) => sendResponse({ ok: false, error: err?.message || String(err) })
       );
       return true;
@@ -3088,9 +4014,49 @@ function createRuntimeDispatcher({
       );
       return true;
     }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_STATUS) {
+      getCloudSyncProfile(storageArea).then((profile) => sendResponse({ ok: true, profile })).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNUP) {
+      handleSyncSignup(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNIN) {
+      handleSyncSignin(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNOUT) {
+      handleSyncSignout().then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_NOW) {
+      runBidirectionalCloudSync({
+        deletedProviders: Array.isArray(msg.deletedProviders) ? msg.deletedProviders : [],
+        deletedCacheKeys: Array.isArray(msg.deletedCacheKeys) ? msg.deletedCacheKeys : [],
+        pushOnly: Boolean(msg.pushOnly)
+      }).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
     if (msg.type === RUNTIME_MESSAGE.APPEND_DEBUG_LOG && msg.entry) {
-      getSecretApiKeysMap(storageArea).catch(() => ({})).then(
-        (secretsMap) => appendDebugEntry(msg.entry, Object.values(secretsMap))
+      Promise.all([
+        getSecretApiKeysMap(storageArea).catch(() => ({})),
+        getSecretCloudSyncToken(storageArea).catch(() => "")
+      ]).then(
+        ([secretsMap, syncTok]) => appendDebugEntry(
+          msg.entry,
+          [...Object.values(secretsMap), syncTok].filter(Boolean)
+        )
       ).then((saved) => sendResponse({ ok: true, entry: saved })).catch(
         (err) => sendResponse({ ok: false, error: err?.message || String(err) })
       );
@@ -3106,19 +4072,25 @@ function createRuntimeDispatcher({
     if (msg.type === RUNTIME_MESSAGE.GET_DEBUG_REPORT) {
       (async () => {
         await ensureDebugLogsHydrated();
-        const [settings, presenceMap, lastStatus, permCheck] = await Promise.all([
+        const [settings, presenceMap, lastStatus, permCheck, syncProfile] = await Promise.all([
           getSettings(storageArea),
           getSavedKeyPresenceMap(storageArea),
           getLastStatus(storageArea),
-          checkGoogleHostPermissions()
+          checkGoogleHostPermissions(),
+          getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version || "0.1.2";
+        const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.0";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,
           permissionsOk: permCheck.ok,
           missingOrigins: permCheck.missingOrigins,
+          neonSync: {
+            connected: syncProfile.connected,
+            serverUrl: syncProfile.serverUrl,
+            lastSyncedAt: syncProfile.lastSyncedAt
+          },
           settingsSummary: {
             enabled: settings.enabled,
             debugMode: settings.debugMode,
@@ -3133,9 +4105,10 @@ function createRuntimeDispatcher({
           logs: [...memoryDebugLogs]
         };
         const lines = [
-          `# Subtitles for NotebookLM \u2014 Diagnostic Report (v${manifestVersion})`,
+          `# LM Subs \u2014 Diagnostic Report (v${manifestVersion})`,
           `Generated: ${reportObj.generatedAt}`,
           `Google CDN Permissions: ${permCheck.ok ? "GRANTED" : `MISSING (${permCheck.missingOrigins.join(", ")})`}`,
+          `Neon Cloud Sync: ${syncProfile.connected ? `CONNECTED (${syncProfile.serverUrl})` : "OFFLINE"}`,
           `Enabled: ${settings.enabled} | Debug Mode: ${settings.debugMode} | Primary: ${settings.primaryProvider}`,
           `Configured Providers (keys redacted): ${configuredProviders.length > 0 ? configuredProviders.join(", ") : "(none)"}`,
           `Last Status: ${lastStatus ? `[${lastStatus.state}] ${lastStatus.title || ""} \u2014 ${lastStatus.message || ""}` : "(none)"}`
@@ -3164,9 +4137,7 @@ function createRuntimeDispatcher({
           lines.push("(no debug events recorded yet)");
         } else {
           for (const l of memoryDebugLogs) {
-            lines.push(
-              `${l.ts} [${l.layer}] ${l.event}: ${l.detail}`
-            );
+            lines.push(`${l.ts} [${l.layer}] ${l.event}: ${l.detail}`);
           }
         }
         return {

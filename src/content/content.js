@@ -1231,6 +1231,23 @@ export async function initContentCoordinator({
       return false;
     }
 
+    if (msg.type === RUNTIME_MESSAGE.SUBTITLES_PARTIAL && Array.isArray(msg.cues)) {
+      const active = pickTargetVideoEntry();
+      if (active && msg.cues.length > 0) {
+        active.controller.setCues(msg.cues, {
+          title: msg.title || active.controller.title || "Video Overview",
+          language: msg.language || "en",
+        });
+      }
+      showToast(
+        `Live captions active (${msg.completedChunks}/${msg.totalChunks} segments)`,
+        `${msg.cues.length} cues mounted while remaining audio transcribes`,
+        "working",
+        0
+      );
+      return false;
+    }
+
     if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {
       decodeBase64MediaToWavFallback(msg.base64Media)
         .then((chunks) => sendResponse({ ok: true, chunks }))
