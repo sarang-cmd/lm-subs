@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings · Subtitles for NotebookLM</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="options-body">
+    <main class="container">
+      <header class="header" style="margin-bottom: 20px">
+        <div class="brand">
+          <span id="brand-icon-slot"></span>
+          <div>
+            <h1 class="brand-title" style="font-size: 18px">Subtitles for NotebookLM</h1>
+            <p class="brand-sub">
+              Client-side audio extraction · 12-provider BYOK failover queue · Zero telemetry
+            </p>
+          </div>
+        </div>
+        <label class="switch">
+          <span>Extension Enabled</span>
+          <input id="opt-enabled" type="checkbox" checked />
+        </label>
+      </header>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="section-title">1. BYOK Provider Priority Queue &amp; API Keys</h2>
+          <span class="hint" style="margin: 0">
+            Providers with saved keys run top-to-bottom; rate limits (HTTP 429) automatically fail over.
+          </span>
+        </div>
+        <div id="provider-queue-list" class="provider-list"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="section-title">2. Automation, Language &amp; Player Captions</h2>
+          <span id="settings-saved-pill" class="badge badge-saved" style="display: none">Saved</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px">
+          <div class="field">
+            <label class="switch">
+              <input id="opt-auto-generate" type="checkbox" checked />
+              <span>Auto-subtitle newly generated Video Overviews</span>
+            </label>
+            <div class="hint">Starts transcription automatically when Studio finishes rendering.</div>
+          </div>
+
+          <div class="field">
+            <label class="switch">
+              <input id="opt-auto-existing" type="checkbox" checked />
+              <span>Auto-subtitle existing videos when opened</span>
+            </label>
+            <div class="hint">Generates captions when you open an uncached Video Overview player.</div>
+          </div>
+
+          <div class="field">
+            <label class="switch">
+              <input id="opt-show-toast" type="checkbox" checked />
+              <span>Show in-page status notifications</span>
+            </label>
+            <div class="hint">Displays non-intrusive bottom-right progress toasts in NotebookLM.</div>
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0" />
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px">
+          <div class="field">
+            <label class="field-label" for="opt-language-hint">Spoken Language Hint</label>
+            <select id="opt-language-hint">
+              <option value="auto">Auto (use NotebookLM artifact language)</option>
+              <option value="en">English (en)</option>
+              <option value="de">German (de)</option>
+              <option value="es">Spanish (es)</option>
+              <option value="fr">French (fr)</option>
+              <option value="pt">Portuguese (pt)</option>
+              <option value="it">Italian (it)</option>
+              <option value="ja">Japanese (ja)</option>
+              <option value="ko">Korean (ko)</option>
+              <option value="zh">Chinese (zh)</option>
+              <option value="hi">Hindi (hi)</option>
+              <option value="ar">Arabic (ar)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="opt-translate-to">Gemini Subtitle Translation</label>
+            <select id="opt-translate-to">
+              <option value="original">Keep original spoken language</option>
+              <option value="English">Translate to English</option>
+              <option value="German">Translate to German</option>
+              <option value="Spanish">Translate to Spanish</option>
+              <option value="French">Translate to French</option>
+              <option value="Japanese">Translate to Japanese</option>
+              <option value="Korean">Translate to Korean</option>
+              <option value="Hindi">Translate to Hindi</option>
+              <option value="Portuguese">Translate to Portuguese</option>
+              <option value="Simplified Chinese">Translate to Simplified Chinese</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="opt-font-size">Default Caption Size</label>
+            <select id="opt-font-size">
+              <option value="small">Small</option>
+              <option value="medium">Medium (Default)</option>
+              <option value="large">Large</option>
+              <option value="xlarge">Extra Large</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="opt-offset-sec">Default Sync Offset (sec)</label>
+            <input id="opt-offset-sec" type="number" step="0.25" min="-10" max="10" value="0" />
+          </div>
+        </div>
+
+        <div class="field" style="margin-top: 12px">
+          <label class="field-label" for="opt-exclude-patterns">
+            <span>Exclude Video Titles Matching Regex (one per line)</span>
+          </label>
+          <textarea
+            id="opt-exclude-patterns"
+            rows="2"
+            placeholder="^draft\b&#10;^scratch\b"
+          ></textarea>
+        </div>
+
+        <div class="row" style="margin-top: 10px">
+          <button id="save-behavior-btn" type="button" class="btn btn-primary">
+            Save Preferences
+          </button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="section-title">3. Cached Subtitles &amp; Export Vault (Max 35 LRU)</h2>
+          <button id="clear-cache-btn" type="button" class="btn btn-sm btn-danger">
+            Clear All Cached Subtitles
+          </button>
+        </div>
+        <div id="cache-empty" class="hint">
+          No cached Video Overview subtitles yet. Generate or open a Video Overview on NotebookLM.
+        </div>
+        <div id="cache-table-wrap" style="overflow-x: auto; display: none">
+          <table class="cache-table">
+            <thead>
+              <tr>
+                <th>Video Overview</th>
+                <th>Provider</th>
+                <th>Audio Slimming</th>
+                <th>Cues</th>
+                <th>Export</th>
+              </tr>
+            </thead>
+            <tbody id="cache-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="section-title">4. Advanced: NotebookLM RPC Hot-Patch Overrides</h2>
+          <span class="hint" style="margin: 0">Leave blank unless Google rotates RPC IDs</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end">
+          <div class="field" style="margin: 0">
+            <label class="field-label" for="rpc-create-input">CREATE_STUDIO RPC (Default: R7cb6c)</label>
+            <input id="rpc-create-input" type="text" placeholder="R7cb6c" />
+          </div>
+          <div class="field" style="margin: 0">
+            <label class="field-label" for="rpc-poll-input">POLL_STUDIO RPC (Default: gArtLc)</label>
+            <input id="rpc-poll-input" type="text" placeholder="gArtLc" />
+          </div>
+          <button id="save-rpc-btn" type="button" class="btn">Save RPCs</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>
