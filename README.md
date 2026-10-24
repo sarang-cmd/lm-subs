@@ -10,7 +10,7 @@ Client-side ISO-BMFF audio extraction (`-92%` payload size) · 12 BYOK Speech-to
 [![Chrome Manifest V3](docs/assets/badges/manifest-v3.svg)](#architecture-deep-dive)
 [![12 BYOK STT Providers](docs/assets/badges/providers.svg)](#supported-byok-providers--free-tiers)
 [![-92% .m4a Audio Extraction](docs/assets/badges/audio-extract.svg)](#3-client-side-iso-bmff-audio-track-remuxing-mp4--m4a)
-[![23 / 23 Tests Passing](docs/assets/badges/tests.svg)](#development--testing)
+[![25 / 25 Tests Passing](docs/assets/badges/tests.svg)](#development--testing)
 [![Zero Telemetry](docs/assets/badges/telemetry.svg)](docs/PRIVACY_POLICY.md)
 [![MIT License](docs/assets/badges/license.svg)](LICENSE)
 
@@ -52,7 +52,7 @@ Naive captioning approaches run into three hard walls:
 
 ### Option A — Prebuilt Release `.zip` (No Build Step)
 
-1. Download **[`notebooklm-subtitles-v0.1.0.zip`](docs/releases/notebooklm-subtitles-v0.1.0.zip)** and unzip it.
+1. Download **[`notebooklm-subtitles-v0.1.1.zip`](docs/releases/notebooklm-subtitles-v0.1.1.zip)** and unzip it.
 2. Open `chrome://extensions` (works in Chrome, Brave, Arc, Edge, Vivaldi) and toggle **Developer mode** ON.
 3. Click **Load unpacked** and select the extracted `notebooklm-subtitles` folder.
 4. Click the **Subtitles for NotebookLM** toolbar icon and paste a free **[Groq](https://console.groq.com/keys)** and/or **[Mistral](https://console.mistral.ai/api-keys)** API key (click **Queue** to arrange failover priority).
@@ -65,7 +65,7 @@ git clone https://github.com/sarang-cmd/notebooklm-subtitles.git
 cd notebooklm-subtitles
 npm install
 npm run build   # Bundles src/ -> extension/ via esbuild in ~40ms
-npm test        # Runs all 23 unit, security-invariant, and E2E tests
+npm test        # Runs all 25 unit, security-invariant, and E2E tests
 ```
 
 Then load the `extension/` directory at `chrome://extensions`.
@@ -105,9 +105,9 @@ Chrome Manifest V3 splits extension code across distinct JavaScript execution wo
 
 | Runtime World | Bundle (`src/` → `extension/`) | Capabilities | Hard Security Invariants |
 | :--- | :--- | :--- | :--- |
-| **1. Page `MAIN` World** | `src/page/inject.js` → `extension/page.js` | Shares `window.XMLHttpRequest` & `window.fetch` with NotebookLM at `document_start`. | **Zero** access to `chrome.*` APIs or `chrome.storage`. Never mutates outgoing requests or incoming responses. Posts metadata restricted to `window.location.origin`. |
-| **2. `ISOLATED` Content World** | `src/content/content.js` → `extension/content.js` | Reads DOM `<video>` elements, mounts closed Shadow-DOM HUD/toast, bridges messages to Service Worker. | **Never** imports or calls `getApiKey` / `getSecretApiKeysMap` (enforced by automated test in `tests/e2e.test.js`). Never uses `innerHTML` on untrusted data. |
-| **3. MV3 Service Worker** | `src/background/service-worker.js` → `extension/background.js` | Sole reader of `apiKeys` in `chrome.storage.local`; executes SSRF-guarded media fetch, ISO-BMFF audio extraction, and STT API calls. | Rejects non-Google CDN media URLs (`isTrustedGoogleMediaUrl`), rejects `text/html` auth walls (`validateMediaPayload`), and scrubs secrets from all errors via `redactSecrets()`. |
+| **1. Page `MAIN` World** | `src/page/inject.js` → `extension/page.js` | Passively observes `batchexecute` RPCs, caches `URL.createObjectURL` media blobs, and extracts compact `.m4a`/`.wav` audio with first-party Google session cookies. | **Zero** access to `chrome.*` APIs or `chrome.storage`. Never mutates outgoing requests or incoming responses. Posts metadata & `Transferable` audio buffers restricted to `window.location.origin`. |
+| **2. `ISOLATED` Content World** | `src/content/content.js` → `extension/content.js` | Reads DOM `<video>` elements, mounts closed Shadow-DOM HUD/toast, maintains an MV3 keepalive port heartbeat during long transcriptions, and stages compact audio chunks to the Service Worker. | **Never** imports or calls `getApiKey` / `getSecretApiKeysMap` (enforced by automated test in `tests/e2e.test.js`). Never uses `innerHTML` on untrusted data. |
+| **3. MV3 Service Worker** | `src/background/service-worker.js` → `extension/background.js` | Sole reader of `apiKeys` in `chrome.storage.local`; executes Layer-2 CORS-bypass media fallback (`*.googleusercontent.com` / `*.usercontent.google.com` / `*.gvt1.com`) and BYOK STT failover calls. | Rejects non-Google CDN media URLs (`isTrustedGoogleMediaUrl`), rejects `text/html` auth walls (`validateMediaPayload`), and scrubs secrets from all errors via `redactSecrets()`. |
 
 Meanwhile, **`popup.js`** and **`options.js`** only ever receive boolean presence flags (`{ groq: true, mistral: true, gemini: false }`) via `getSavedKeyPresenceMap()` — saved keys can be replaced or cleared, never read back into the DOM.
 
@@ -199,13 +199,13 @@ notebooklm-subtitles/
 │       ├── decide.js                # Pure decision gate (dedup, triggers, regex exclusions)
 │       ├── storage.js               # chrome.storage.local wrapper & 35-item LRU subtitle cache
 │       └── providers/               # 12 BYOK STT adapters + automatic priority failover queue
-├── tests/                           # 23 automated unit, security-audit & E2E tests (node --test)
+├── tests/                           # 25 automated unit, security-audit & E2E tests (node --test)
 ├── docs/                            # Static landing page + interactive simulator (Vercel outputDir)
 │   ├── index.html / styles.css / site.js
 │   ├── privacy-policy.html / PRIVACY_POLICY.md
 │   ├── discovery-report.md / CHROME_WEB_STORE_GUIDE.md
 │   ├── assets/                      # architecture.svg, flat badges, banner & 1280x800 screenshots
-│   └── releases/                    # Prebuilt notebooklm-subtitles-v0.1.0.zip
+│   └── releases/                    # Prebuilt notebooklm-subtitles-v0.1.1.zip
 ├── scripts/
 │   ├── generate-assets.mjs          # Deterministic @resvg/resvg-js asset & screenshot renderer
 │   └── package-zip.mjs              # Pure-Node zlib ZIP bundler
@@ -221,9 +221,9 @@ notebooklm-subtitles/
 | Command | Description |
 | :--- | :--- |
 | `npm run build` | Bundles all 5 MV3 entrypoints (`background`, `page`, `content`, `popup`, `options`) into `extension/`. |
-| `npm test` | Runs all 23 automated tests across `tests/*.test.js` using Node's built-in test runner (`node --test`). |
+| `npm test` | Runs all 25 automated tests across `tests/*.test.js` using Node's built-in test runner (`node --test`). |
 | `npm run assets` | Regenerates extension icons, SVG badges, `architecture.svg`, social banner, and `1280x800` screenshots. |
-| `npm run zip` | Builds `extension/` and packages `docs/releases/notebooklm-subtitles-v0.1.0.zip`. |
+| `npm run zip` | Builds `extension/` and packages `docs/releases/notebooklm-subtitles-v0.1.1.zip`. |
 | `npm run site` | Serves the static landing page & interactive simulator (`docs/`) locally on `http://0.0.0.0:4173`. |
 
 ---

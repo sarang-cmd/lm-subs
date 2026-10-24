@@ -76,7 +76,7 @@ function makeBadge(left, right, rightColor = "#15803d") {
 writeText("docs/assets/badges/manifest-v3.svg", makeBadge("Chrome", "Manifest V3", "#1f2937"));
 writeText("docs/assets/badges/providers.svg", makeBadge("BYOK Queue", "12 STT Providers", "#15803d"));
 writeText("docs/assets/badges/audio-extract.svg", makeBadge("Payload", "-92% .m4a Audio", "#0f766e"));
-writeText("docs/assets/badges/tests.svg", makeBadge("Tests", "23 / 23 Passing", "#15803d"));
+writeText("docs/assets/badges/tests.svg", makeBadge("Tests", "25 / 25 Passing", "#15803d"));
 writeText("docs/assets/badges/telemetry.svg", makeBadge("Telemetry", "Zero", "#374151"));
 writeText("docs/assets/badges/license.svg", makeBadge("License", "MIT", "#374151"));
 
@@ -481,7 +481,7 @@ const SCREENSHOT_3_POPUP = `<svg xmlns="http://www.w3.org/2000/svg" width="1280"
       <rect x="7" y="23" width="13" height="3" rx="1.5" fill="#22C55E"/>
       <rect x="22" y="23" width="6" height="3" rx="1.5" fill="#F4F4F0"/>
       <text x="46" y="16" font-family="DejaVu Sans, sans-serif" font-size="15.5" font-weight="700" fill="#111315">Subtitles for NotebookLM</text>
-      <text x="46" y="33" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#555D69">Audio-only BYOK captions · v0.1.0</text>
+      <text x="46" y="33" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#555D69">Audio-only BYOK captions · v0.1.1</text>
       <!-- Toggle switch -->
       <rect x="338" y="8" width="38" height="21" rx="10.5" fill="#16A34A"/>
       <circle cx="365.5" cy="18.5" r="8" fill="#FFFFFF"/>

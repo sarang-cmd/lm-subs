@@ -18,7 +18,8 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const FIFE_NOTEBOOKLM_TOKEN_RE = /\/notebooklm\/([A-Za-z0-9_-]{16,})/;
+const FIFE_NOTEBOOKLM_TOKEN_RE =
+  /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
 
 export function isNotebookLmHost(hostname) {
   if (typeof hostname !== "string" || !hostname) return false;
@@ -65,7 +66,9 @@ export function extractMediaToken(rawUrl) {
   }
   try {
     const u = new URL(rawUrl);
-    // Strip FIFE `=m22` / `=m22-dv` suffix on pathname if present
+    if (u.protocol === "blob:") return null;
+    const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
+    if (idParam) return idParam;
     const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
     return `${u.hostname}${cleanPath}`;
   } catch {
@@ -75,7 +78,8 @@ export function extractMediaToken(rawUrl) {
 
 /**
  * Given a Google FIFE NotebookLM video URL (`.../notebooklm/<token>=m22-dv`),
- * returns ordered candidate URLs from lightest bandwidth to full progressive MP4.
+ * returns ordered candidate URLs preferring direct streaming variants (`=m140`,
+ * `=m18`, `=m22`) before attachment-redirect variants (`=m140-dv`, `=m22-dv`).
  */
 export function deriveGoogleMediaVariants(mediaUrl) {
   if (typeof mediaUrl !== "string" || !mediaUrl) return [];
@@ -90,8 +94,11 @@ export function deriveGoogleMediaVariants(mediaUrl) {
   ) {
     const base = mediaUrl.replace(/=(?:m\d+(?:-dv)?|mm,[a-z]+)$/i, "");
     if (base !== mediaUrl) {
-      pushUnique(`${base}=m140-dv`);
+      // Direct streaming variants avoid cross-origin 302 download-attachment redirects
+      pushUnique(`${base}=m140`);
       pushUnique(`${base}=m18`);
+      pushUnique(`${base}=m22`);
+      pushUnique(`${base}=m140-dv`);
       pushUnique(`${base}=m22-dv`);
     }
   }
@@ -160,7 +167,6 @@ export function parseBatchExecuteRequest(body, rpcOverrides = {}) {
   }
   if (!Array.isArray(outer)) return null;
 
-  // Standard envelope: [[[rpcId, innerJsonString, null, "generic"], ...]]
   const calls = Array.isArray(outer[0]) && Array.isArray(outer[0][0]) ? outer[0] : outer;
 
   for (const call of calls) {
@@ -215,7 +221,7 @@ export function parseBatchExecuteRequest(body, rpcOverrides = {}) {
 }
 
 /**
- * Extracts the best MP4 URL from a Studio Video Overview row (`row[8]`).
+ * Extracts the best MP4 URLs from a Studio Video Overview row (`row[8]`).
  */
 export function extractVideoMetadataFromRow(row) {
   if (!Array.isArray(row)) return null;
@@ -240,11 +246,13 @@ export function extractVideoMetadataFromRow(row) {
   let progressiveUrl = null;
   let language = null;
   let durationSeconds = null;
+  const discoveredMp4Urls = [];
 
   if (Array.isArray(videoBlock)) {
     const progCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
     if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
       progressiveUrl = progCandidate;
+      discoveredMp4Urls.push(progCandidate);
     }
 
     const genOpts = videoBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
@@ -255,6 +263,7 @@ export function extractVideoMetadataFromRow(row) {
     const dlCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
     if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
       mediaUrl = dlCandidate;
+      discoveredMp4Urls.push(dlCandidate);
     }
 
     const mediaList = videoBlock[BATCHEXECUTE.VIDEO_META_POS.MEDIA_LIST];
@@ -267,12 +276,16 @@ export function extractVideoMetadataFromRow(row) {
         const mime = entry[2];
         if (!isTrustedGoogleMediaUrl(url)) continue;
 
-        if (mime === "video/mp4" && kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD) {
-          mediaUrl = url;
-          break;
-        }
-        if (mime === "video/mp4" && !fallbackMp4) {
-          fallbackMp4 = url;
+        if (mime === "video/mp4") {
+          if (!discoveredMp4Urls.includes(url)) discoveredMp4Urls.push(url);
+          if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
+            progressiveUrl = url;
+          }
+          if (kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD) {
+            mediaUrl = url;
+          } else if (!fallbackMp4) {
+            fallbackMp4 = url;
+          }
         }
       }
       if (!mediaUrl && fallbackMp4) {
@@ -292,12 +305,17 @@ export function extractVideoMetadataFromRow(row) {
     }
   }
 
-  // Structural sanity check so arbitrary arrays with `arr[2] === 3` aren't misread
   const looksLikeArtifactRow =
     UUID_RE.test(artifactId) ||
     Boolean(mediaUrl) ||
     Array.isArray(row[BATCHEXECUTE.ROW_POS.SOURCES]);
   if (!looksLikeArtifactRow) return null;
+
+  const primarySeed = progressiveUrl || mediaUrl;
+  const variants = primarySeed ? deriveGoogleMediaVariants(primarySeed) : [];
+  for (const extra of discoveredMp4Urls) {
+    if (!variants.includes(extra)) variants.push(extra);
+  }
 
   return {
     artifactId,
@@ -308,7 +326,7 @@ export function extractVideoMetadataFromRow(row) {
     language,
     mediaUrl,
     progressiveUrl: progressiveUrl || mediaUrl,
-    mediaVariants: mediaUrl ? deriveGoogleMediaVariants(mediaUrl) : [],
+    mediaVariants: variants,
     mediaToken: extractMediaToken(mediaUrl || progressiveUrl || ""),
     durationSeconds,
   };

@@ -1,5 +1,6 @@
 // src/config/selectors.js
 var MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
+var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
 var NOTEBOOKLM_HOSTS = Object.freeze([
   "notebooklm.google.com",
   "notebook.google.com",
@@ -9,6 +10,8 @@ var TRUSTED_GOOGLE_MEDIA_DOMAINS = Object.freeze([
   ".googleusercontent.com",
   ".usercontent.google.com",
   ".googlevideo.com",
+  ".gvt1.com",
+  ".ggpht.com",
   ".google.com"
 ]);
 var BATCHEXECUTE = Object.freeze({
@@ -95,10 +98,13 @@ var PAGE_MESSAGE = Object.freeze({
   BRIDGE_SOURCE_PAGE: "notebooklm-subtitles-page",
   BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
   BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
-  SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES"
+  SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+  EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
+  EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
 });
 var RUNTIME_MESSAGE = Object.freeze({
   ENSURE_SUBTITLES: "NOTEBOOKLM_SUBTITLES_ENSURE",
+  STAGE_AUDIO_CHUNK: "NOTEBOOKLM_SUBTITLES_STAGE_AUDIO_CHUNK",
   GET_CACHED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_GET_CACHED",
   SAVE_IMPORTED_SUBTITLES: "NOTEBOOKLM_SUBTITLES_SAVE_IMPORTED",
   TEST_PROVIDER: "NOTEBOOKLM_SUBTITLES_TEST_PROVIDER",
@@ -457,7 +463,7 @@ function createTestSpeechCadenceWav(durationSec = 1.1, sampleRate = 16e3) {
 }
 
 // src/lib/batchexecute.js
-var FIFE_NOTEBOOKLM_TOKEN_RE = /\/notebooklm\/([A-Za-z0-9_-]{16,})/;
+var FIFE_NOTEBOOKLM_TOKEN_RE = /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
 function isTrustedGoogleMediaUrl(rawUrl) {
   if (typeof rawUrl !== "string" || !rawUrl) return false;
   let parsed;
@@ -484,6 +490,9 @@ function extractMediaToken(rawUrl) {
   }
   try {
     const u = new URL(rawUrl);
+    if (u.protocol === "blob:") return null;
+    const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
+    if (idParam) return idParam;
     const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
     return `${u.hostname}${cleanPath}`;
   } catch {
@@ -499,8 +508,10 @@ function deriveGoogleMediaVariants(mediaUrl) {
   if (isTrustedGoogleMediaUrl(mediaUrl) && FIFE_NOTEBOOKLM_TOKEN_RE.test(mediaUrl)) {
     const base = mediaUrl.replace(/=(?:m\d+(?:-dv)?|mm,[a-z]+)$/i, "");
     if (base !== mediaUrl) {
-      pushUnique(`${base}=m140-dv`);
+      pushUnique(`${base}=m140`);
       pushUnique(`${base}=m18`);
+      pushUnique(`${base}=m22`);
+      pushUnique(`${base}=m140-dv`);
       pushUnique(`${base}=m22-dv`);
     }
   }
@@ -1913,16 +1924,28 @@ async function transcribeSingleChunk({
       err.message = safeMsg;
       throw err;
     }
-    throw new ProviderHttpError(safeMsg, {
-      status: err?.status || 0,
-      provider: spec.id
-    });
+    const endpointHost = (() => {
+      try {
+        return new URL(
+          spec.id === "custom" ? customBaseUrl || spec.endpoint : spec.endpoint
+        ).hostname;
+      } catch {
+        return spec.id;
+      }
+    })();
+    throw new ProviderHttpError(
+      `${spec.id} network error (${endpointHost}): ${safeMsg}`,
+      {
+        status: err?.status || 0,
+        provider: spec.id
+      }
+    );
   } finally {
     clearTimeout(timer);
   }
 }
 function isRetryableSingleProviderStatus(status) {
-  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+  return status === 0 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 async function transcribeWithQueue({
   chunks,
@@ -2251,6 +2274,9 @@ async function setLastStatus(status, storageArea) {
 }
 
 // src/background/service-worker.js
+var STAGED_AUDIO_TTL_MS = 5 * 60 * 1e3;
+var MAX_SINGLE_M4A_FOR_ALL_PROVIDERS = 22 * 1024 * 1024;
+var MAX_SAFE_IPC_DECODE_BYTES = 38 * 1024 * 1024;
 function base64ToUint8(b64) {
   if (typeof Buffer !== "undefined") {
     return new Uint8Array(Buffer.from(b64, "base64"));
@@ -2284,6 +2310,62 @@ function createRuntimeDispatcher({
   permissionsApi = globalThis.chrome?.permissions
 } = {}) {
   const inFlightPromises = /* @__PURE__ */ new Map();
+  const stagedAudioJobs = /* @__PURE__ */ new Map();
+  function sweepExpiredStagedAudio() {
+    const now = Date.now();
+    for (const [id, record] of stagedAudioJobs.entries()) {
+      if (now - record.createdAt > STAGED_AUDIO_TTL_MS) {
+        stagedAudioJobs.delete(id);
+      }
+    }
+  }
+  function handleStageAudioChunk(msg) {
+    sweepExpiredStagedAudio();
+    const {
+      stagedJobId,
+      index,
+      totalChunks,
+      originalBytes,
+      extractedBytes,
+      chunk
+    } = msg || {};
+    if (!stagedJobId || !chunk?.base64 || !Number.isInteger(index)) {
+      return { ok: false, error: "Invalid staged audio chunk." };
+    }
+    let job = stagedAudioJobs.get(stagedJobId);
+    if (!job) {
+      job = {
+        createdAt: Date.now(),
+        totalChunks: Number(totalChunks) || 1,
+        originalBytes: Number(originalBytes) || 0,
+        extractedBytes: Number(extractedBytes) || 0,
+        parts: new Array(Number(totalChunks) || 1)
+      };
+      stagedAudioJobs.set(stagedJobId, job);
+    }
+    job.parts[index] = {
+      bytes: base64ToUint8(chunk.base64),
+      mimeType: chunk.mimeType || "audio/mp4",
+      fileName: chunk.fileName || `chunk-${index + 1}.m4a`,
+      startOffsetSec: Number(chunk.startOffsetSec) || 0,
+      durationSec: chunk.durationSec || null
+    };
+    return { ok: true };
+  }
+  function consumeStagedAudioJob(stagedJobId) {
+    if (!stagedJobId || !stagedAudioJobs.has(stagedJobId)) return null;
+    const job = stagedAudioJobs.get(stagedJobId);
+    stagedAudioJobs.delete(stagedJobId);
+    const chunks = job.parts.filter(Boolean);
+    if (chunks.length === 0) return null;
+    const computedBytes = chunks.reduce((acc, c) => acc + c.bytes.byteLength, 0);
+    return {
+      originalBytes: job.originalBytes || computedBytes,
+      extractedBytes: job.extractedBytes || computedBytes,
+      durationSeconds: null,
+      chunks
+    };
+  }
   function notifyTabProgress(tabId, payload) {
     if (!tabId || !tabsApi?.sendMessage) return;
     try {
@@ -2301,6 +2383,7 @@ function createRuntimeDispatcher({
     }
   }
   async function checkProviderOriginPermission(providerId, customBaseUrl = "") {
+    if (providerId !== "custom") return true;
     if (!permissionsApi?.contains) return true;
     const origin = getProviderOriginPattern(providerId, customBaseUrl);
     if (!origin) return true;
@@ -2310,8 +2393,10 @@ function createRuntimeDispatcher({
       return true;
     }
   }
-  async function fetchAndExtractCompactAudio(artifact, tabId) {
+  async function fetchAndExtractCompactAudio(artifact, tabId, pageFetchError = null) {
+    const seedUrl = artifact.progressiveUrl || artifact.mediaUrl;
     const rawCandidates = [
+      ...deriveGoogleMediaVariants(seedUrl),
       ...deriveGoogleMediaVariants(artifact.mediaUrl),
       ...Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : [],
       artifact.progressiveUrl,
@@ -2321,38 +2406,54 @@ function createRuntimeDispatcher({
       (u) => isTrustedGoogleMediaUrl(u)
     );
     if (allCandidateUrls.length === 0) {
+      if (String(artifact.mediaUrl || "").startsWith("blob:")) {
+        throw new Error(
+          "Reload this NotebookLM tab once (Ctrl+R / Cmd+R) so the extension can capture the Video Overview media stream."
+        );
+      }
       throw new Error(
         "Untrusted or missing NotebookLM media URL. Refusing network download."
       );
     }
     let downloadedBytes = null;
     let downloadedContentType = "";
-    let lastDownloadErr = "Failed to fetch Video Overview media stream.";
+    let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
     for (const candidateUrl of allCandidateUrls) {
+      let hostLabel = "googleusercontent.com";
       try {
-        const res = await fetchImpl(candidateUrl, {
-          method: "GET",
-          credentials: "include"
-        });
-        if (!res.ok) {
-          lastDownloadErr = `Media CDN returned HTTP ${res.status}`;
-          continue;
-        }
-        const ct = res.headers?.get?.("content-type") || "";
-        const buf = new Uint8Array(await res.arrayBuffer());
-        downloadedBytes = validateMediaPayload(buf, ct);
-        downloadedContentType = ct.toLowerCase();
-        break;
-      } catch (err) {
-        lastDownloadErr = err?.message || String(err);
+        hostLabel = new URL(candidateUrl).hostname;
+      } catch {
       }
+      for (const credentialsMode of ["include", "omit"]) {
+        try {
+          const res = await fetchImpl(candidateUrl, {
+            method: "GET",
+            credentials: credentialsMode
+          });
+          if (!res.ok) {
+            lastDownloadErr = `Media CDN (${hostLabel}) returned HTTP ${res.status}`;
+            if (res.status === 404 || res.status === 400) {
+              break;
+            }
+            continue;
+          }
+          const ct = res.headers?.get?.("content-type") || "";
+          const buf = new Uint8Array(await res.arrayBuffer());
+          downloadedBytes = validateMediaPayload(buf, ct);
+          downloadedContentType = ct.toLowerCase();
+          break;
+        } catch (err) {
+          lastDownloadErr = `Media stream download failed (${hostLabel}): ${err?.message || String(err)}`;
+        }
+      }
+      if (downloadedBytes) break;
     }
     if (!downloadedBytes) {
       throw new Error(lastDownloadErr);
     }
     const originalBytes = downloadedBytes.byteLength;
     const extracted = extractAudioTrackFromMp4(downloadedBytes);
-    if (extracted && extracted.bytes) {
+    if (extracted && extracted.bytes && extracted.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
       notifyTabProgress(tabId, {
         cacheKey: artifact.cacheKey,
         artifactId: artifact.artifactId,
@@ -2377,63 +2478,82 @@ function createRuntimeDispatcher({
         ]
       };
     }
-    {
-      if (originalBytes <= 23 * 1024 * 1024) {
-        const isWebm = downloadedContentType.includes("webm");
-        const isWav = downloadedContentType.includes("wav");
+    const decodeSourceBytes = extracted && extracted.bytes ? extracted.bytes : downloadedBytes;
+    if (tabId && tabsApi?.sendMessage && decodeSourceBytes.byteLength <= MAX_SAFE_IPC_DECODE_BYTES) {
+      const decodedRes = await new Promise((resolve) => {
+        tabsApi.sendMessage(
+          tabId,
+          {
+            type: "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK",
+            base64Media: uint8ToBase642(decodeSourceBytes)
+          },
+          (resp) => {
+            void globalThis.chrome?.runtime?.lastError;
+            resolve(resp || null);
+          }
+        );
+      });
+      if (decodedRes?.ok && Array.isArray(decodedRes.chunks) && decodedRes.chunks.length > 0) {
+        const chunks = decodedRes.chunks.map((c) => ({
+          bytes: base64ToUint8(c.base64),
+          mimeType: c.mimeType,
+          fileName: c.fileName,
+          startOffsetSec: c.startOffsetSec,
+          durationSec: c.durationSec
+        }));
+        const extractedBytes = chunks.reduce((acc, c) => acc + c.bytes.byteLength, 0);
         return {
           originalBytes,
-          extractedBytes: originalBytes,
+          extractedBytes,
           durationSeconds: artifact.durationSeconds || null,
-          chunks: [
-            {
-              bytes: downloadedBytes,
-              mimeType: isWav ? "audio/wav" : isWebm ? "audio/webm" : "audio/mp4",
-              fileName: isWav ? "overview-audio.wav" : isWebm ? "overview-audio.webm" : "overview-audio.m4a",
-              startOffsetSec: 0,
-              durationSec: artifact.durationSeconds || null
-            }
-          ]
+          chunks
         };
       }
-      if (tabId && tabsApi?.sendMessage) {
-        const decodedRes = await new Promise((resolve) => {
-          tabsApi.sendMessage(
-            tabId,
-            {
-              type: "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK",
-              base64Media: uint8ToBase642(downloadedBytes)
-            },
-            (resp) => resolve(resp || null)
-          );
-        });
-        if (decodedRes?.ok && Array.isArray(decodedRes.chunks) && decodedRes.chunks.length > 0) {
-          const chunks = decodedRes.chunks.map((c) => ({
-            bytes: base64ToUint8(c.base64),
-            mimeType: c.mimeType,
-            fileName: c.fileName,
-            startOffsetSec: c.startOffsetSec,
-            durationSec: c.durationSec
-          }));
-          const extractedBytes = chunks.reduce((acc, c) => acc + c.bytes.byteLength, 0);
-          return {
-            originalBytes,
-            extractedBytes,
-            durationSeconds: artifact.durationSeconds || null,
-            chunks
-          };
-        }
-      }
-      throw new Error(
-        "Unable to extract compact audio from media container."
-      );
     }
+    if (extracted && extracted.bytes) {
+      return {
+        originalBytes,
+        extractedBytes: extracted.extractedBytes,
+        durationSeconds: artifact.durationSeconds || null,
+        chunks: [
+          {
+            bytes: extracted.bytes,
+            mimeType: "audio/mp4",
+            fileName: "overview-audio.m4a",
+            startOffsetSec: 0,
+            durationSec: artifact.durationSeconds || null
+          }
+        ]
+      };
+    }
+    if (originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
+      const isWebm = downloadedContentType.includes("webm");
+      const isWav = downloadedContentType.includes("wav");
+      return {
+        originalBytes,
+        extractedBytes: originalBytes,
+        durationSeconds: artifact.durationSeconds || null,
+        chunks: [
+          {
+            bytes: downloadedBytes,
+            mimeType: isWav ? "audio/wav" : isWebm ? "audio/webm" : "audio/mp4",
+            fileName: isWav ? "overview-audio.wav" : isWebm ? "overview-audio.webm" : "overview-audio.m4a",
+            startOffsetSec: 0,
+            durationSec: artifact.durationSeconds || null
+          }
+        ]
+      };
+    }
+    throw new Error(
+      "Unable to extract compact audio from media container. Try refreshing your NotebookLM tab."
+    );
   }
   async function handleEnsureSubtitles(msg, sender) {
     const artifact = msg?.artifact;
     if (!artifact || typeof artifact !== "object") {
       return { ok: false, error: "Missing Video Overview metadata." };
     }
+    const stagedAudio = consumeStagedAudioJob(msg.stagedJobId);
     const mediaToken = artifact.mediaToken || extractMediaToken(artifact.mediaUrl);
     const cacheKey = artifact.cacheKey || resolveSubtitleCacheKey({
       artifactId: artifact.artifactId,
@@ -2482,7 +2602,7 @@ function createRuntimeDispatcher({
         });
       }
       if (candidates.length === 0) {
-        const noKeyMsg = "No STT API key configured (or host permission not granted). Open the Subtitles for NotebookLM popup and save a free Groq or Mistral key.";
+        const noKeyMsg = "No STT API key configured yet. Open the Subtitles for NotebookLM popup and save a free Groq or Mistral key.";
         await setLastStatus(
           {
             state: "error",
@@ -2497,27 +2617,42 @@ function createRuntimeDispatcher({
         {
           state: "working",
           title: artifact.title || "Video Overview",
-          message: `Extracting audio & transcribing via ${getProviderSpec(candidates[0].providerId).name}\u2026`
+          message: `Transcribing via ${getProviderSpec(candidates[0].providerId).name}\u2026`
         },
         storageArea
       );
-      notifyTabProgress(tabId, {
-        cacheKey,
-        artifactId: artifact.artifactId,
-        mediaToken,
-        label: "Downloading & extracting audio track\u2026",
-        detail: artifact.title || ""
-      });
-      const audioBundle = await fetchAndExtractCompactAudio(
-        { ...artifact, cacheKey, mediaToken },
-        tabId
-      );
+      let audioBundle = stagedAudio;
+      if (!audioBundle) {
+        notifyTabProgress(tabId, {
+          cacheKey,
+          artifactId: artifact.artifactId,
+          mediaToken,
+          label: "Downloading & extracting audio track\u2026",
+          detail: artifact.title || ""
+        });
+        audioBundle = await fetchAndExtractCompactAudio(
+          { ...artifact, cacheKey, mediaToken },
+          tabId,
+          msg.pageFetchError || null
+        );
+      } else {
+        notifyTabProgress(tabId, {
+          cacheKey,
+          artifactId: artifact.artifactId,
+          mediaToken,
+          label: `Transcribing via ${getProviderSpec(candidates[0].providerId).name}\u2026`,
+          detail: `${formatMegabytes(audioBundle.originalBytes)} video -> ${formatMegabytes(
+            audioBundle.extractedBytes
+          )} audio`
+        });
+      }
       const language = settings.languageHint && settings.languageHint !== "auto" ? settings.languageHint : artifact.language || null;
       const txResult = await transcribeWithQueue({
         chunks: audioBundle.chunks,
         candidates,
         language,
         translateTo: settings.translateTo || "original",
+        timeoutMs: 18e4,
         fetchImpl
       });
       if (!txResult.cues || txResult.cues.length === 0) {
@@ -2536,7 +2671,7 @@ function createRuntimeDispatcher({
           provider: txResult.provider,
           model: txResult.model,
           failoverUsed: txResult.failoverUsed,
-          durationSeconds: audioBundle.durationSeconds,
+          durationSeconds: audioBundle.durationSeconds || artifact.durationSeconds || null,
           extractedBytes: audioBundle.extractedBytes,
           originalBytes: audioBundle.originalBytes,
           latencyMs: txResult.latencyMs,
@@ -2629,6 +2764,14 @@ function createRuntimeDispatcher({
     if (!msg || typeof msg.type !== "string" || !msg.type.startsWith(MESSAGE_NAMESPACE)) {
       return false;
     }
+    if (msg.type === RUNTIME_MESSAGE.STAGE_AUDIO_CHUNK) {
+      try {
+        sendResponse(handleStageAudioChunk(msg));
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      }
+      return false;
+    }
     if (msg.type === RUNTIME_MESSAGE.GET_CACHED_SUBTITLES) {
       findCachedSubtitles(
         {
@@ -2665,6 +2808,15 @@ function createRuntimeDispatcher({
 }
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener(createRuntimeDispatcher());
+  chrome.runtime.onConnect?.addListener((port) => {
+    if (port?.name !== KEEPALIVE_PORT_NAME) return;
+    port.onMessage.addListener(() => {
+      try {
+        port.postMessage({ pong: Date.now() });
+      } catch {
+      }
+    });
+  });
 }
 export {
   createRuntimeDispatcher

@@ -1,6 +1,6 @@
 # Chrome Web Store Publishing Guide — Subtitles for NotebookLM
 
-Use the copy-pasteable fields below when submitting `docs/releases/notebooklm-subtitles-v0.1.0.zip` in the Chrome Web Store Developer Dashboard.
+Use the copy-pasteable fields below when submitting `docs/releases/notebooklm-subtitles-v0.1.1.zip` in the Chrome Web Store Developer Dashboard.
 
 ---
 

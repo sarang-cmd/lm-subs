@@ -34,10 +34,19 @@ function createMemoryStorage() {
 
 function invokeDispatcher(dispatcher, msg, sender = { tab: { id: 7 } }) {
   return new Promise((resolve) => {
-    const handledAsync = dispatcher(msg, sender, (response) => {
-      resolve({ handledAsync, response });
+    let didRespond = false;
+    let syncResponse;
+    let handledAsync;
+    handledAsync = dispatcher(msg, sender, (response) => {
+      didRespond = true;
+      syncResponse = response;
+      if (handledAsync !== undefined) {
+        resolve({ handledAsync, response });
+      }
     });
-    if (!handledAsync) {
+    if (didRespond) {
+      resolve({ handledAsync, response: syncResponse });
+    } else if (!handledAsync) {
       resolve({ handledAsync: false, response: undefined });
     }
   });
@@ -71,13 +80,29 @@ test("Security invariant: getApiKey & getSecretApiKeysMap are strictly isolated 
   }
 });
 
-test("Manifest V3 least-privilege invariant: only 'storage' permission and strict CSP", () => {
+test("Manifest V3 least-privilege invariant: only 'storage' permission, Google CDN redirect coverage, and strict CSP", () => {
   const manifest = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8"));
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.ok(
     manifest.content_security_policy.extension_pages.includes("script-src 'self'")
   );
+  // Regression guard: Google CDN 302 redirect domains must be in host_permissions so fetch() never throws Failed to fetch
+  for (const requiredOrigin of [
+    "https://notebooklm.google.com/*",
+    "https://notebook.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://*.usercontent.google.com/*",
+    "https://*.googlevideo.com/*",
+    "https://*.gvt1.com/*",
+    "https://api.groq.com/*",
+    "https://api.mistral.ai/*",
+  ]) {
+    assert.ok(
+      manifest.host_permissions.includes(requiredOrigin),
+      `Missing required host_permission: ${requiredOrigin}`
+    );
+  }
 });
 
 test("Full E2E Pipeline: MAIN-world XHR capture -> MP4 audio extraction -> Groq 429 -> Mistral failover -> Cache hit", async () => {
@@ -223,4 +248,196 @@ test("Full E2E Pipeline: MAIN-world XHR capture -> MP4 audio extraction -> Groq 
   });
   assert.equal(cachedLookup.response.ok, true);
   assert.equal(cachedLookup.response.entry.cues.length, 2);
+});
+
+test("Regression (Gemini Notebook 'Failed to fetch'): Layer 1 first-party page extraction + STAGE_AUDIO_CHUNK avoids Service Worker CDN fetch", async () => {
+  const storage = createMemoryStorage();
+  await setApiKey("groq", "gsk_layer1_test_key_999", storage);
+  await saveSettings({ enabled: true, queueOrder: ["groq"] }, storage);
+
+  const syntheticMp4 = createSyntheticMp4WithVideoAndAudio({
+    videoPayloads: [new Uint8Array(30_000).fill(0x22)],
+    audioPayloads: [new Uint8Array([9, 8, 7, 6])],
+  });
+
+  // Simulate NotebookLM MAIN world (`page.js`) with first-party session cookies
+  const listeners = [];
+  const posted = [];
+  const mockWin = {
+    location: { origin: "https://notebook.google.com" },
+    addEventListener: (evt, fn) => {
+      if (evt === "message") listeners.push(fn);
+    },
+    postMessage: (msg) => posted.push(msg),
+    fetch: async (url, init) => {
+      assert.equal(init.credentials, "include");
+      return new Response(syntheticMp4, {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      });
+    },
+  };
+  installMainWorldObserver(mockWin);
+
+  // Trigger EXTRACT_AUDIO_REQUEST from content.js -> page.js
+  for (const fn of listeners) {
+    fn({
+      source: mockWin,
+      origin: "https://notebook.google.com",
+      data: {
+        source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+        type: PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST,
+        payload: {
+          requestId: "req-mass-spec-1",
+          candidateUrls: [
+            "https://lh3.googleusercontent.com/notebooklm/ANd9GcMassSpecToken12345=m22",
+          ],
+          durationSeconds: 504,
+        },
+      },
+    });
+  }
+
+  // Wait for async extraction postMessage
+  await new Promise((r) => setTimeout(r, 25));
+  const extractMsg = posted.find(
+    (m) => m.type === PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE
+  );
+  assert.ok(extractMsg, "Expected EXTRACT_AUDIO_RESPONSE from page.js");
+  assert.equal(extractMsg.payload.ok, true);
+  assert.equal(extractMsg.payload.chunks.length, 1);
+  assert.ok(extractMsg.payload.extractedBytes < 2000);
+
+  // Stage extracted compact .m4a chunk into Service Worker
+  let cdnTouchedByServiceWorker = false;
+  const swFetch = async (url) => {
+    const urlStr = String(url);
+    if (urlStr.includes("googleusercontent.com")) {
+      cdnTouchedByServiceWorker = true;
+      throw new TypeError("Failed to fetch");
+    }
+    if (urlStr.includes("api.groq.com")) {
+      return new Response(
+        JSON.stringify({
+          segments: [
+            {
+              start: 0.0,
+              end: 4.1,
+              text: "Mass spectrometry measures the mass-to-charge ratio of ions.",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    throw new Error(`Unexpected URL: ${urlStr}`);
+  };
+
+  const dispatcher = createRuntimeDispatcher({
+    storageArea: storage,
+    fetchImpl: swFetch,
+  });
+
+  const chunk = extractMsg.payload.chunks[0];
+  const stageRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.STAGE_AUDIO_CHUNK,
+    stagedJobId: "stage-mass-spec",
+    index: 0,
+    totalChunks: 1,
+    originalBytes: extractMsg.payload.originalBytes,
+    extractedBytes: extractMsg.payload.extractedBytes,
+    chunk: {
+      base64: Buffer.from(chunk.buffer).toString("base64"),
+      mimeType: chunk.mimeType,
+      fileName: chunk.fileName,
+      startOffsetSec: chunk.startOffsetSec,
+      durationSec: chunk.durationSec,
+    },
+  });
+  assert.equal(stageRes.response.ok, true);
+
+  const ensureRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+    stagedJobId: "stage-mass-spec",
+    artifact: {
+      artifactId: "77777777-aaaa-4bbb-8ccc-555555555555",
+      title: "Mass Spectrometry Blueprint",
+      mediaUrl:
+        "https://lh3.googleusercontent.com/notebooklm/ANd9GcMassSpecToken12345=m22",
+      durationSeconds: 504,
+    },
+  });
+
+  assert.equal(ensureRes.response.ok, true);
+  assert.equal(cdnTouchedByServiceWorker, false);
+  assert.equal(ensureRes.response.entry.cues.length, 1);
+  assert.match(ensureRes.response.entry.cues[0].text, /Mass spectrometry/);
+});
+
+test("Regression: Layer 2 Service Worker falls back from credentials:'include' to 'omit' and handles blob: URLs clearly", async () => {
+  const storage = createMemoryStorage();
+  await setApiKey("groq", "gsk_layer2_test_key_888", storage);
+  await saveSettings({ enabled: true, queueOrder: ["groq"] }, storage);
+
+  const syntheticMp4 = createSyntheticMp4WithVideoAndAudio({
+    videoPayloads: [new Uint8Array(10_000).fill(0x11)],
+    audioPayloads: [new Uint8Array([1, 3, 5, 7])],
+  });
+
+  const seenCredentials = [];
+  const swFetch = async (url, init) => {
+    const urlStr = String(url);
+    if (
+      urlStr.includes("googleusercontent.com") ||
+      urlStr.includes("usercontent.google.com")
+    ) {
+      seenCredentials.push(init?.credentials);
+      // Simulate wildcard CORS rejecting credentials: 'include' with TypeError: Failed to fetch
+      if (init?.credentials === "include") {
+        throw new TypeError("Failed to fetch");
+      }
+      return new Response(syntheticMp4, {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      });
+    }
+    if (urlStr.includes("api.groq.com")) {
+      return new Response(
+        JSON.stringify({
+          segments: [{ start: 0.2, end: 3.0, text: "Ionization source ready." }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    throw new Error(`Unexpected URL: ${urlStr}`);
+  };
+
+  const dispatcher = createRuntimeDispatcher({
+    storageArea: storage,
+    fetchImpl: swFetch,
+  });
+
+  const okRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+    artifact: {
+      artifactId: "88888888-aaaa-4bbb-8ccc-666666666666",
+      title: "Redirected Stream Video",
+      mediaUrl:
+        "https://lh3-rt.usercontent.google.com/notebooklm/ANd9GcRedirectToken98765=m22",
+    },
+  });
+  assert.equal(okRes.response.ok, true);
+  assert.deepEqual(seenCredentials.slice(0, 2), ["include", "omit"]);
+
+  // Verify blob:-only uncaptured MediaSource stream gives actionable reload instructions instead of opaque error
+  const blobRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+    artifact: {
+      cacheKey: "blob-only-test",
+      title: "Already Loaded Blob Video",
+      mediaUrl: "blob:https://notebook.google.com/1234-5678",
+    },
+  });
+  assert.equal(blobRes.response.ok, false);
+  assert.match(blobRes.response.error, /Reload this NotebookLM tab once/);
 });

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Subtitles for NotebookLM",
   "short_name": "NotebookLM CC",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatic synchronized subtitles & .SRT/.VTT export for Google NotebookLM Video Overviews. Client-side audio extraction + 12 BYOK STT providers.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -32,11 +32,14 @@
   "host_permissions": [
     "https://notebooklm.google.com/*",
     "https://notebook.google.com/*",
+    "https://notebook.cloud.google.com/*",
     "https://lh3.googleusercontent.com/*",
     "https://*.googleusercontent.com/*",
-    "https://*.googlevideo.com/*"
-  ],
-  "optional_host_permissions": [
+    "https://*.usercontent.google.com/*",
+    "https://*.googlevideo.com/*",
+    "https://*.gvt1.com/*",
+    "https://*.ggpht.com/*",
+    "https://*.google.com/*",
     "https://api.groq.com/*",
     "https://api.mistral.ai/*",
     "https://generativelanguage.googleapis.com/*",
@@ -47,7 +50,9 @@
     "https://api.elevenlabs.io/*",
     "https://router.huggingface.co/*",
     "https://openrouter.ai/*",
-    "https://api.openai.com/*",
+    "https://api.openai.com/*"
+  ],
+  "optional_host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://*/*"
@@ -56,7 +61,8 @@
     {
       "matches": [
         "https://notebooklm.google.com/*",
-        "https://notebook.google.com/*"
+        "https://notebook.google.com/*",
+        "https://notebook.cloud.google.com/*"
       ],
       "js": ["page.js"],
       "run_at": "document_start",
@@ -65,7 +71,8 @@
     {
       "matches": [
         "https://notebooklm.google.com/*",
-        "https://notebook.google.com/*"
+        "https://notebook.google.com/*",
+        "https://notebook.cloud.google.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
