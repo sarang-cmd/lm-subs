@@ -172,8 +172,8 @@ function buildM4aFtypBox() {
 }
 
 /**
- * Validates that downloaded bytes are a real media payload rather than an empty
- * body or an HTML login/error page served by Google's CDN.
+ * Validates that downloaded bytes are a real audio/video media payload rather than
+ * an empty body, an HTML login page, an image thumbnail, or a text streaming manifest.
  */
 export function validateMediaPayload(inputBuffer, contentType = "") {
   const bytes =
@@ -191,10 +191,48 @@ export function validateMediaPayload(inputBuffer, contentType = "") {
       "Received HTML instead of media stream. Refresh your NotebookLM tab so Google's media session cookie renews."
     );
   }
+  if (ct.startsWith("image/")) {
+    throw new Error(`Received thumbnail image (${ct}) instead of audio/video stream.`);
+  }
+  if (
+    ct.includes("mpegurl") ||
+    ct.includes("dash+xml") ||
+    ct.includes("application/xml") ||
+    ct.includes("text/xml") ||
+    ct.includes("application/json") ||
+    ct.startsWith("text/plain")
+  ) {
+    throw new Error(`Received streaming manifest/text (${ct}) instead of binary media.`);
+  }
 
-  // Sniff leading bytes for `<!DOCTYPE` or `<html` even when Content-Type is generic
+  // Sniff leading magic bytes even when Content-Type is generic `application/octet-stream`
+  if (
+    bytes.byteLength >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    throw new Error("Received JPEG thumbnail instead of audio/video stream.");
+  }
+  if (
+    bytes.byteLength >= 4 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    throw new Error("Received PNG image instead of audio/video stream.");
+  }
+  if (
+    bytes.byteLength >= 12 &&
+    fourCC(bytes, 0) === "RIFF" &&
+    fourCC(bytes, 8) === "WEBP"
+  ) {
+    throw new Error("Received WebP thumbnail instead of audio/video stream.");
+  }
+
   const headAscii = String.fromCharCode(
-    ...bytes.subarray(0, Math.min(32, bytes.byteLength))
+    ...bytes.subarray(0, Math.min(48, bytes.byteLength))
   )
     .trimStart()
     .toLowerCase();
@@ -203,8 +241,66 @@ export function validateMediaPayload(inputBuffer, contentType = "") {
       "Received an HTML document instead of video/audio bytes. Refresh NotebookLM and try again."
     );
   }
+  if (
+    headAscii.startsWith("#extm3u") ||
+    headAscii.startsWith("<?xml") ||
+    headAscii.startsWith("<mpd")
+  ) {
+    throw new Error("Received HLS/DASH manifest text instead of binary audio/video.");
+  }
 
   return bytes;
+}
+
+/**
+ * Inspects ISO-BMFF boxes to report whether an MP4/M4A buffer has `soun` / `vide`
+ * tracks or `moof` fragments (lets us skip silent video-only preview thumbnails).
+ */
+export function inspectMp4Tracks(inputBuffer) {
+  const bytes =
+    inputBuffer instanceof Uint8Array
+      ? inputBuffer
+      : new Uint8Array(inputBuffer || 0);
+  if (bytes.byteLength < 16) {
+    return { isMp4: false, hasVideo: false, hasAudio: false, isFragmented: false };
+  }
+
+  const topBoxes = readIsoBoxes(bytes, 0, bytes.byteLength);
+  const ftypBox = topBoxes.find((b) => b.type === "ftyp");
+  const moovBox = topBoxes.find((b) => b.type === "moov");
+  const isFragmented = topBoxes.some((b) => b.type === "moof");
+
+  if (!ftypBox && !moovBox) {
+    return { isMp4: false, hasVideo: false, hasAudio: false, isFragmented: false };
+  }
+
+  let hasVideo = false;
+  let hasAudio = false;
+  let hasMvex = false;
+
+  if (moovBox) {
+    const moovChildren = readIsoBoxes(bytes, moovBox.dataOffset, moovBox.endOffset);
+    hasMvex = moovChildren.some((b) => b.type === "mvex");
+    for (const child of moovChildren) {
+      if (child.type !== "trak") continue;
+      const trakChildren = readIsoBoxes(bytes, child.dataOffset, child.endOffset);
+      const mdia = trakChildren.find((b) => b.type === "mdia");
+      if (!mdia) continue;
+      const mdiaChildren = readIsoBoxes(bytes, mdia.dataOffset, mdia.endOffset);
+      const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+      if (!hdlr || hdlr.dataOffset + 12 > hdlr.endOffset) continue;
+      const subtype = fourCC(bytes, hdlr.dataOffset + 8);
+      if (subtype === "vide") hasVideo = true;
+      if (subtype === "soun") hasAudio = true;
+    }
+  }
+
+  return {
+    isMp4: true,
+    hasVideo,
+    hasAudio,
+    isFragmented: isFragmented || hasMvex,
+  };
 }
 
 /**
@@ -570,14 +666,22 @@ export function createSyntheticMp4WithVideoAndAudio({
 
   const mvhd = makeBox("mvhd", [new Uint8Array(100)]);
   const videoSizes = videoPayloads.map((p) => p.byteLength);
-  const audioSizes = audioPayloads.map((p) => p.byteLength);
+  const safeAudio = Array.isArray(audioPayloads) ? audioPayloads : [];
+  const audioSizes = safeAudio.map((p) => p.byteLength);
 
-  // Measure moov size first
-  const dummyMoov = makeBox("moov", [
-    mvhd,
-    buildTrak("vide", "avc1", videoSizes, new Array(videoSizes.length).fill(0)),
-    buildTrak("soun", "mp4a", audioSizes, new Array(audioSizes.length).fill(0)),
-  ]);
+  // Measure moov size first (omit `soun` trak when `audioPayloads` is empty to model silent previews)
+  const dummyMoovParts = [mvhd];
+  if (videoSizes.length > 0) {
+    dummyMoovParts.push(
+      buildTrak("vide", "avc1", videoSizes, new Array(videoSizes.length).fill(0))
+    );
+  }
+  if (audioSizes.length > 0) {
+    dummyMoovParts.push(
+      buildTrak("soun", "mp4a", audioSizes, new Array(audioSizes.length).fill(0))
+    );
+  }
+  const dummyMoov = makeBox("moov", dummyMoovParts);
 
   // Interleave video and audio chunks inside `mdat` just like real muxed MP4 files
   const mdatStart = ftyp.byteLength + dummyMoov.byteLength + 8;
@@ -585,25 +689,28 @@ export function createSyntheticMp4WithVideoAndAudio({
   const realVideoOffsets = [];
   const realAudioOffsets = [];
   let rel = 0;
-  const maxLen = Math.max(videoPayloads.length, audioPayloads.length);
+  const maxLen = Math.max(videoPayloads.length, safeAudio.length);
   for (let i = 0; i < maxLen; i++) {
     if (i < videoPayloads.length) {
       realVideoOffsets.push(mdatStart + rel);
       interleaved.push(videoPayloads[i]);
       rel += videoPayloads[i].byteLength;
     }
-    if (i < audioPayloads.length) {
+    if (i < safeAudio.length) {
       realAudioOffsets.push(mdatStart + rel);
-      interleaved.push(audioPayloads[i]);
-      rel += audioPayloads[i].byteLength;
+      interleaved.push(safeAudio[i]);
+      rel += safeAudio[i].byteLength;
     }
   }
 
-  const realMoov = makeBox("moov", [
-    mvhd,
-    buildTrak("vide", "avc1", videoSizes, realVideoOffsets),
-    buildTrak("soun", "mp4a", audioSizes, realAudioOffsets),
-  ]);
+  const realMoovParts = [mvhd];
+  if (videoSizes.length > 0) {
+    realMoovParts.push(buildTrak("vide", "avc1", videoSizes, realVideoOffsets));
+  }
+  if (audioSizes.length > 0) {
+    realMoovParts.push(buildTrak("soun", "mp4a", audioSizes, realAudioOffsets));
+  }
+  const realMoov = makeBox("moov", realMoovParts);
   const mdat = makeBox("mdat", interleaved);
 
   const out = new Uint8Array(ftyp.byteLength + realMoov.byteLength + mdat.byteLength);

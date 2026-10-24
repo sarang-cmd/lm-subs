@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Subtitles for NotebookLM",
   "short_name": "NotebookLM CC",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Automatic synchronized subtitles & .SRT/.VTT export for Google NotebookLM Video Overviews. Client-side audio extraction + 12 BYOK STT providers.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -75,7 +75,7 @@
         "https://notebook.cloud.google.com/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "content_security_policy": {

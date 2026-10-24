@@ -180,6 +180,52 @@
           <button id="save-rpc-btn" type="button" class="btn">Save RPCs</button>
         </div>
       </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="section-title">5. Diagnostics &amp; Live Debug Mode</h2>
+          <span id="opt-perm-badge" class="badge badge-saved">Google CDN Perms: OK</span>
+        </div>
+        <div class="hint" style="margin-top: 0; margin-bottom: 10px">
+          Enable Debug Mode to mount a live Shadow-DOM pipeline console on <code>notebook.google.com</code> showing RPC detections, <code>&lt;video&gt;</code> discovery, Google CDN byte counts, and STT status. All API keys are strictly redacted.
+        </div>
+        <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px">
+          <label class="switch">
+            <input id="opt-debug-mode" type="checkbox" />
+            <span>Enable In-Page Debug Drawer &amp; Event Log</span>
+          </label>
+          <div class="row">
+            <button id="opt-grant-perms-btn" type="button" class="btn btn-sm btn-primary" style="display: none">
+              Grant Missing Permissions
+            </button>
+            <button id="opt-refresh-debug-btn" type="button" class="btn btn-sm">Refresh</button>
+            <button id="opt-copy-debug-btn" type="button" class="btn btn-sm btn-primary">
+              Copy Redacted Debug Report
+            </button>
+            <button id="opt-clear-debug-btn" type="button" class="btn btn-sm btn-danger">
+              Clear Logs
+            </button>
+          </div>
+        </div>
+        <pre
+          id="debug-log-viewer"
+          style="
+            margin: 0;
+            padding: 10px 12px;
+            max-height: 240px;
+            overflow-y: auto;
+            border-radius: 7px;
+            border: 1px solid var(--border);
+            background: #0d1117;
+            color: #c9d1d9;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 11.5px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+          "
+        >Loading diagnostic report…</pre>
+      </section>
     </main>
 
     <script src="options.js"></script>

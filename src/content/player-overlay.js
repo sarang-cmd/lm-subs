@@ -36,8 +36,8 @@ const OVERLAY_CSS = `
   }
   .toolbar {
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: 52px;
+    right: 14px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -209,16 +209,52 @@ export class VideoSubtitleController {
     this._bindEvents();
   }
 
+  _resolveMountParent() {
+    if (this.video?.parentElement) {
+      return this.video.parentElement;
+    }
+    const root = this.video?.getRootNode?.();
+    if (root && root !== this.doc && typeof root.appendChild === "function") {
+      return root;
+    }
+    return null;
+  }
+
+  _ensureMounted() {
+    const parent = this._resolveMountParent();
+    if (!parent) return false;
+    if (!this.host) {
+      this._mount();
+      return Boolean(this.host);
+    }
+    if (this.host.parentElement !== parent && parent !== this.host.getRootNode?.()) {
+      try {
+        if (parent.style) {
+          const computedPos = globalThis.getComputedStyle?.(parent)?.position;
+          if (!computedPos || computedPos === "static") {
+            parent.style.position = "relative";
+          }
+        }
+        parent.appendChild(this.host);
+      } catch {
+        // Ignore reparent race
+      }
+    }
+    return true;
+  }
+
   _mount() {
-    const parent = this.video.parentElement;
+    const parent = this._resolveMountParent();
     if (!parent) return;
 
-    const computedPos = globalThis.getComputedStyle?.(parent)?.position;
-    if (!computedPos || computedPos === "static") {
-      parent.style.position = "relative";
+    if (parent.style) {
+      const computedPos = globalThis.getComputedStyle?.(parent)?.position;
+      if (!computedPos || computedPos === "static") {
+        parent.style.position = "relative";
+      }
     }
 
-    const old = parent.querySelector(`.${DOM_SELECTORS.OVERLAY_HOST_CLASS}`);
+    const old = parent.querySelector?.(`.${DOM_SELECTORS.OVERLAY_HOST_CLASS}`);
     if (old) old.remove();
 
     this.host = this.doc.createElement("div");
@@ -371,8 +407,12 @@ export class VideoSubtitleController {
   }
 
   _bindEvents() {
-    this._onTimeChange = () => this._renderActiveCue();
+    this._onTimeChange = () => {
+      this._ensureMounted();
+      this._renderActiveCue();
+    };
     this._onPlay = () => {
+      this._ensureMounted();
       this._startHighFreqSync();
       this._scheduleIdleFade();
     };
@@ -484,6 +524,7 @@ export class VideoSubtitleController {
   }
 
   setStatus(state, label = "") {
+    this._ensureMounted();
     this.statusState = state;
     this.statusLabel = label;
     if (this.toolbar && state === "working") {
@@ -492,7 +533,16 @@ export class VideoSubtitleController {
     this._renderToolbar();
   }
 
+  toggleSubtitles() {
+    if (this.cues.length === 0) return;
+    this.ccEnabled = !this.ccEnabled;
+    this._syncTrackVisibility();
+    this._renderToolbar();
+    this._renderActiveCue();
+  }
+
   setCues(cues, { title, language = "en" } = {}) {
+    this._ensureMounted();
     this.cues = Array.isArray(cues) ? cues : [];
     if (title) this.title = title;
     this.language = language || "en";

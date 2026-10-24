@@ -1,5 +1,6 @@
 (() => {
   // src/config/selectors.js
+  var MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
   var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
   var NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
   var NOTEBOOKLM_HOSTS = Object.freeze([
@@ -93,6 +94,7 @@
     OVERLAY_HOST_ID: "nlm-subtitles-player-root",
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
+    DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
     TRACK_LABEL: "NotebookLM Auto-Subtitles"
   });
   var PAGE_MESSAGE = Object.freeze({
@@ -100,6 +102,9 @@
     BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
     BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
     SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+    REQUEST_PAGE_STATE: "NOTEBOOKLM_REQUEST_PAGE_STATE",
+    PAGE_STATE_SNAPSHOT: "NOTEBOOKLM_PAGE_STATE_SNAPSHOT",
+    PAGE_DEBUG_EVENT: "NOTEBOOKLM_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
     EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
   });
@@ -112,7 +117,10 @@
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
-    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO"
+    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
+    APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
+    GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
   });
 
   // src/lib/audio-extract.js
@@ -181,6 +189,11 @@
 
   // src/lib/batchexecute.js
   var FIFE_NOTEBOOKLM_TOKEN_RE = /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
+  var FIFE_SUFFIX_RE = /=[A-Za-z0-9_,.-]+$/;
+  function isNotebookLmHost(hostname) {
+    if (typeof hostname !== "string" || !hostname) return false;
+    return NOTEBOOKLM_HOSTS.includes(hostname.toLowerCase());
+  }
   function isTrustedGoogleMediaUrl(rawUrl) {
     if (typeof rawUrl !== "string" || !rawUrl) return false;
     let parsed;
@@ -199,6 +212,38 @@
       return host === bare || host.endsWith(suffix);
     });
   }
+  function isThumbnailOrManifestUrl(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl) return false;
+    if (/\.(?:m3u8|mpd|jpe?g|png|webp|gif|svg)(?:$|\?)/i.test(rawUrl)) {
+      return true;
+    }
+    const suffixMatch = rawUrl.match(FIFE_SUFFIX_RE);
+    if (!suffixMatch) return false;
+    const suffix = suffixMatch[0].slice(1).toLowerCase();
+    if (/^(?:s\d+|w\d+|h\d+|c\b|p\b)/.test(suffix)) return true;
+    if (/(?:^|-)s\d+(?:-|$)/.test(suffix)) return true;
+    if (/^mm,(?:hls|dash)$/i.test(suffix)) return true;
+    return false;
+  }
+  function summarizeMediaUrlForDebug(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl) return "(empty)";
+    if (rawUrl.startsWith("blob:")) return rawUrl.slice(0, 48);
+    try {
+      const u = new URL(rawUrl);
+      const suffixMatch = u.pathname.match(FIFE_SUFFIX_RE);
+      const suffix = suffixMatch ? suffixMatch[0] : "";
+      const tokenMatch = u.pathname.match(FIFE_NOTEBOOKLM_TOKEN_RE);
+      if (tokenMatch) {
+        const tok = tokenMatch[1];
+        const shortTok = tok.length > 14 ? `${tok.slice(0, 8)}\u2026${tok.slice(-4)}` : tok;
+        const prefix = u.pathname.includes("/rd-notebooklm/") ? "/rd-notebooklm/" : "/notebooklm/";
+        return `${u.origin}${prefix}${shortTok}${suffix}`;
+      }
+      return `${u.origin}${u.pathname.slice(0, 36)}${suffix}`;
+    } catch {
+      return String(rawUrl).slice(0, 60);
+    }
+  }
   function extractMediaToken(rawUrl) {
     if (typeof rawUrl !== "string" || !rawUrl) return null;
     const fifeMatch = rawUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE);
@@ -210,7 +255,7 @@
       if (u.protocol === "blob:") return null;
       const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
       if (idParam) return idParam;
-      const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
+      const cleanPath = u.pathname.replace(FIFE_SUFFIX_RE, "");
       return `${u.hostname}${cleanPath}`;
     } catch {
       return null;
@@ -522,10 +567,12 @@
     API_KEYS: "apiKeys",
     SUBTITLE_CACHE: "subtitleCache",
     HISTORY: "subtitleHistory",
-    LAST_STATUS: "lastStatus"
+    LAST_STATUS: "lastStatus",
+    DEBUG_LOGS: "debugLogs"
   });
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
+    debugMode: false,
     autoOnGenerate: true,
     autoOnExistingVideos: true,
     primaryProvider: "groq",
@@ -596,6 +643,7 @@
     }
     return {
       enabled: typeof saved.enabled === "boolean" ? saved.enabled : DEFAULT_SETTINGS.enabled,
+      debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
       autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
       autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
       primaryProvider,
@@ -639,22 +687,324 @@
     await store.set({ [STORAGE_KEYS.SETTINGS]: next });
     return next;
   }
-  async function getSubtitleCacheList(storageArea) {
-    const store = resolveStorage(storageArea);
-    const raw = await store.get(STORAGE_KEYS.SUBTITLE_CACHE);
-    const list = raw?.[STORAGE_KEYS.SUBTITLE_CACHE];
-    return Array.isArray(list) ? list : [];
+  function sanitizeDebugMessage(text) {
+    if (typeof text !== "string") return String(text ?? "");
+    return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
   }
-  async function getCachedKeysList(storageArea) {
-    const list = await getSubtitleCacheList(storageArea);
-    const keys = [];
-    for (const item of list) {
-      if (item?.cacheKey) keys.push(item.cacheKey);
-      if (item?.artifactId) keys.push(`artifact:${item.artifactId}`);
-      if (item?.mediaToken) keys.push(`token:${item.mediaToken}`);
+
+  // src/content/debug-drawer.js
+  var DRAWER_CSS = (
+    /* css */
+    `
+  :host {
+    all: initial;
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    z-index: 2147483646;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    color: #e6edf3;
+    pointer-events: auto;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    background: rgba(13, 17, 23, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 7px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    color: #e6edf3;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .pill:hover {
+    border-color: rgba(255, 255, 255, 0.32);
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #3fb950;
+  }
+  .dot.error {
+    background: #f85149;
+  }
+
+  .panel {
+    width: 440px;
+    max-width: calc(100vw - 28px);
+    background: rgba(13, 17, 23, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 9px;
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel[hidden], .pill[hidden] {
+    display: none !important;
+  }
+
+  .hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: #161b22;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  .hdr-actions {
+    display: flex;
+    gap: 5px;
+  }
+
+  button.act {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: #21262d;
+    color: #e6edf3;
+    border-radius: 5px;
+    padding: 3px 7px;
+    font-family: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  button.act:hover {
+    background: #30363d;
+  }
+  button.act.primary {
+    border-color: rgba(56, 139, 253, 0.5);
+    background: rgba(56, 139, 253, 0.18);
+    color: #79c0ff;
+  }
+
+  .summary {
+    padding: 6px 10px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: #8b949e;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0d1117;
+  }
+
+  .summary strong {
+    color: #c9d1d9;
+  }
+
+  .logs {
+    max-height: 210px;
+    overflow-y: auto;
+    padding: 6px 10px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .row {
+    word-break: break-word;
+    color: #c9d1d9;
+  }
+  .row .ts {
+    color: #6e7681;
+    margin-right: 5px;
+  }
+  .row .tag {
+    display: inline-block;
+    padding: 0 4px;
+    border-radius: 3px;
+    margin-right: 5px;
+    font-size: 9.5px;
+    font-weight: 700;
+    background: rgba(110, 118, 129, 0.25);
+    color: #c9d1d9;
+  }
+  .row.error {
+    color: #ffa198;
+  }
+  .row.error .tag {
+    background: rgba(248, 81, 73, 0.25);
+    color: #ff7b72;
+  }
+  .row.ok .tag {
+    background: rgba(63, 185, 80, 0.22);
+    color: #56d364;
+  }
+`
+  );
+  var DebugDrawer = class {
+    constructor({
+      doc = globalThis.document,
+      onForceScan = null,
+      onCopyReport = null,
+      onClear = null
+    } = {}) {
+      this.doc = doc;
+      this.onForceScan = onForceScan;
+      this.onCopyReport = onCopyReport;
+      this.onClear = onClear;
+      this.host = null;
+      this.collapsed = false;
+      this.entries = [];
+      this.summaryState = {
+        artifacts: 0,
+        videos: 0,
+        status: "idle",
+        permissionsOk: true
+      };
     }
-    return [...new Set(keys)];
-  }
+    mount() {
+      if (this.host || !this.doc?.body) return;
+      const existing = this.doc.getElementById?.(DOM_SELECTORS.DEBUG_DRAWER_HOST_ID);
+      if (existing) existing.remove?.();
+      const host = this.doc.createElement("div");
+      host.id = DOM_SELECTORS.DEBUG_DRAWER_HOST_ID;
+      const shadow = host.attachShadow({ mode: "open" });
+      const style = this.doc.createElement("style");
+      style.textContent = DRAWER_CSS;
+      const pill = this.doc.createElement("div");
+      pill.className = "pill";
+      pill.hidden = true;
+      const dot = this.doc.createElement("span");
+      dot.className = "dot";
+      const pillLabel = this.doc.createElement("span");
+      pillLabel.textContent = "NLM Subtitles \xB7 Debug (0)";
+      pill.append(dot, pillLabel);
+      pill.addEventListener("click", () => {
+        this.collapsed = false;
+        this._syncVisibility();
+      });
+      const panel = this.doc.createElement("div");
+      panel.className = "panel";
+      const hdr = this.doc.createElement("div");
+      hdr.className = "hdr";
+      const title = this.doc.createElement("span");
+      title.textContent = "NotebookLM Subtitles \xB7 Debug";
+      const actions = this.doc.createElement("div");
+      actions.className = "hdr-actions";
+      const mkBtn = (label, cls, fn) => {
+        const b = this.doc.createElement("button");
+        b.type = "button";
+        b.className = cls ? `act ${cls}` : "act";
+        b.textContent = label;
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          fn(b);
+        });
+        return b;
+      };
+      const scanBtn = mkBtn("Scan / Retry", "primary", () => this.onForceScan?.());
+      const copyBtn = mkBtn("Copy Report", "", async (btn) => {
+        if (!this.onCopyReport) return;
+        const ok = await this.onCopyReport();
+        btn.textContent = ok ? "Copied!" : "Copy Failed";
+        setTimeout(() => {
+          btn.textContent = "Copy Report";
+        }, 1600);
+      });
+      const clearBtn = mkBtn("Clear", "", () => {
+        this.entries = [];
+        this.renderLogs();
+        this.onClear?.();
+      });
+      const minBtn = mkBtn("_", "", () => {
+        this.collapsed = true;
+        this._syncVisibility();
+      });
+      actions.append(scanBtn, copyBtn, clearBtn, minBtn);
+      hdr.append(title, actions);
+      const summary = this.doc.createElement("div");
+      summary.className = "summary";
+      const logs = this.doc.createElement("div");
+      logs.className = "logs";
+      panel.append(hdr, summary, logs);
+      shadow.append(style, pill, panel);
+      this.doc.body.appendChild(host);
+      this.host = host;
+      this.els = { pill, dot, pillLabel, panel, summary, logs };
+      this.renderSummary();
+      this.renderLogs();
+      this._syncVisibility();
+    }
+    _syncVisibility() {
+      if (!this.els) return;
+      this.els.pill.hidden = !this.collapsed;
+      this.els.panel.hidden = this.collapsed;
+    }
+    updateSummary(partial = {}) {
+      this.summaryState = { ...this.summaryState, ...partial };
+      this.renderSummary();
+    }
+    renderSummary() {
+      if (!this.els) return;
+      const s = this.summaryState;
+      const permText = s.permissionsOk ? "OK" : "MISSING CDN PERM";
+      this.els.summary.textContent = `Artifacts: ${s.artifacts}  |  <video> bound: ${s.videos}  |  State: ${s.status}  |  Perms: ${permText}`;
+    }
+    pushEntry(entry) {
+      if (!entry) return;
+      this.entries.push(entry);
+      if (this.entries.length > 80) {
+        this.entries.shift();
+      }
+      this.renderLogs();
+    }
+    setEntries(list = []) {
+      this.entries = Array.isArray(list) ? list.slice(-80) : [];
+      this.renderLogs();
+    }
+    renderLogs() {
+      if (!this.els) return;
+      const hasError = this.entries.some((e) => e.level === "error");
+      this.els.dot.className = hasError ? "dot error" : "dot";
+      this.els.pillLabel.textContent = `NLM Subtitles \xB7 Debug (${this.entries.length})`;
+      const container = this.els.logs;
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+      if (this.entries.length === 0) {
+        const empty = this.doc.createElement("div");
+        empty.className = "row";
+        empty.textContent = "Waiting for NotebookLM Video Overview activity...";
+        container.appendChild(empty);
+        return;
+      }
+      for (const item of this.entries.slice(-50)) {
+        const row = this.doc.createElement("div");
+        row.className = item.level === "error" ? "row error" : item.level === "ok" ? "row ok" : "row";
+        const ts = this.doc.createElement("span");
+        ts.className = "ts";
+        ts.textContent = String(item.ts || "").slice(11, 19) || "--:--:--";
+        const tag = this.doc.createElement("span");
+        tag.className = "tag";
+        tag.textContent = item.layer || "LOG";
+        const msg = this.doc.createElement("span");
+        msg.textContent = `${item.event ? item.event + ": " : ""}${item.detail || ""}`;
+        row.append(ts, tag, msg);
+        container.appendChild(row);
+      }
+      container.scrollTop = container.scrollHeight;
+    }
+    destroy() {
+      if (this.host) {
+        this.host.remove?.();
+        this.host = null;
+        this.els = null;
+      }
+    }
+  };
 
   // src/lib/subtitles.js
   var DEFAULT_MAX_LINE_CHARS = 42;
@@ -911,8 +1261,8 @@ ${blocks.join("\n\n")}
   }
   .toolbar {
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: 52px;
+    right: 14px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1073,14 +1423,47 @@ ${blocks.join("\n\n")}
       this._mount();
       this._bindEvents();
     }
-    _mount() {
-      const parent = this.video.parentElement;
-      if (!parent) return;
-      const computedPos = globalThis.getComputedStyle?.(parent)?.position;
-      if (!computedPos || computedPos === "static") {
-        parent.style.position = "relative";
+    _resolveMountParent() {
+      if (this.video?.parentElement) {
+        return this.video.parentElement;
       }
-      const old = parent.querySelector(`.${DOM_SELECTORS.OVERLAY_HOST_CLASS}`);
+      const root = this.video?.getRootNode?.();
+      if (root && root !== this.doc && typeof root.appendChild === "function") {
+        return root;
+      }
+      return null;
+    }
+    _ensureMounted() {
+      const parent = this._resolveMountParent();
+      if (!parent) return false;
+      if (!this.host) {
+        this._mount();
+        return Boolean(this.host);
+      }
+      if (this.host.parentElement !== parent && parent !== this.host.getRootNode?.()) {
+        try {
+          if (parent.style) {
+            const computedPos = globalThis.getComputedStyle?.(parent)?.position;
+            if (!computedPos || computedPos === "static") {
+              parent.style.position = "relative";
+            }
+          }
+          parent.appendChild(this.host);
+        } catch {
+        }
+      }
+      return true;
+    }
+    _mount() {
+      const parent = this._resolveMountParent();
+      if (!parent) return;
+      if (parent.style) {
+        const computedPos = globalThis.getComputedStyle?.(parent)?.position;
+        if (!computedPos || computedPos === "static") {
+          parent.style.position = "relative";
+        }
+      }
+      const old = parent.querySelector?.(`.${DOM_SELECTORS.OVERLAY_HOST_CLASS}`);
       if (old) old.remove();
       this.host = this.doc.createElement("div");
       this.host.className = DOM_SELECTORS.OVERLAY_HOST_CLASS;
@@ -1220,8 +1603,12 @@ ${blocks.join("\n\n")}
       return btn;
     }
     _bindEvents() {
-      this._onTimeChange = () => this._renderActiveCue();
+      this._onTimeChange = () => {
+        this._ensureMounted();
+        this._renderActiveCue();
+      };
       this._onPlay = () => {
+        this._ensureMounted();
         this._startHighFreqSync();
         this._scheduleIdleFade();
       };
@@ -1321,6 +1708,7 @@ ${blocks.join("\n\n")}
       }
     }
     setStatus(state, label = "") {
+      this._ensureMounted();
       this.statusState = state;
       this.statusLabel = label;
       if (this.toolbar && state === "working") {
@@ -1328,7 +1716,15 @@ ${blocks.join("\n\n")}
       }
       this._renderToolbar();
     }
+    toggleSubtitles() {
+      if (this.cues.length === 0) return;
+      this.ccEnabled = !this.ccEnabled;
+      this._syncTrackVisibility();
+      this._renderToolbar();
+      this._renderActiveCue();
+    }
     setCues(cues, { title, language = "en" } = {}) {
+      this._ensureMounted();
       this.cues = Array.isArray(cues) ? cues : [];
       if (title) this.title = title;
       this.language = language || "en";
@@ -1572,9 +1968,9 @@ ${blocks.join("\n\n")}
   }
 
   // src/content/content.js
-  var MAX_AUTO_RETRIES = 2;
-  var RETRY_BASE_DELAY_MS = 1800;
-  var PAGE_EXTRACT_TIMEOUT_MS = 9e4;
+  var GUARD_FLAG = "__notebooklmSubtitlesContentLoaded__";
+  var BLOB_EXTRACT_TIMEOUT_MS = 4e3;
+  var MAX_WAV_CHUNK_BYTES = 14 * 1024 * 1024;
   function uint8ToBase64(bytes) {
     let s = "";
     const CHUNK = 32768;
@@ -1586,102 +1982,264 @@ ${blocks.join("\n\n")}
     }
     return btoa(s);
   }
-  function initContentCoordinator({
+  function base64ToUint8(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function waitForBody(doc, callback) {
+    if (doc?.body) {
+      callback();
+      return;
+    }
+    const check = () => {
+      if (doc?.body) {
+        doc.removeEventListener?.("DOMContentLoaded", check);
+        callback();
+      }
+    };
+    doc?.addEventListener?.("DOMContentLoaded", check);
+    setTimeout(check, 250);
+  }
+  function collectVideosDeep(root, out = [], depth = 0) {
+    if (!root || depth > 6) return out;
+    try {
+      if (root.tagName === "VIDEO" && !out.includes(root)) {
+        out.push(root);
+      }
+      if (typeof root.querySelectorAll === "function") {
+        const videos = root.querySelectorAll(DOM_SELECTORS.VIDEO_ELEMENT);
+        for (const v of videos) {
+          if (!out.includes(v)) out.push(v);
+        }
+        const allEls = root.querySelectorAll("*");
+        for (const el of allEls) {
+          if (el.shadowRoot) {
+            collectVideosDeep(el.shadowRoot, out, depth + 1);
+          }
+        }
+      }
+    } catch {
+    }
+    return out;
+  }
+  async function initContentCoordinator({
     win = globalThis.window,
     doc = globalThis.document,
     runtime = globalThis.chrome?.runtime,
-    storageArea = globalThis.chrome?.storage?.local
+    storage = globalThis.chrome?.storage
   } = {}) {
-    if (!win || !doc || win.__notebooklmSubtitlesContentActive__) return null;
-    win.__notebooklmSubtitlesContentActive__ = true;
-    const toast = createToastManager(doc);
+    if (!win || !doc || !runtime) return null;
+    if (!isNotebookLmHost(win.location?.hostname || "")) return null;
+    if (win[GUARD_FLAG]) return win[GUARD_FLAG];
     const artifactsById = /* @__PURE__ */ new Map();
     const artifactsByToken = /* @__PURE__ */ new Map();
-    const generatingArtifactIds = /* @__PURE__ */ new Set();
+    const pendingGeneratedVideoIds = /* @__PURE__ */ new Set();
+    const cachedKeys = /* @__PURE__ */ new Set();
     const inFlightKeys = /* @__PURE__ */ new Set();
     const exhaustedKeys = /* @__PURE__ */ new Set();
-    const retryCounts = /* @__PURE__ */ new Map();
-    const controllers = /* @__PURE__ */ new WeakMap();
-    const trackedVideos = /* @__PURE__ */ new Set();
-    const pendingPageExtractions = /* @__PURE__ */ new Map();
-    let awaitingCreatedArtifact = false;
-    let cachedKeysSet = /* @__PURE__ */ new Set();
-    let currentSettings = { ...DEFAULT_SETTINGS };
-    let extractReqSeq = 0;
-    function currentNotebookId() {
-      const m = String(win.location?.pathname || "").match(NOTEBOOK_URL_ID_REGEX);
-      return m ? m[1] : null;
-    }
-    function syncRpcOverridesToPage() {
-      if (!currentSettings.rpcOverrides) return;
-      try {
-        win.postMessage(
-          {
-            source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
-            type: PAGE_MESSAGE.SYNC_RPC_OVERRIDES,
-            rpcOverrides: currentSettings.rpcOverrides
-          },
-          win.location.origin
-        );
-      } catch {
-      }
-    }
+    const controllers = /* @__PURE__ */ new Map();
+    const pendingPageRequests = /* @__PURE__ */ new Map();
+    let pageReqSeq = 1;
+    let createIntentTimestamp = 0;
+    let lastActiveVideo = null;
+    let permissionsOk = true;
+    let settings = { ...DEFAULT_SETTINGS };
+    let toast = null;
+    let debugDrawer = null;
+    const localDebugBuffer = [];
+    let keepalivePort = null;
+    let keepaliveTimer = null;
     function sendRuntimeMessage(message) {
-      if (!runtime?.sendMessage) return Promise.resolve(null);
       return new Promise((resolve) => {
         try {
           runtime.sendMessage(message, (res) => {
-            if (runtime.lastError) {
-              resolve({ ok: false, error: runtime.lastError.message });
+            const err = globalThis.chrome?.runtime?.lastError;
+            if (err) {
+              resolve({ ok: false, error: err.message });
               return;
             }
-            resolve(res || null);
+            resolve(res || { ok: false, error: "No response from background worker" });
           });
         } catch (err) {
           resolve({ ok: false, error: err?.message || String(err) });
         }
       });
     }
-    function openKeepaliveHeartbeat() {
-      if (!runtime?.connect) return () => {
-      };
-      let port = null;
-      let timer = null;
+    function startKeepalive() {
+      if (keepalivePort || !runtime?.connect) return;
       try {
-        port = runtime.connect({ name: KEEPALIVE_PORT_NAME });
-        port.onDisconnect?.addListener(() => {
-          port = null;
+        keepalivePort = runtime.connect({ name: KEEPALIVE_PORT_NAME });
+        keepalivePort.onDisconnect.addListener(() => {
+          keepalivePort = null;
+          if (keepaliveTimer) {
+            clearInterval(keepaliveTimer);
+            keepaliveTimer = null;
+          }
         });
-        timer = setInterval(() => {
+        keepaliveTimer = setInterval(() => {
           try {
-            port?.postMessage({ ping: Date.now() });
+            keepalivePort?.postMessage({ ping: Date.now() });
           } catch {
           }
-        }, 15e3);
+        }, 2e4);
       } catch {
       }
-      return () => {
-        if (timer) clearInterval(timer);
+    }
+    function stopKeepaliveIfIdle() {
+      if (inFlightKeys.size > 0) return;
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+      }
+      if (keepalivePort) {
         try {
-          port?.disconnect();
+          keepalivePort.disconnect();
         } catch {
         }
-      };
-    }
-    function requestPageAudioExtraction({ candidateUrls = [], videoCurrentSrc = "" } = {}) {
-      if (!win?.postMessage || !win.location?.origin || win.location.origin === "null") {
-        return Promise.resolve({ ok: false, error: "Page bridge unavailable" });
+        keepalivePort = null;
       }
-      const requestId = `req_${Date.now()}_${++extractReqSeq}`;
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          pendingPageExtractions.delete(requestId);
-          resolve({ ok: false, error: "In-page extraction timed out" });
-        }, PAGE_EXTRACT_TIMEOUT_MS);
-        pendingPageExtractions.set(requestId, (result) => {
-          clearTimeout(timer);
-          resolve(result);
+    }
+    function recordDebug(layer, event, detail, level = "info") {
+      const entry = {
+        ts: (/* @__PURE__ */ new Date()).toISOString(),
+        layer,
+        event,
+        detail: sanitizeDebugMessage(detail),
+        level
+      };
+      localDebugBuffer.push(entry);
+      if (localDebugBuffer.length > 80) localDebugBuffer.shift();
+      if (debugDrawer) {
+        debugDrawer.pushEntry(entry);
+        debugDrawer.updateSummary({
+          artifacts: artifactsById.size,
+          videos: controllers.size,
+          permissionsOk
         });
+      }
+      if (settings.debugMode) {
+        sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.APPEND_DEBUG_LOG,
+          entry
+        }).catch(() => {
+        });
+      }
+    }
+    function syncDebugDrawerLifecycle() {
+      if (!settings.debugMode) {
+        if (debugDrawer) {
+          debugDrawer.destroy();
+          debugDrawer = null;
+        }
+        return;
+      }
+      waitForBody(doc, () => {
+        if (!settings.debugMode || debugDrawer) return;
+        debugDrawer = new DebugDrawer({
+          doc,
+          onForceScan: () => {
+            recordDebug("CONTENT", "manual.scan", "Manual scan & state replay requested");
+            requestPageStateSnapshot();
+            scanForVideos();
+            const target = pickTargetVideoEntry();
+            if (target) {
+              ensureSubtitlesForEntry(target, { force: true, trigger: "manual" });
+            } else {
+              recordDebug(
+                "CONTENT",
+                "manual.scan",
+                "No active <video> element in DOM yet \u2014 open a Studio Video Overview player",
+                "error"
+              );
+            }
+          },
+          onCopyReport: async () => {
+            const res = await sendRuntimeMessage({
+              type: RUNTIME_MESSAGE.GET_DEBUG_REPORT,
+              tabContext: buildTabDiagnosticSnapshot()
+            });
+            const text = res?.reportText || JSON.stringify(buildTabDiagnosticSnapshot(), null, 2);
+            try {
+              await win.navigator?.clipboard?.writeText(text);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          onClear: () => {
+            localDebugBuffer.length = 0;
+            sendRuntimeMessage({ type: RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS }).catch(
+              () => {
+              }
+            );
+          }
+        });
+        debugDrawer.mount();
+        debugDrawer.setEntries(localDebugBuffer);
+        debugDrawer.updateSummary({
+          artifacts: artifactsById.size,
+          videos: controllers.size,
+          status: pickTargetVideoEntry()?.controller?.statusState || "idle",
+          permissionsOk
+        });
+      });
+    }
+    function ensureToast() {
+      if (!toast && doc.body) {
+        toast = createToastManager(doc);
+      }
+      return toast;
+    }
+    function showToast(title, detail = "", kind = "info", durationMs = 3800) {
+      if (!settings.showToast || !settings.enabled) return;
+      waitForBody(doc, () => {
+        ensureToast()?.show({ title, detail, kind, durationMs });
+      });
+    }
+    function hideToast() {
+      toast?.hide?.();
+    }
+    function getPostOrigin() {
+      return win.location?.origin && win.location.origin !== "null" ? win.location.origin : "*";
+    }
+    function syncRpcOverridesToPage() {
+      try {
+        win.postMessage(
+          {
+            source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+            type: PAGE_MESSAGE.SYNC_RPC_OVERRIDES,
+            rpcOverrides: settings.rpcOverrides || {}
+          },
+          getPostOrigin()
+        );
+      } catch {
+      }
+    }
+    function requestPageStateSnapshot() {
+      try {
+        win.postMessage(
+          {
+            source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+            type: PAGE_MESSAGE.REQUEST_PAGE_STATE
+          },
+          getPostOrigin()
+        );
+      } catch {
+      }
+    }
+    function requestPageBlobExtraction({ videoCurrentSrc }) {
+      return new Promise((resolve) => {
+        const requestId = `extract_${Date.now()}_${pageReqSeq++}`;
+        const timer = setTimeout(() => {
+          pendingPageRequests.delete(requestId);
+          resolve({
+            ok: false,
+            error: "Timed out reading in-memory Blob stream."
+          });
+        }, BLOB_EXTRACT_TIMEOUT_MS);
+        pendingPageRequests.set(requestId, { resolve, timer });
         try {
           win.postMessage(
             {
@@ -1689,156 +2247,110 @@ ${blocks.join("\n\n")}
               type: PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST,
               payload: {
                 requestId,
-                candidateUrls,
-                videoCurrentSrc
+                candidateUrls: [],
+                videoCurrentSrc,
+                blobOnly: true
               }
             },
-            win.location.origin
+            getPostOrigin()
           );
         } catch (err) {
           clearTimeout(timer);
-          pendingPageExtractions.delete(requestId);
+          pendingPageRequests.delete(requestId);
           resolve({ ok: false, error: err?.message || String(err) });
         }
       });
     }
-    function discoverResourceTimingMediaUrl() {
+    function getNotebookIdFromUrl() {
+      const match = (win.location?.pathname || "").match(NOTEBOOK_URL_ID_REGEX);
+      return match ? match[1] : null;
+    }
+    function getNotebookTitleFallback() {
+      return (doc.title || "NotebookLM Video Overview").replace(/\s*[-–|]\s*(?:NotebookLM|Gemini Notebook).*$/i, "").trim() || "NotebookLM Video Overview";
+    }
+    function isLikelySilentCardPreviewVideo(video) {
+      try {
+        const src = video.currentSrc || video.src || "";
+        if (src && isThumbnailOrManifestUrl(src)) {
+          const insideDialog = Boolean(
+            video.closest?.(
+              '[role="dialog"], .cdk-overlay-container, mat-dialog-container'
+            )
+          );
+          if (!insideDialog) return true;
+        }
+        if (video.muted && video.loop && video.videoWidth > 0 && video.videoWidth <= 520 && !video.controls) {
+          return true;
+        }
+      } catch {
+      }
+      return false;
+    }
+    function matchArtifactForVideo(video) {
+      const src = video.currentSrc || video.src || "";
+      const token = extractMediaToken(src);
+      if (token && artifactsByToken.has(token)) {
+        return artifactsByToken.get(token);
+      }
+      const readyList = [...artifactsById.values()].filter(
+        (a) => a.status === "ready" && (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length)
+      );
+      if (readyList.length === 1) {
+        return readyList[0];
+      }
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        let best = null;
+        let bestDiff = Infinity;
+        for (const art of readyList) {
+          if (typeof art.durationSeconds === "number") {
+            const diff = Math.abs(art.durationSeconds - video.duration);
+            if (diff < 3 && diff < bestDiff) {
+              best = art;
+              bestDiff = diff;
+            }
+          }
+        }
+        if (best) return best;
+      }
+      return readyList[readyList.length - 1] || null;
+    }
+    function discoverResourceTimingMediaUrls() {
+      const urls = [];
       try {
         const entries = win.performance?.getEntriesByType?.("resource") || [];
         for (let i = entries.length - 1; i >= 0; i--) {
-          const url = entries[i]?.name || "";
-          if (isTrustedGoogleMediaUrl(url) && (entries[i].initiatorType === "video" || /\/notebooklm\/|videoplayback|=m(?:18|22|140)/i.test(url))) {
-            return url;
+          const e = entries[i];
+          const url = e?.name || "";
+          if (!isTrustedGoogleMediaUrl(url)) continue;
+          if (e.initiatorType === "img" || e.initiatorType === "css") continue;
+          if (isThumbnailOrManifestUrl(url)) continue;
+          if (e.initiatorType === "video" || e.initiatorType === "audio" || e.initiatorType === "media" || /videoplayback|=m(?:18|22|37|140)(?:-dv)?(?:$|\?)/i.test(url)) {
+            if (!urls.includes(url)) urls.push(url);
           }
         }
       } catch {
       }
-      return null;
+      return urls;
     }
-    function inferTitleNearVideo(video) {
-      const dialog = video?.closest?.('[role="dialog"], .video-player, [class*="video"]');
-      const heading = dialog?.querySelector?.("h1, h2, h3, .artifact-title, [class*='title']");
-      const rawHeading = heading?.textContent?.trim();
-      if (rawHeading && rawHeading.length >= 3 && rawHeading.length <= 140) {
-        return rawHeading;
-      }
-      const cleanDocTitle = doc.title?.replace(/\s*[-–|]\s*(?:NotebookLM|Gemini Notebook).*$/i, "").trim();
-      return cleanDocTitle || "Video Overview";
-    }
-    async function refreshLocalState() {
-      try {
-        const [settings, keys] = await Promise.all([
-          getSettings(storageArea),
-          getCachedKeysList(storageArea)
-        ]);
-        currentSettings = settings;
-        cachedKeysSet = new Set(keys);
-        syncRpcOverridesToPage();
-        for (const video of trackedVideos) {
-          controllers.get(video)?.setSettings({
-            fontSize: currentSettings.fontSize,
-            subtitleOffsetSec: currentSettings.subtitleOffsetSec
-          });
-        }
-      } catch {
-      }
-    }
-    function showToastIfEnabled(opts) {
-      if (!currentSettings.showToast && opts?.kind !== "error") return;
-      toast.show(opts);
-    }
-    function resolveArtifactForVideo(video) {
-      const src = video?.currentSrc || video?.src || "";
-      const token = extractMediaToken(src);
-      if (token && artifactsByToken.has(token)) {
-        return { ...artifactsByToken.get(token), videoCurrentSrc: src };
-      }
-      const notebookId = currentNotebookId();
-      const readyCandidates = [...artifactsById.values()].filter(
-        (a) => a.status === "ready" && a.mediaUrl && (!notebookId || !a.notebookId || a.notebookId === notebookId)
-      );
-      if (readyCandidates.length === 1) {
-        return { ...readyCandidates[0], videoCurrentSrc: src };
-      }
-      if (readyCandidates.length > 1) {
-        const container = video.closest('[role="dialog"], .video-player, [class*="video"]') || doc.body;
-        const containerText = (container?.textContent || "").toLowerCase();
-        for (const candidate of readyCandidates) {
-          if (candidate.title && containerText.includes(candidate.title.toLowerCase())) {
-            return { ...candidate, videoCurrentSrc: src };
-          }
-        }
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-          const byDuration = readyCandidates.find(
-            (c) => c.durationSeconds && Math.abs(c.durationSeconds - video.duration) <= 3
-          );
-          if (byDuration) return { ...byDuration, videoCurrentSrc: src };
-        }
-        return { ...readyCandidates[0], videoCurrentSrc: src };
-      }
-      const perfUrl = discoverResourceTimingMediaUrl();
-      const bestUrl = isTrustedGoogleMediaUrl(src) ? src : perfUrl || (src.startsWith("blob:") ? src : "");
-      if (bestUrl) {
-        const title = inferTitleNearVideo(video);
-        const dur = Number.isFinite(video.duration) ? Math.round(video.duration) : 0;
-        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
-        const fallbackToken = extractMediaToken(bestUrl);
-        return {
-          artifactId: fallbackToken ? null : `dom:${notebookId || "nb"}:${slug || "video"}:${dur}`,
-          notebookId,
-          title,
-          typeCode: 3,
-          status: "ready",
-          language: null,
-          durationSeconds: Number.isFinite(video.duration) ? video.duration : null,
-          mediaUrl: bestUrl,
-          progressiveUrl: isTrustedGoogleMediaUrl(src) ? src : perfUrl,
-          mediaToken: fallbackToken,
-          mediaVariants: [bestUrl, perfUrl].filter(Boolean),
-          videoCurrentSrc: src
-        };
-      }
-      return null;
-    }
-    function findControllersMatching({ cacheKey, artifactId, mediaToken }) {
-      const matched = [];
-      for (const video of trackedVideos) {
-        if (!doc.contains(video)) {
-          trackedVideos.delete(video);
-          continue;
-        }
-        const ctrl = controllers.get(video);
-        if (!ctrl) continue;
-        const art = resolveArtifactForVideo(video);
-        const vKey = resolveSubtitleCacheKey({
-          artifactId: art?.artifactId,
-          mediaToken: art?.mediaToken || extractMediaToken(video.currentSrc || video.src),
-          mediaUrl: art?.mediaUrl || video.currentSrc || video.src
-        });
-        if (cacheKey && vKey === cacheKey || artifactId && art?.artifactId === artifactId || mediaToken && art?.mediaToken === mediaToken) {
-          matched.push(ctrl);
-        }
-      }
-      return matched;
-    }
-    async function stageExtractedChunksToWorker(pageExtraction) {
-      const stagedJobId = `stage_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      for (let i = 0; i < pageExtraction.chunks.length; i++) {
-        const ch = pageExtraction.chunks[i];
+    async function stageBlobChunksToServiceWorker(blobResult) {
+      const stagedJobId = `blob_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const totalChunks = blobResult.chunks.length;
+      for (let i = 0; i < totalChunks; i++) {
+        const ch = blobResult.chunks[i];
         const bytes = new Uint8Array(ch.buffer);
         const res = await sendRuntimeMessage({
           type: RUNTIME_MESSAGE.STAGE_AUDIO_CHUNK,
           stagedJobId,
           index: i,
-          totalChunks: pageExtraction.chunks.length,
-          originalBytes: pageExtraction.originalBytes,
-          extractedBytes: pageExtraction.extractedBytes,
+          totalChunks,
+          originalBytes: blobResult.originalBytes,
+          extractedBytes: blobResult.extractedBytes,
           chunk: {
             base64: uint8ToBase64(bytes),
             mimeType: ch.mimeType,
             fileName: ch.fileName,
-            startOffsetSec: ch.startOffsetSec || 0,
-            durationSec: ch.durationSec || null
+            startOffsetSec: ch.startOffsetSec,
+            durationSec: ch.durationSec
           }
         });
         if (!res?.ok) {
@@ -1847,442 +2359,797 @@ ${blocks.join("\n\n")}
       }
       return stagedJobId;
     }
-    async function requestSubtitlesForArtifact(artifact, { trigger = "player_open", force = false } = {}) {
-      if (!artifact) return;
-      const cacheKey = resolveSubtitleCacheKey({
-        artifactId: artifact.artifactId,
-        mediaToken: artifact.mediaToken,
-        mediaUrl: artifact.mediaUrl
-      });
-      if (!force && cacheKey) {
-        const cachedRes = await sendRuntimeMessage({
-          type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
-          cacheKey,
-          artifactId: artifact.artifactId,
-          mediaToken: artifact.mediaToken
-        });
-        if (cachedRes?.ok && cachedRes.entry?.cues?.length > 0) {
-          cachedKeysSet.add(cacheKey);
-          applyCuesToMatchingPlayers(cachedRes.entry);
-          return;
+    async function decodeBase64MediaToWavFallback(base64Media) {
+      const AudioCtx = win.AudioContext || win.webkitAudioContext;
+      const OfflineCtx = win.OfflineAudioContext || win.webkitOfflineAudioContext;
+      if (!AudioCtx || !OfflineCtx) {
+        throw new Error("WebAudio unavailable for WAV fallback.");
+      }
+      const raw = base64ToUint8(base64Media);
+      const ctx = new AudioCtx();
+      let decoded;
+      try {
+        const copy = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+        decoded = await ctx.decodeAudioData(copy);
+      } finally {
+        try {
+          await ctx.close();
+        } catch {
         }
       }
+      const sampleRate = decoded.duration > 600 ? 12e3 : 16e3;
+      const totalSamples = Math.max(1, Math.ceil(decoded.duration * sampleRate));
+      const offline = new OfflineCtx(1, totalSamples, sampleRate);
+      const src = offline.createBufferSource();
+      src.buffer = decoded;
+      src.connect(offline.destination);
+      src.start(0);
+      const rendered = await offline.startRendering();
+      const wavChunks = slicePcmIntoWavChunks(
+        rendered.getChannelData(0),
+        sampleRate,
+        MAX_WAV_CHUNK_BYTES
+      );
+      return wavChunks.map((c) => ({
+        base64: uint8ToBase64(c.bytes),
+        mimeType: c.mimeType,
+        fileName: c.fileName,
+        startOffsetSec: c.startOffsetSec,
+        durationSec: c.durationSec
+      }));
+    }
+    async function ensureSubtitlesForEntry(entry, { force = false, trigger = "player_open" } = {}) {
+      if (!entry || entry.inFlight) return;
+      const { video, controller } = entry;
+      lastActiveVideo = video;
+      let artifact = matchArtifactForVideo(video);
+      if (!artifact) {
+        requestPageStateSnapshot();
+        artifact = matchArtifactForVideo(video);
+      }
+      const rawSrc = video.currentSrc || video.src || "";
+      const timingUrls = discoverResourceTimingMediaUrls();
+      const mediaVariants = [];
+      const pushVariant = (u) => {
+        if (typeof u === "string" && isTrustedGoogleMediaUrl(u) && !mediaVariants.includes(u)) {
+          mediaVariants.push(u);
+        }
+      };
+      if (artifact?.directAudioUrl) pushVariant(artifact.directAudioUrl);
+      if (Array.isArray(artifact?.mediaVariants)) {
+        for (const v of artifact.mediaVariants) pushVariant(v);
+      }
+      if (artifact?.progressiveUrl && !isThumbnailOrManifestUrl(artifact.progressiveUrl)) {
+        pushVariant(artifact.progressiveUrl);
+      }
+      if (artifact?.mediaUrl && !isThumbnailOrManifestUrl(artifact.mediaUrl)) {
+        pushVariant(artifact.mediaUrl);
+      }
+      if (isTrustedGoogleMediaUrl(rawSrc) && !isThumbnailOrManifestUrl(rawSrc)) {
+        pushVariant(rawSrc);
+      }
+      for (const u of timingUrls) pushVariant(u);
+      const primaryMediaUrl = mediaVariants[0] || artifact?.progressiveUrl || artifact?.mediaUrl || (isTrustedGoogleMediaUrl(rawSrc) ? rawSrc : "") || (rawSrc.startsWith("blob:") ? rawSrc : "");
+      const isBlobSrc = rawSrc.startsWith("blob:");
+      if (!primaryMediaUrl) {
+        recordDebug(
+          "CONTENT",
+          "ensure.waiting_url",
+          `Waiting for media URL (artifacts=${artifactsById.size}, src=${summarizeMediaUrlForDebug(rawSrc)})`
+        );
+        return;
+      }
+      const artifactId = artifact?.artifactId || null;
+      const mediaToken = artifact?.mediaToken || extractMediaToken(primaryMediaUrl) || null;
+      const title = artifact?.title || getNotebookTitleFallback();
+      const isNewlyGenerated = Boolean(
+        artifactId && pendingGeneratedVideoIds.has(artifactId)
+      );
+      const effectiveTrigger = force ? "manual" : isNewlyGenerated ? "generate" : trigger;
       const decision = shouldGenerateSubtitles({
-        settings: currentSettings,
-        trigger,
+        settings,
+        trigger: effectiveTrigger,
         force,
-        typeCode: artifact.typeCode ?? 3,
-        status: artifact.status || "ready",
-        title: artifact.title || "",
-        artifactId: artifact.artifactId,
-        mediaToken: artifact.mediaToken,
-        mediaUrl: artifact.mediaUrl,
-        cachedKeys: cachedKeysSet,
+        status: "ready",
+        title,
+        artifactId: artifactId || (!mediaToken && isBlobSrc ? `blob_${Math.round((video.duration || 1) * 10)}` : null),
+        mediaToken,
+        mediaUrl: primaryMediaUrl,
+        cachedKeys,
         inFlightKeys,
         exhaustedKeys
       });
-      if (!decision.allow || !decision.cacheKey) {
-        return;
-      }
-      const key = decision.cacheKey;
-      inFlightKeys.add(key);
-      const matchingCtrls = findControllersMatching({
-        cacheKey: key,
-        artifactId: artifact.artifactId,
-        mediaToken: artifact.mediaToken
-      });
-      for (const c of matchingCtrls) {
-        c.setStatus("working", "Extracting audio\u2026");
-      }
-      showToastIfEnabled({
-        title: "Generating Video Overview subtitles\u2026",
-        detail: artifact.title || "Extracting compact audio track",
-        kind: "working",
-        durationMs: 0
-      });
-      const closeKeepalive = openKeepaliveHeartbeat();
-      let response = null;
-      try {
-        const candidateUrls = [
-          artifact.progressiveUrl,
-          artifact.mediaUrl,
-          ...Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : []
-        ].filter(Boolean);
-        const pageAudio = await requestPageAudioExtraction({
-          candidateUrls,
-          videoCurrentSrc: artifact.videoCurrentSrc || ""
-        });
-        let stagedJobId = null;
-        let mergedArtifact = {
-          ...artifact,
-          cacheKey: key,
-          notebookId: artifact.notebookId || currentNotebookId()
-        };
-        if (pageAudio?.ok && Array.isArray(pageAudio.chunks) && pageAudio.chunks.length > 0) {
-          const origMb = (pageAudio.originalBytes / 1048576).toFixed(1);
-          const extMb = (pageAudio.extractedBytes / 1048576).toFixed(1);
-          for (const c of matchingCtrls) {
-            c.setStatus("working", "Transcribing\u2026");
-          }
-          showToastIfEnabled({
-            title: "Audio extracted \xB7 Transcribing\u2026",
-            detail: `${origMb} MB video -> ${extMb} MB audio`,
-            kind: "working",
-            durationMs: 0
+      if (!decision.allow) {
+        if (decision.reason === "already_cached" && controller.cues.length === 0) {
+          const cached = await sendRuntimeMessage({
+            type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
+            cacheKey: decision.cacheKey,
+            artifactId,
+            mediaToken
           });
-          stagedJobId = await stageExtractedChunksToWorker(pageAudio);
-        } else if (Array.isArray(pageAudio?.discoveredMediaUrls) && pageAudio.discoveredMediaUrls.length > 0) {
-          const extra = pageAudio.discoveredMediaUrls;
-          if (!isTrustedGoogleMediaUrl(mergedArtifact.mediaUrl) && extra[0]) {
-            mergedArtifact.mediaUrl = extra[0];
-          }
-          mergedArtifact.mediaVariants = [
-            ...mergedArtifact.mediaVariants || [],
-            ...extra
-          ];
-        }
-        response = await sendRuntimeMessage({
-          type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
-          force,
-          stagedJobId,
-          pageFetchError: pageAudio?.ok ? null : pageAudio?.error || null,
-          artifact: mergedArtifact
-        });
-      } finally {
-        closeKeepalive();
-        inFlightKeys.delete(key);
-      }
-      if (response?.ok && response.entry?.cues?.length > 0) {
-        retryCounts.delete(key);
-        exhaustedKeys.delete(key);
-        cachedKeysSet.add(key);
-        applyCuesToMatchingPlayers(response.entry);
-        const providerBadge = response.entry.failoverUsed ? `${response.entry.provider} (failover)` : response.entry.provider;
-        showToastIfEnabled({
-          title: `Subtitles ready \xB7 ${response.entry.cues.length} cues`,
-          detail: `Transcribed via ${providerBadge}`,
-          kind: "success",
-          durationMs: 4200
-        });
-        return;
-      }
-      const errMsg = response?.error || "Subtitle generation failed.";
-      const prevRetries = retryCounts.get(key) || 0;
-      const isNonRetryableError = /no stt api key|missing api key|401|403|reload this notebooklm tab/i.test(
-        errMsg
-      );
-      if (!force && !isNonRetryableError && prevRetries < MAX_AUTO_RETRIES) {
-        const nextAttempt = prevRetries + 1;
-        retryCounts.set(key, nextAttempt);
-        const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, prevRetries);
-        for (const c of matchingCtrls) {
-          c.setStatus("working", `Retrying (${nextAttempt}/${MAX_AUTO_RETRIES})\u2026`);
-        }
-        setTimeout(() => {
-          requestSubtitlesForArtifact(artifact, { trigger, force: false });
-        }, delayMs);
-        return;
-      }
-      exhaustedKeys.add(key);
-      for (const c of matchingCtrls) {
-        c.setStatus("error", "Subtitle error");
-      }
-      showToastIfEnabled({
-        title: "Could not generate subtitles",
-        detail: errMsg,
-        kind: "error",
-        durationMs: 7500
-      });
-    }
-    function applyCuesToMatchingPlayers(entry) {
-      if (!entry?.cues?.length) return;
-      const matched = findControllersMatching({
-        cacheKey: entry.cacheKey,
-        artifactId: entry.artifactId,
-        mediaToken: entry.mediaToken
-      });
-      for (const ctrl of matched) {
-        ctrl.setCues(entry.cues, {
-          title: entry.title,
-          language: entry.language
-        });
-      }
-    }
-    function attachControllerToVideo(video) {
-      if (!video || controllers.has(video)) return;
-      trackedVideos.add(video);
-      const ctrl = new VideoSubtitleController(video, {
-        doc,
-        initialFontSize: currentSettings.fontSize,
-        initialOffsetSec: currentSettings.subtitleOffsetSec,
-        onRequestGenerate: ({ force } = {}) => {
-          const art = resolveArtifactForVideo(video);
-          if (!art) {
-            showToastIfEnabled({
-              title: "Waiting for Video Overview stream",
-              detail: "Press Play once so NotebookLM loads the video source.",
-              kind: "info",
-              durationMs: 4e3
+          if (cached?.ok && cached.entry?.cues?.length > 0) {
+            controller.setCues(cached.entry.cues, {
+              title: cached.entry.title || title,
+              language: cached.entry.language || "en"
             });
+            recordDebug(
+              "CONTENT",
+              "ensure.cache_mount",
+              `Mounted ${cached.entry.cues.length} cached cues on <video>`,
+              "ok"
+            );
             return;
           }
-          requestSubtitlesForArtifact(art, {
-            trigger: "manual",
-            force: Boolean(force)
+        }
+        recordDebug(
+          "CONTENT",
+          "ensure.skipped",
+          `Decision gate skipped (${decision.reason}) for "${title.slice(0, 38)}"`
+        );
+        return;
+      }
+      const cacheKey = decision.cacheKey;
+      entry.inFlight = true;
+      entry.artifactId = artifactId;
+      entry.cacheKey = cacheKey;
+      inFlightKeys.add(cacheKey);
+      startKeepalive();
+      controller.setStatus("working", "Generating subtitles\u2026");
+      debugDrawer?.updateSummary({ status: "working" });
+      recordDebug(
+        "CONTENT",
+        "ensure.start",
+        `Pipeline started for "${title.slice(0, 34)}" (key=${cacheKey.slice(
+          0,
+          22
+        )}, variants=${mediaVariants.length}, blob=${isBlobSrc})`
+      );
+      try {
+        if (!force) {
+          const cachedRes = await sendRuntimeMessage({
+            type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
+            cacheKey,
+            artifactId,
+            mediaToken
           });
-        },
-        onOffsetChange: (offsetSec) => {
-          currentSettings.subtitleOffsetSec = offsetSec;
-          saveSettings({ subtitleOffsetSec: offsetSec }, storageArea).catch(() => {
+          if (cachedRes?.ok && cachedRes.entry?.cues?.length > 0) {
+            cachedKeys.add(cacheKey);
+            controller.setCues(cachedRes.entry.cues, {
+              title: cachedRes.entry.title || title,
+              language: cachedRes.entry.language || artifact?.language || "en"
+            });
+            debugDrawer?.updateSummary({
+              status: `ready (${cachedRes.entry.cues.length} cached)`
+            });
+            recordDebug(
+              "CONTENT",
+              "ensure.cache_hit",
+              `Loaded ${cachedRes.entry.cues.length} cached cues (${cachedRes.entry.provider})`,
+              "ok"
+            );
+            showToast(
+              "Loaded cached subtitles",
+              `${cachedRes.entry.cues.length} cues \xB7 ${title}`,
+              "success",
+              2600
+            );
+            return;
+          }
+        }
+        showToast(
+          "Extracting audio from Video Overview\u2026",
+          title,
+          "working",
+          0
+        );
+        let stagedJobId = null;
+        if (isBlobSrc) {
+          const blobResult = await requestPageBlobExtraction({
+            videoCurrentSrc: rawSrc
+          });
+          if (blobResult?.ok && Array.isArray(blobResult.chunks) && blobResult.chunks.length > 0) {
+            stagedJobId = await stageBlobChunksToServiceWorker(blobResult);
+            if (stagedJobId) {
+              recordDebug(
+                "CONTENT",
+                "blob.staged",
+                `Staged ${Math.round((blobResult.extractedBytes || 0) / 1024)} KB in-memory audio to Service Worker`,
+                "ok"
+              );
+            }
+          }
+        }
+        recordDebug(
+          "CONTENT",
+          "ensure.sw_dispatch",
+          `Sending ENSURE_SUBTITLES to Service Worker (variants=${mediaVariants.length}, staged=${Boolean(
+            stagedJobId
+          )})`
+        );
+        const res = await sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+          stagedJobId,
+          force: Boolean(force),
+          artifact: {
+            cacheKey,
+            artifactId,
+            notebookId: artifact?.notebookId || getNotebookIdFromUrl(),
+            mediaToken,
+            title,
+            language: artifact?.language || null,
+            mediaUrl: primaryMediaUrl,
+            progressiveUrl: artifact?.progressiveUrl && !isThumbnailOrManifestUrl(artifact.progressiveUrl) && artifact.progressiveUrl || primaryMediaUrl,
+            mediaVariants,
+            durationSeconds: artifact?.durationSeconds || (Number.isFinite(video.duration) ? video.duration : null)
+          }
+        });
+        if (!res?.ok || !res.entry?.cues?.length) {
+          if (res?.missingPermissions) {
+            permissionsOk = false;
+            debugDrawer?.updateSummary({ permissionsOk: false });
+          }
+          exhaustedKeys.add(cacheKey);
+          throw new Error(res?.error || "Subtitle generation failed.");
+        }
+        const saved = res.entry;
+        cachedKeys.add(cacheKey);
+        exhaustedKeys.delete(cacheKey);
+        if (artifactId) pendingGeneratedVideoIds.delete(artifactId);
+        controller.setCues(saved.cues, {
+          title: saved.title || title,
+          language: saved.language || artifact?.language || "en"
+        });
+        debugDrawer?.updateSummary({ status: `ready (${saved.cues.length} cues)` });
+        const ratioDetail = saved.extractedBytes && saved.originalBytes ? ` \xB7 ${(saved.extractedBytes / 1048576).toFixed(1)} MB audio` : "";
+        recordDebug(
+          "CONTENT",
+          "ensure.ok",
+          `Rendered ${saved.cues.length} cues via ${saved.provider || "AI"}${ratioDetail}`,
+          "ok"
+        );
+        showToast(
+          res.cached ? `Loaded cached subtitles (${saved.cues.length} cues)` : `Subtitles ready (${saved.cues.length} cues)`,
+          `${saved.provider || "AI"}${ratioDetail} \xB7 ${saved.title || title}`,
+          "success",
+          4e3
+        );
+      } catch (err) {
+        const msg = err?.message || String(err);
+        controller.setStatus("error", "Subtitle error");
+        debugDrawer?.updateSummary({ status: "error" });
+        recordDebug("CONTENT", "ensure.error", msg, "error");
+        showToast("Subtitle generation failed", msg, "error", 6200);
+      } finally {
+        entry.inFlight = false;
+        inFlightKeys.delete(cacheKey);
+        stopKeepaliveIfIdle();
+      }
+    }
+    function bindVideoElement(video) {
+      if (!video || controllers.has(video)) return controllers.get(video) || null;
+      if (isLikelySilentCardPreviewVideo(video)) {
+        return null;
+      }
+      const entry = {
+        video,
+        controller: null,
+        artifactId: null,
+        cacheKey: null,
+        inFlight: false
+      };
+      const controller = new VideoSubtitleController(video, {
+        doc,
+        initialFontSize: settings.fontSize,
+        initialOffsetSec: settings.subtitleOffsetSec,
+        onRequestGenerate: ({ force } = {}) => {
+          ensureSubtitlesForEntry(entry, {
+            force: Boolean(force),
+            trigger: "manual"
           });
         },
         onFontSizeChange: (fontSize) => {
-          currentSettings.fontSize = fontSize;
-          saveSettings({ fontSize }, storageArea).catch(() => {
+          settings.fontSize = fontSize;
+          saveSettings({ fontSize }).catch(() => {
+          });
+        },
+        onOffsetChange: (subtitleOffsetSec) => {
+          settings.subtitleOffsetSec = subtitleOffsetSec;
+          saveSettings({ subtitleOffsetSec }).catch(() => {
           });
         },
         onImportSubtitles: (cues, fileName) => {
-          const art = resolveArtifactForVideo(video);
+          const artifact = matchArtifactForVideo(video);
+          const mediaUrl = artifact?.mediaUrl || video.currentSrc || video.src || "";
+          const mediaToken = artifact?.mediaToken || extractMediaToken(mediaUrl);
           const cacheKey = resolveSubtitleCacheKey({
-            artifactId: art?.artifactId,
-            mediaToken: art?.mediaToken,
-            mediaUrl: art?.mediaUrl || video.currentSrc || video.src
-          }) || `import:${Date.now()}`;
+            artifactId: artifact?.artifactId,
+            mediaToken,
+            mediaUrl
+          }) || `import:${fileName}`;
           sendRuntimeMessage({
             type: RUNTIME_MESSAGE.SAVE_IMPORTED_SUBTITLES,
             entry: {
               cacheKey,
-              artifactId: art?.artifactId || null,
-              notebookId: art?.notebookId || currentNotebookId(),
-              mediaToken: art?.mediaToken || null,
-              title: art?.title || fileName.replace(/\.(srt|vtt)$/i, ""),
+              artifactId: artifact?.artifactId || null,
+              mediaToken: mediaToken || null,
+              title: artifact?.title || getNotebookTitleFallback(),
+              language: artifact?.language || "en",
               provider: "imported",
               model: fileName,
               cues
             }
           });
-          showToastIfEnabled({
-            title: `Imported ${cues.length} subtitle cues`,
-            detail: fileName,
-            kind: "success"
-          });
+          cachedKeys.add(cacheKey);
+          showToast(
+            `Imported ${cues.length} cues`,
+            fileName,
+            "success",
+            3200
+          );
         }
       });
-      controllers.set(video, ctrl);
-      const tryBindVideo = () => {
-        const art = resolveArtifactForVideo(video);
-        if (art) {
-          requestSubtitlesForArtifact(art, { trigger: "player_open", force: false });
-        }
+      entry.controller = controller;
+      controllers.set(video, entry);
+      lastActiveVideo = video;
+      recordDebug(
+        "CONTENT",
+        "video.bound",
+        `Bound <video> overlay (mounted=${Boolean(
+          controller.host
+        )}, src=${summarizeMediaUrlForDebug(video.currentSrc || video.src || "")})`
+      );
+      const onMediaReady = () => {
+        lastActiveVideo = video;
+        controller._ensureMounted?.();
+        ensureSubtitlesForEntry(entry, { force: false, trigger: "player_open" });
       };
-      video.addEventListener("loadedmetadata", tryBindVideo);
-      video.addEventListener("play", tryBindVideo, { once: true });
+      video.addEventListener("loadedmetadata", onMediaReady);
+      video.addEventListener("play", onMediaReady);
       if (video.readyState >= 1 || video.currentSrc || video.src) {
-        tryBindVideo();
+        ensureSubtitlesForEntry(entry, { force: false, trigger: "player_open" });
+      }
+      return entry;
+    }
+    function scanForVideos() {
+      for (const [video, entry] of controllers.entries()) {
+        if (!video.isConnected) {
+          entry.controller.destroy();
+          controllers.delete(video);
+        } else {
+          entry.controller._ensureMounted?.();
+        }
+      }
+      const videos = collectVideosDeep(doc);
+      for (const video of videos) {
+        bindVideoElement(video);
       }
     }
-    function scanForVideos(root = doc) {
-      if (!root?.querySelectorAll) return;
-      const videos = root.querySelectorAll(DOM_SELECTORS.VIDEO_ELEMENT);
-      for (const v of videos) {
-        attachControllerToVideo(v);
+    function ingestArtifactsList(artifacts = [], isCreateVideoRequest = false) {
+      if (isCreateVideoRequest) {
+        createIntentTimestamp = Date.now();
+        showToast(
+          "Video Overview queued",
+          "Subtitles will generate automatically as soon as rendering finishes.",
+          "info",
+          4e3
+        );
       }
-    }
-    function handleBatchexecuteMessage(payload) {
-      if (!payload || typeof payload !== "object") return;
-      if (payload.isCreateVideoRequest) {
-        awaitingCreatedArtifact = true;
-        showToastIfEnabled({
-          title: "Video Overview requested",
-          detail: "Subtitles will be generated automatically as soon as video rendering finishes.",
-          kind: "working",
-          durationMs: 5e3
-        });
-      }
-      const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+      if (!Array.isArray(artifacts) || artifacts.length === 0) return;
+      let newlyReadyCount = 0;
       for (const art of artifacts) {
         if (!art?.artifactId) continue;
         const previous = artifactsById.get(art.artifactId);
+        if (art.status === "initializing" || art.status === "processing" || isCreateVideoRequest && !previous || Date.now() - createIntentTimestamp < 45e3) {
+          pendingGeneratedVideoIds.add(art.artifactId);
+        }
         artifactsById.set(art.artifactId, art);
         if (art.mediaToken) {
           artifactsByToken.set(art.mediaToken, art);
         }
-        if (art.status === "processing" || art.status === "initializing" || art.status === "initialized") {
-          generatingArtifactIds.add(art.artifactId);
-          awaitingCreatedArtifact = false;
-          continue;
+        if (art.status === "ready" && (art.mediaUrl || art.progressiveUrl || art.mediaVariants?.length) && previous?.status !== "ready") {
+          newlyReadyCount++;
+          recordDebug(
+            "CONTENT",
+            "artifact.ready",
+            `Artifact ${art.artifactId.slice(0, 8)} ready ("${(art.title || "Untitled").slice(0, 34)}") variants=${art.mediaVariants?.length || 0}`,
+            "ok"
+          );
         }
-        if (art.status === "ready" && art.mediaUrl) {
-          const wasGenerating = generatingArtifactIds.has(art.artifactId) || awaitingCreatedArtifact && !previous;
-          generatingArtifactIds.delete(art.artifactId);
-          if (wasGenerating) {
-            awaitingCreatedArtifact = false;
-            requestSubtitlesForArtifact(art, { trigger: "generate", force: false });
-          } else {
-            for (const video of trackedVideos) {
-              const resolved = resolveArtifactForVideo(video);
-              if (resolved && resolved.artifactId === art.artifactId) {
-                requestSubtitlesForArtifact(resolved, {
-                  trigger: "player_open",
-                  force: false
-                });
+      }
+      if (debugDrawer) {
+        debugDrawer.updateSummary({
+          artifacts: artifactsById.size,
+          videos: controllers.size
+        });
+      }
+      if (newlyReadyCount > 0) {
+        for (const entry of controllers.values()) {
+          if (entry.controller.cues.length === 0 && !entry.inFlight) {
+            ensureSubtitlesForEntry(entry, {
+              force: false,
+              trigger: "player_open"
+            });
+          }
+        }
+      }
+      for (const art of artifacts) {
+        if (art.status === "ready" && (art.mediaUrl || art.progressiveUrl || art.mediaVariants?.length) && pendingGeneratedVideoIds.has(art.artifactId)) {
+          const primaryUrl = art.mediaVariants?.[0] || art.progressiveUrl || art.mediaUrl;
+          const decision = shouldGenerateSubtitles({
+            settings,
+            trigger: "generate",
+            force: false,
+            status: "ready",
+            title: art.title || getNotebookTitleFallback(),
+            artifactId: art.artifactId,
+            mediaToken: art.mediaToken,
+            mediaUrl: primaryUrl,
+            cachedKeys,
+            inFlightKeys,
+            exhaustedKeys
+          });
+          if (decision.allow) {
+            pendingGeneratedVideoIds.delete(art.artifactId);
+            inFlightKeys.add(decision.cacheKey);
+            startKeepalive();
+            showToast(
+              "Video Overview ready \u2014 generating subtitles\u2026",
+              art.title || "Untitled",
+              "working",
+              4500
+            );
+            sendRuntimeMessage({
+              type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+              force: false,
+              artifact: {
+                cacheKey: decision.cacheKey,
+                artifactId: art.artifactId,
+                notebookId: art.notebookId || getNotebookIdFromUrl(),
+                mediaToken: art.mediaToken,
+                title: art.title || getNotebookTitleFallback(),
+                language: art.language || null,
+                mediaUrl: primaryUrl,
+                progressiveUrl: art.progressiveUrl || primaryUrl,
+                mediaVariants: art.mediaVariants || [],
+                durationSeconds: art.durationSeconds || null
               }
-            }
+            }).then((res) => {
+              if (res?.ok && res.entry?.cues?.length > 0) {
+                cachedKeys.add(decision.cacheKey);
+                showToast(
+                  `Subtitles ready (${res.entry.cues.length} cues)`,
+                  `Open "${art.title || "Video Overview"}" to watch with CC`,
+                  "success",
+                  4500
+                );
+                scanForVideos();
+              }
+            }).finally(() => {
+              inFlightKeys.delete(decision.cacheKey);
+              stopKeepaliveIfIdle();
+            });
           }
         }
       }
     }
+    function pickTargetVideoEntry() {
+      if (lastActiveVideo && controllers.has(lastActiveVideo)) {
+        return controllers.get(lastActiveVideo);
+      }
+      return [...controllers.values()].pop() || null;
+    }
+    function buildTabDiagnosticSnapshot() {
+      const videos = [];
+      for (const [video, entry] of controllers.entries()) {
+        videos.push({
+          connected: Boolean(video.isConnected),
+          overlayMounted: Boolean(entry.controller?.host?.isConnected),
+          status: entry.controller?.statusState || "idle",
+          cueCount: entry.controller?.cues?.length || 0,
+          duration: Number.isFinite(video.duration) ? Math.round(video.duration * 10) / 10 : null,
+          readyState: video.readyState,
+          srcSummary: summarizeMediaUrlForDebug(video.currentSrc || video.src || "")
+        });
+      }
+      const artifacts = [...artifactsById.values()].map((a) => ({
+        id: a.artifactId?.slice(0, 12),
+        status: a.status,
+        origin: a.origin || "rpc",
+        variantCount: a.mediaVariants?.length || 0,
+        mediaSummary: summarizeMediaUrlForDebug(
+          a.mediaVariants?.[0] || a.progressiveUrl || a.mediaUrl || ""
+        )
+      }));
+      return {
+        host: win.location?.hostname || "",
+        pathname: win.location?.pathname || "",
+        artifactCount: artifacts.length,
+        videoCount: videos.length,
+        permissionsOk,
+        artifacts,
+        videos
+      };
+    }
     win.addEventListener("message", (event) => {
       if (event.source !== win) return;
-      if (win.location?.origin && win.location.origin !== "null" && event.origin !== win.location.origin) {
-        return;
-      }
       const msg = event.data;
       if (!msg || msg.source !== PAGE_MESSAGE.BRIDGE_SOURCE_PAGE) return;
-      if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
-        handleBatchexecuteMessage(msg.payload);
+      if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE) {
+        const reqId = msg.payload?.requestId;
+        const pending = reqId ? pendingPageRequests.get(reqId) : null;
+        if (pending) {
+          clearTimeout(pending.timer);
+          pendingPageRequests.delete(reqId);
+          pending.resolve(msg.payload);
+        }
         return;
       }
-      if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE) {
-        const resolver = pendingPageExtractions.get(msg.payload?.requestId);
-        if (resolver) {
-          pendingPageExtractions.delete(msg.payload.requestId);
-          resolver(msg.payload);
+      if (msg.type === PAGE_MESSAGE.PAGE_DEBUG_EVENT) {
+        const p = msg.payload || {};
+        recordDebug(p.layer || "PAGE", p.event || "event", p.detail || "");
+        if (p.event === "video.play") {
+          scanForVideos();
         }
+        return;
+      }
+      if (msg.type === PAGE_MESSAGE.PAGE_STATE_SNAPSHOT) {
+        const snap = msg.payload || {};
+        if (Array.isArray(snap.artifacts) && snap.artifacts.length > 0) {
+          ingestArtifactsList(snap.artifacts, false);
+        }
+        recordDebug(
+          "PAGE",
+          "state.snapshot",
+          `Synced ${snap.artifacts?.length || 0} artifact(s), ${snap.rpcTrace?.length || 0} RPC(s), ssrScanned=${Boolean(snap.ssrScanned)}`
+        );
+        return;
+      }
+      if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
+        ingestArtifactsList(
+          msg.payload?.artifacts || [],
+          Boolean(msg.payload?.isCreateVideoRequest)
+        );
       }
     });
-    runtime?.onMessage?.addListener((msg, _sender, sendResponse) => {
+    const handleCapturedMediaEvent = (event) => {
+      try {
+        const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+        const candidate = path[0] || event.target;
+        if (candidate && candidate.tagName === "VIDEO") {
+          const entry = bindVideoElement(candidate);
+          if (entry && (event.type === "play" || event.type === "loadedmetadata")) {
+            ensureSubtitlesForEntry(entry, {
+              force: false,
+              trigger: "player_open"
+            });
+          }
+        }
+      } catch {
+      }
+    };
+    for (const mediaEvt of ["loadedmetadata", "canplay", "play"]) {
+      doc.addEventListener?.(mediaEvt, handleCapturedMediaEvent, true);
+    }
+    doc.addEventListener?.("keydown", (e) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key !== "c" && e.key !== "C") return;
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable) {
+        return;
+      }
+      const active = pickTargetVideoEntry();
+      if (active) {
+        active.controller.toggleSubtitles();
+      }
+    });
+    runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
       if (!msg || typeof msg.type !== "string") return false;
+      if (!msg.type.startsWith(MESSAGE_NAMESPACE)) return false;
       if (msg.type === RUNTIME_MESSAGE.SUBTITLES_PROGRESS) {
-        const matched = findControllersMatching({
-          cacheKey: msg.cacheKey,
-          artifactId: msg.artifactId,
-          mediaToken: msg.mediaToken
-        });
-        for (const c of matched) {
-          c.setStatus("working", msg.label || "Transcribing\u2026");
+        const active = pickTargetVideoEntry();
+        if (active && active.inFlight) {
+          active.controller.setStatus("working", msg.label || "Transcribing\u2026");
         }
         if (msg.label) {
-          showToastIfEnabled({
-            title: msg.label,
-            detail: msg.detail || "",
-            kind: "working",
-            durationMs: 0
-          });
+          showToast(msg.label, msg.detail || "", "working", 0);
         }
-        sendResponse?.({ ok: true });
         return false;
       }
-      if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY && msg.entry) {
-        cachedKeysSet.add(msg.entry.cacheKey);
-        applyCuesToMatchingPlayers(msg.entry);
-        sendResponse?.({ ok: true });
-        return false;
+      if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {
+        decodeBase64MediaToWavFallback(msg.base64Media).then((chunks) => sendResponse({ ok: true, chunks })).catch(
+          (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+        return true;
       }
       if (msg.type === RUNTIME_MESSAGE.GET_ACTIVE_TAB_STATE) {
-        const activeVideos = [...trackedVideos].filter((v) => doc.contains(v));
-        const primaryVideo = activeVideos[0] || null;
-        const art = primaryVideo ? resolveArtifactForVideo(primaryVideo) : [...artifactsById.values()].find((a) => a.status === "ready") || null;
-        sendResponse?.({
+        requestPageStateSnapshot();
+        scanForVideos();
+        const target = pickTargetVideoEntry();
+        const allArts = [...artifactsById.values()];
+        const readyArts = allArts.filter((a) => a.status === "ready");
+        const generatingArts = allArts.filter(
+          (a) => a.status === "initializing" || a.status === "processing"
+        );
+        const matched = target ? matchArtifactForVideo(target.video) : readyArts[readyArts.length - 1] || null;
+        sendResponse({
           ok: true,
-          hasVideoElement: activeVideos.length > 0,
-          readyArtifactCount: [...artifactsById.values()].filter(
-            (a) => a.status === "ready"
-          ).length,
-          generatingCount: generatingArtifactIds.size,
-          activeArtifact: art
+          hasVideoElement: controllers.size > 0,
+          videoCount: controllers.size,
+          readyArtifactCount: readyArts.length,
+          generatingCount: generatingArts.length,
+          hasSubtitles: Boolean(target && target.controller.cues.length > 0),
+          activeArtifact: matched ? { artifactId: matched.artifactId, title: matched.title } : target ? { title: target.controller.title || getNotebookTitleFallback() } : null,
+          diagnostics: buildTabDiagnosticSnapshot()
         });
         return false;
       }
       if (msg.type === RUNTIME_MESSAGE.TRIGGER_ACTIVE_VIDEO) {
-        const activeVideos = [...trackedVideos].filter((v) => doc.contains(v));
-        const primaryVideo = activeVideos[0] || null;
-        const art = primaryVideo ? resolveArtifactForVideo(primaryVideo) : [...artifactsById.values()].find((a) => a.status === "ready") || null;
-        if (!art) {
-          sendResponse?.({
-            ok: false,
-            error: "No ready Video Overview found on this tab yet. Open or generate a Video Overview in Studio first."
+        requestPageStateSnapshot();
+        scanForVideos();
+        const target = pickTargetVideoEntry();
+        if (!target) {
+          const readyArt = [...artifactsById.values()].filter((a) => a.status === "ready" && (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length)).pop();
+          if (!readyArt) {
+            sendResponse({
+              ok: false,
+              error: "Open a Video Overview in NotebookLM Studio first, then click Generate."
+            });
+            return false;
+          }
+          const primaryUrl = readyArt.mediaVariants?.[0] || readyArt.progressiveUrl || readyArt.mediaUrl;
+          const cacheKey = resolveSubtitleCacheKey({
+            artifactId: readyArt.artifactId,
+            mediaToken: readyArt.mediaToken,
+            mediaUrl: primaryUrl
+          });
+          showToast(
+            "Generating subtitles in background\u2026",
+            readyArt.title || "Video Overview",
+            "working",
+            0
+          );
+          sendRuntimeMessage({
+            type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+            force: Boolean(msg.force),
+            artifact: {
+              cacheKey,
+              artifactId: readyArt.artifactId,
+              notebookId: readyArt.notebookId || getNotebookIdFromUrl(),
+              mediaToken: readyArt.mediaToken,
+              title: readyArt.title || getNotebookTitleFallback(),
+              language: readyArt.language || null,
+              mediaUrl: primaryUrl,
+              progressiveUrl: readyArt.progressiveUrl || primaryUrl,
+              mediaVariants: readyArt.mediaVariants || [],
+              durationSeconds: readyArt.durationSeconds || null
+            }
+          }).then((res) => {
+            if (res?.ok && res.entry?.cues?.length > 0) {
+              cachedKeys.add(cacheKey);
+              showToast(
+                `Subtitles ready (${res.entry.cues.length} cues)`,
+                `Open "${readyArt.title || "Video Overview"}" to watch with CC`,
+                "success",
+                4500
+              );
+            } else {
+              showToast(
+                "Subtitle generation failed",
+                res?.error || "Failed",
+                "error",
+                6e3
+              );
+            }
+          });
+          sendResponse({
+            ok: true,
+            title: readyArt.title || getNotebookTitleFallback()
           });
           return false;
         }
-        requestSubtitlesForArtifact(art, {
-          trigger: "manual",
-          force: Boolean(msg.force)
+        const matched = matchArtifactForVideo(target.video);
+        const title = matched?.title || target.controller.title || getNotebookTitleFallback();
+        ensureSubtitlesForEntry(target, {
+          force: Boolean(msg.force),
+          trigger: "manual"
         });
-        sendResponse?.({ ok: true, started: true, title: art.title });
+        sendResponse({
+          ok: true,
+          title,
+          cueCount: target.controller.cues.length
+        });
         return false;
-      }
-      if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {
-        (async () => {
-          try {
-            const bin = atob(msg.base64Media);
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-            const AudioCtx = win.AudioContext || win.webkitAudioContext;
-            const ctx = new AudioCtx();
-            const decoded = await ctx.decodeAudioData(bytes.buffer.slice(0));
-            await ctx.close();
-            const targetRate = decoded.duration > 600 ? 12e3 : 16e3;
-            const length = Math.max(1, Math.ceil(decoded.duration * targetRate));
-            const offline = new win.OfflineAudioContext(1, length, targetRate);
-            const src = offline.createBufferSource();
-            src.buffer = decoded;
-            src.connect(offline.destination);
-            src.start(0);
-            const rendered = await offline.startRendering();
-            const samples = rendered.getChannelData(0);
-            const wavChunks = slicePcmIntoWavChunks(samples, targetRate, 14 * 1024 * 1024);
-            const encodedChunks = wavChunks.map((ch, idx) => ({
-              base64: uint8ToBase64(ch.bytes),
-              mimeType: "audio/wav",
-              fileName: ch.fileName || `chunk-${idx + 1}.wav`,
-              startOffsetSec: ch.startOffsetSec,
-              durationSec: ch.durationSec
-            }));
-            sendResponse?.({ ok: true, chunks: encodedChunks });
-          } catch (err) {
-            sendResponse?.({ ok: false, error: err?.message || String(err) });
-          }
-        })();
-        return true;
       }
       return false;
     });
-    globalThis.chrome?.storage?.onChanged?.addListener((changes, areaName) => {
-      if (areaName === "local" && (changes.settings || changes.subtitleCache)) {
-        refreshLocalState();
-      }
-    });
-    const observer = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes) {
-          if (node.nodeType !== 1) continue;
-          if (node.tagName === "VIDEO") {
-            attachControllerToVideo(node);
-          } else if (node.querySelectorAll) {
-            scanForVideos(node);
-          }
+    try {
+      storage?.onChanged?.addListener((changes, areaName) => {
+        if (areaName !== "local" || !changes?.settings?.newValue) return;
+        settings = { ...settings, ...changes.settings.newValue };
+        syncRpcOverridesToPage();
+        syncDebugDrawerLifecycle();
+        for (const entry of controllers.values()) {
+          entry.controller.setSettings({
+            fontSize: settings.fontSize,
+            subtitleOffsetSec: settings.subtitleOffsetSec
+          });
         }
+      });
+    } catch {
+    }
+    try {
+      settings = await getSettings();
+    } catch {
+      settings = { ...DEFAULT_SETTINGS };
+    }
+    syncRpcOverridesToPage();
+    syncDebugDrawerLifecycle();
+    recordDebug(
+      "CONTENT",
+      "coordinator.ready",
+      `Initialized on ${win.location?.hostname}${win.location?.pathname || ""}`
+    );
+    requestPageStateSnapshot();
+    if (doc.readyState === "loading") {
+      doc.addEventListener?.(
+        "DOMContentLoaded",
+        () => {
+          requestPageStateSnapshot();
+          scanForVideos();
+        },
+        { once: true }
+      );
+    }
+    const attachObserver = () => {
+      const rootNode = doc.body || doc.documentElement;
+      if (!rootNode || typeof MutationObserver === "undefined") {
+        scanForVideos();
+        return null;
       }
-    });
-    const start = async () => {
-      await refreshLocalState();
-      scanForVideos(doc);
-      if (doc.documentElement) {
-        observer.observe(doc.documentElement, {
-          childList: true,
-          subtree: true
-        });
-      }
+      let scanScheduled = false;
+      const obs = new MutationObserver(() => {
+        if (scanScheduled) return;
+        scanScheduled = true;
+        setTimeout(() => {
+          scanScheduled = false;
+          scanForVideos();
+        }, 60);
+      });
+      obs.observe(rootNode, { childList: true, subtree: true });
+      scanForVideos();
+      return obs;
     };
-    start();
-    return {
-      handleBatchexecuteMessage,
+    let observer = attachObserver();
+    if (!observer && doc.readyState === "loading") {
+      doc.addEventListener?.(
+        "DOMContentLoaded",
+        () => {
+          observer = attachObserver();
+        },
+        { once: true }
+      );
+    }
+    const api = {
       scanForVideos,
-      artifactsById
+      controllers,
+      artifactsById,
+      requestPageStateSnapshot,
+      getDiagnostics: buildTabDiagnosticSnapshot,
+      hideToast,
+      destroy() {
+        observer?.disconnect();
+        debugDrawer?.destroy();
+        for (const entry of controllers.values()) {
+          entry.controller.destroy();
+        }
+        controllers.clear();
+      }
     };
+    win[GUARD_FLAG] = api;
+    return api;
   }
   if (typeof window !== "undefined" && typeof document !== "undefined") {
-    initContentCoordinator();
+    initContentCoordinator().catch(() => {
+    });
   }
 })();

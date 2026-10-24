@@ -16,13 +16,16 @@ export const STORAGE_KEYS = Object.freeze({
   SUBTITLE_CACHE: "subtitleCache",
   HISTORY: "subtitleHistory",
   LAST_STATUS: "lastStatus",
+  DEBUG_LOGS: "debugLogs",
 });
 
 export const MAX_CACHE_ENTRIES = 35;
 export const MAX_HISTORY_ENTRIES = 60;
+export const MAX_DEBUG_LOGS = 120;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
+  debugMode: false,
   autoOnGenerate: true,
   autoOnExistingVideos: true,
   primaryProvider: "groq",
@@ -106,6 +109,10 @@ export async function getSettings(storageArea) {
       typeof saved.enabled === "boolean"
         ? saved.enabled
         : DEFAULT_SETTINGS.enabled,
+    debugMode:
+      typeof saved.debugMode === "boolean"
+        ? saved.debugMode
+        : DEFAULT_SETTINGS.debugMode,
     autoOnGenerate:
       typeof saved.autoOnGenerate === "boolean"
         ? saved.autoOnGenerate
@@ -399,4 +406,43 @@ export async function setLastStatus(status, storageArea) {
   };
   await store.set({ [STORAGE_KEYS.LAST_STATUS]: next });
   return next;
+}
+
+export function sanitizeDebugMessage(text) {
+  if (typeof text !== "string") return String(text ?? "");
+  return text
+    .replace(/\b(?:gsk_|sk-|AIza|hf_|xi-)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]")
+    .replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]")
+    .slice(0, 600);
+}
+
+export async function getDebugLogs(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.DEBUG_LOGS);
+    const list = raw?.[STORAGE_KEYS.DEBUG_LOGS];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveDebugLogs(logs, storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const trimmed = Array.isArray(logs) ? logs.slice(-MAX_DEBUG_LOGS) : [];
+    await store.set({ [STORAGE_KEYS.DEBUG_LOGS]: trimmed });
+    return trimmed;
+  } catch {
+    return [];
+  }
+}
+
+export async function clearDebugLogs(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    await store.set({ [STORAGE_KEYS.DEBUG_LOGS]: [] });
+  } catch {
+    // Ignore
+  }
 }

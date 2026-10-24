@@ -52,7 +52,7 @@ Naive captioning approaches run into three hard walls:
 
 ### Option A — Prebuilt Release `.zip` (No Build Step)
 
-1. Download **[`notebooklm-subtitles-v0.1.1.zip`](docs/releases/notebooklm-subtitles-v0.1.1.zip)** and unzip it.
+1. Download **[`notebooklm-subtitles-v0.1.2.zip`](docs/releases/notebooklm-subtitles-v0.1.2.zip)** and unzip it.
 2. Open `chrome://extensions` (works in Chrome, Brave, Arc, Edge, Vivaldi) and toggle **Developer mode** ON.
 3. Click **Load unpacked** and select the extracted `notebooklm-subtitles` folder.
 4. Click the **Subtitles for NotebookLM** toolbar icon and paste a free **[Groq](https://console.groq.com/keys)** and/or **[Mistral](https://console.mistral.ai/api-keys)** API key (click **Queue** to arrange failover priority).
@@ -65,7 +65,7 @@ git clone https://github.com/sarang-cmd/notebooklm-subtitles.git
 cd notebooklm-subtitles
 npm install
 npm run build   # Bundles src/ -> extension/ via esbuild in ~40ms
-npm test        # Runs all 25 unit, security-invariant, and E2E tests
+npm test        # Runs all 30 unit, security-invariant, and E2E tests
 ```
 
 Then load the `extension/` directory at `chrome://extensions`.
@@ -199,13 +199,13 @@ notebooklm-subtitles/
 │       ├── decide.js                # Pure decision gate (dedup, triggers, regex exclusions)
 │       ├── storage.js               # chrome.storage.local wrapper & 35-item LRU subtitle cache
 │       └── providers/               # 12 BYOK STT adapters + automatic priority failover queue
-├── tests/                           # 25 automated unit, security-audit & E2E tests (node --test)
+├── tests/                           # 30 automated unit, security-audit & E2E tests (node --test)
 ├── docs/                            # Static landing page + interactive simulator (Vercel outputDir)
 │   ├── index.html / styles.css / site.js
 │   ├── privacy-policy.html / PRIVACY_POLICY.md
 │   ├── discovery-report.md / CHROME_WEB_STORE_GUIDE.md
 │   ├── assets/                      # architecture.svg, flat badges, banner & 1280x800 screenshots
-│   └── releases/                    # Prebuilt notebooklm-subtitles-v0.1.1.zip
+│   └── releases/                    # Prebuilt notebooklm-subtitles-v0.1.2.zip
 ├── scripts/
 │   ├── generate-assets.mjs          # Deterministic @resvg/resvg-js asset & screenshot renderer
 │   └── package-zip.mjs              # Pure-Node zlib ZIP bundler
@@ -221,10 +221,20 @@ notebooklm-subtitles/
 | Command | Description |
 | :--- | :--- |
 | `npm run build` | Bundles all 5 MV3 entrypoints (`background`, `page`, `content`, `popup`, `options`) into `extension/`. |
-| `npm test` | Runs all 25 automated tests across `tests/*.test.js` using Node's built-in test runner (`node --test`). |
+| `npm test` | Runs all 30 automated tests across `tests/*.test.js` using Node's built-in test runner (`node --test`). |
 | `npm run assets` | Regenerates extension icons, SVG badges, `architecture.svg`, social banner, and `1280x800` screenshots. |
-| `npm run zip` | Builds `extension/` and packages `docs/releases/notebooklm-subtitles-v0.1.1.zip`. |
+| `npm run zip` | Builds `extension/` and packages `docs/releases/notebooklm-subtitles-v0.1.2.zip`. |
 | `npm run site` | Serves the static landing page & interactive simulator (`docs/`) locally on `http://0.0.0.0:4173`. |
+
+---
+
+## Live Diagnostics & Debug Mode
+
+If a NotebookLM frontend update ever alters player markup or media variants:
+
+1. Toggle **Debug Mode** ON in the toolbar Popup (or **Settings → Section 5**).
+2. A Shadow-DOM **Debug Drawer** mounts at the bottom-left of `notebook.google.com` showing live `[PAGE]`, `[CONTENT]`, `[SW]`, and `[STT]` events (`AF_initDataCallback` SSR rows, `batchexecute` RPCs, `<video>` Shadow-DOM binding, Google CDN variant HTTP statuses, extracted audio byte sizes, and provider responses), plus a **Scan / Retry** trigger.
+3. Click **Copy Debug Report** (in the Drawer, Popup, or Settings) to copy a structured diagnostic snapshot with **100% of API keys redacted**. If Chrome ever withholds newly added Google CDN `host_permissions` after reloading an unpacked build, the Popup also surfaces a 1-click **Grant Google Media Access** button.
 
 ---
 

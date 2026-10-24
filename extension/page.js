@@ -91,6 +91,7 @@
     OVERLAY_HOST_ID: "nlm-subtitles-player-root",
     OVERLAY_HOST_CLASS: "nlm-subtitles-player-overlay",
     TOAST_HOST_ID: "nlm-subtitles-toast-root",
+    DEBUG_DRAWER_HOST_ID: "nlm-subtitles-debug-root",
     TRACK_LABEL: "NotebookLM Auto-Subtitles"
   });
   var PAGE_MESSAGE = Object.freeze({
@@ -98,6 +99,9 @@
     BRIDGE_SOURCE_CONTENT: "notebooklm-subtitles-content",
     BATCH_ARTIFACTS: "NOTEBOOKLM_BATCH_ARTIFACTS",
     SYNC_RPC_OVERRIDES: "NOTEBOOKLM_SYNC_RPC_OVERRIDES",
+    REQUEST_PAGE_STATE: "NOTEBOOKLM_REQUEST_PAGE_STATE",
+    PAGE_STATE_SNAPSHOT: "NOTEBOOKLM_PAGE_STATE_SNAPSHOT",
+    PAGE_DEBUG_EVENT: "NOTEBOOKLM_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "NOTEBOOKLM_EXTRACT_AUDIO_REQUEST",
     EXTRACT_AUDIO_RESPONSE: "NOTEBOOKLM_EXTRACT_AUDIO_RESPONSE"
   });
@@ -110,7 +114,10 @@
     SUBTITLES_PROGRESS: "NOTEBOOKLM_SUBTITLES_PROGRESS",
     SUBTITLES_READY: "NOTEBOOKLM_SUBTITLES_READY",
     GET_ACTIVE_TAB_STATE: "NOTEBOOKLM_SUBTITLES_GET_ACTIVE_TAB_STATE",
-    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO"
+    TRIGGER_ACTIVE_VIDEO: "NOTEBOOKLM_SUBTITLES_TRIGGER_ACTIVE_VIDEO",
+    APPEND_DEBUG_LOG: "NOTEBOOKLM_SUBTITLES_APPEND_DEBUG_LOG",
+    GET_DEBUG_REPORT: "NOTEBOOKLM_SUBTITLES_GET_DEBUG_REPORT",
+    CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS"
   });
 
   // src/lib/audio-extract.js
@@ -262,13 +269,31 @@
         "Received HTML instead of media stream. Refresh your NotebookLM tab so Google's media session cookie renews."
       );
     }
+    if (ct.startsWith("image/")) {
+      throw new Error(`Received thumbnail image (${ct}) instead of audio/video stream.`);
+    }
+    if (ct.includes("mpegurl") || ct.includes("dash+xml") || ct.includes("application/xml") || ct.includes("text/xml") || ct.includes("application/json") || ct.startsWith("text/plain")) {
+      throw new Error(`Received streaming manifest/text (${ct}) instead of binary media.`);
+    }
+    if (bytes.byteLength >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) {
+      throw new Error("Received JPEG thumbnail instead of audio/video stream.");
+    }
+    if (bytes.byteLength >= 4 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71) {
+      throw new Error("Received PNG image instead of audio/video stream.");
+    }
+    if (bytes.byteLength >= 12 && fourCC(bytes, 0) === "RIFF" && fourCC(bytes, 8) === "WEBP") {
+      throw new Error("Received WebP thumbnail instead of audio/video stream.");
+    }
     const headAscii = String.fromCharCode(
-      ...bytes.subarray(0, Math.min(32, bytes.byteLength))
+      ...bytes.subarray(0, Math.min(48, bytes.byteLength))
     ).trimStart().toLowerCase();
     if (headAscii.startsWith("<!doctype") || headAscii.startsWith("<html")) {
       throw new Error(
         "Received an HTML document instead of video/audio bytes. Refresh NotebookLM and try again."
       );
+    }
+    if (headAscii.startsWith("#extm3u") || headAscii.startsWith("<?xml") || headAscii.startsWith("<mpd")) {
+      throw new Error("Received HLS/DASH manifest text instead of binary audio/video.");
     }
     return bytes;
   }
@@ -487,6 +512,7 @@
   // src/lib/batchexecute.js
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var FIFE_NOTEBOOKLM_TOKEN_RE = /\/(?:rd-)?notebook(?:lm)?\/([A-Za-z0-9_-]{16,})/;
+  var FIFE_SUFFIX_RE = /=[A-Za-z0-9_,.-]+$/;
   function isBatchExecuteUrl(url) {
     if (typeof url !== "string" || !url) return false;
     return BATCHEXECUTE.PATH_SUBSTRINGS.some((sub) => url.includes(sub));
@@ -509,6 +535,38 @@
       return host === bare || host.endsWith(suffix);
     });
   }
+  function isThumbnailOrManifestUrl(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl) return false;
+    if (/\.(?:m3u8|mpd|jpe?g|png|webp|gif|svg)(?:$|\?)/i.test(rawUrl)) {
+      return true;
+    }
+    const suffixMatch = rawUrl.match(FIFE_SUFFIX_RE);
+    if (!suffixMatch) return false;
+    const suffix = suffixMatch[0].slice(1).toLowerCase();
+    if (/^(?:s\d+|w\d+|h\d+|c\b|p\b)/.test(suffix)) return true;
+    if (/(?:^|-)s\d+(?:-|$)/.test(suffix)) return true;
+    if (/^mm,(?:hls|dash)$/i.test(suffix)) return true;
+    return false;
+  }
+  function summarizeMediaUrlForDebug(rawUrl) {
+    if (typeof rawUrl !== "string" || !rawUrl) return "(empty)";
+    if (rawUrl.startsWith("blob:")) return rawUrl.slice(0, 48);
+    try {
+      const u = new URL(rawUrl);
+      const suffixMatch = u.pathname.match(FIFE_SUFFIX_RE);
+      const suffix = suffixMatch ? suffixMatch[0] : "";
+      const tokenMatch = u.pathname.match(FIFE_NOTEBOOKLM_TOKEN_RE);
+      if (tokenMatch) {
+        const tok = tokenMatch[1];
+        const shortTok = tok.length > 14 ? `${tok.slice(0, 8)}\u2026${tok.slice(-4)}` : tok;
+        const prefix = u.pathname.includes("/rd-notebooklm/") ? "/rd-notebooklm/" : "/notebooklm/";
+        return `${u.origin}${prefix}${shortTok}${suffix}`;
+      }
+      return `${u.origin}${u.pathname.slice(0, 36)}${suffix}`;
+    } catch {
+      return String(rawUrl).slice(0, 60);
+    }
+  }
   function extractMediaToken(rawUrl) {
     if (typeof rawUrl !== "string" || !rawUrl) return null;
     const fifeMatch = rawUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE);
@@ -520,7 +578,7 @@
       if (u.protocol === "blob:") return null;
       const idParam = u.searchParams.get("id") || u.searchParams.get("docid");
       if (idParam) return idParam;
-      const cleanPath = u.pathname.replace(/=m\d+(?:-dv)?$/i, "");
+      const cleanPath = u.pathname.replace(FIFE_SUFFIX_RE, "");
       return `${u.hostname}${cleanPath}`;
     } catch {
       return null;
@@ -532,9 +590,11 @@
     const pushUnique = (u) => {
       if (u && !out.includes(u)) out.push(u);
     };
-    if (isTrustedGoogleMediaUrl(mediaUrl) && FIFE_NOTEBOOKLM_TOKEN_RE.test(mediaUrl)) {
-      const base = mediaUrl.replace(/=(?:m\d+(?:-dv)?|mm,[a-z]+)$/i, "");
-      if (base !== mediaUrl) {
+    const isTrusted = isTrustedGoogleMediaUrl(mediaUrl);
+    const tokenMatch = isTrusted ? mediaUrl.match(FIFE_NOTEBOOKLM_TOKEN_RE) : null;
+    if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/")) {
+      const base = mediaUrl.replace(FIFE_SUFFIX_RE, "");
+      if (base !== mediaUrl || !FIFE_SUFFIX_RE.test(mediaUrl)) {
         pushUnique(`${base}=m140`);
         pushUnique(`${base}=m18`);
         pushUnique(`${base}=m22`);
@@ -542,7 +602,15 @@
         pushUnique(`${base}=m22-dv`);
       }
     }
-    pushUnique(mediaUrl);
+    if (!isThumbnailOrManifestUrl(mediaUrl)) {
+      pushUnique(mediaUrl);
+    }
+    if (isTrusted && tokenMatch && !mediaUrl.includes("/rd-notebooklm/") && mediaUrl.includes("googleusercontent.com/notebooklm/")) {
+      const token = tokenMatch[1];
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m140`);
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m18`);
+      pushUnique(`https://lh3.google.com/notebooklm/${token}=m22`);
+    }
     return out;
   }
   function normalizeStatusCode(code) {
@@ -639,14 +707,24 @@
     const videoBlock = row[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
     let mediaUrl = null;
     let progressiveUrl = null;
+    let directAudioUrl = null;
     let language = null;
     let durationSeconds = null;
-    const discoveredMp4Urls = [];
+    const discoveredStreamUrls = [];
+    const pushStreamUrl = (u) => {
+      if (typeof u === "string" && isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u) && !discoveredStreamUrls.includes(u)) {
+        discoveredStreamUrls.push(u);
+      }
+    };
     if (Array.isArray(videoBlock)) {
       const progCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
       if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
-        progressiveUrl = progCandidate;
-        discoveredMp4Urls.push(progCandidate);
+        if (!isThumbnailOrManifestUrl(progCandidate)) {
+          progressiveUrl = progCandidate;
+          pushStreamUrl(progCandidate);
+        } else if (!progressiveUrl) {
+          progressiveUrl = progCandidate;
+        }
       }
       const genOpts = videoBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
       if (Array.isArray(genOpts) && typeof genOpts[1] === "string" && genOpts[1]) {
@@ -654,20 +732,27 @@
       }
       const dlCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
       if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
-        mediaUrl = dlCandidate;
-        discoveredMp4Urls.push(dlCandidate);
+        if (!isThumbnailOrManifestUrl(dlCandidate)) {
+          mediaUrl = dlCandidate;
+          pushStreamUrl(dlCandidate);
+        }
       }
-      const mediaList = videoBlock[BATCHEXECUTE.VIDEO_META_POS.MEDIA_LIST];
-      if (Array.isArray(mediaList)) {
-        let fallbackMp4 = null;
-        for (const entry of mediaList) {
+      let fallbackMp4 = null;
+      let fallbackAnyTrusted = null;
+      for (const subBlock of videoBlock) {
+        if (!Array.isArray(subBlock)) continue;
+        for (const entry of subBlock) {
           if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
           const url = entry[0];
           const kind = entry[1];
-          const mime = entry[2];
+          const mime = typeof entry[2] === "string" ? entry[2].toLowerCase() : "";
           if (!isTrustedGoogleMediaUrl(url)) continue;
-          if (mime === "video/mp4") {
-            if (!discoveredMp4Urls.includes(url)) discoveredMp4Urls.push(url);
+          if (!fallbackAnyTrusted) fallbackAnyTrusted = url;
+          if (mime === "audio/mp4" || mime === "audio/mpeg" || mime === "audio/webm") {
+            if (!directAudioUrl) directAudioUrl = url;
+            pushStreamUrl(url);
+          } else if (mime === "video/mp4" || !mime && !isThumbnailOrManifestUrl(url)) {
+            pushStreamUrl(url);
             if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
               progressiveUrl = url;
             }
@@ -678,12 +763,15 @@
             }
           }
         }
-        if (!mediaUrl && fallbackMp4) {
-          mediaUrl = fallbackMp4;
-        }
+      }
+      if (!mediaUrl && fallbackMp4) {
+        mediaUrl = fallbackMp4;
       }
       if (!mediaUrl && progressiveUrl) {
         mediaUrl = progressiveUrl;
+      }
+      if (!mediaUrl && fallbackAnyTrusted) {
+        mediaUrl = fallbackAnyTrusted;
       }
       const durTuple = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DURATION];
       if (Array.isArray(durTuple) && typeof durTuple[0] === "number") {
@@ -694,10 +782,20 @@
     }
     const looksLikeArtifactRow = UUID_RE.test(artifactId) || Boolean(mediaUrl) || Array.isArray(row[BATCHEXECUTE.ROW_POS.SOURCES]);
     if (!looksLikeArtifactRow) return null;
-    const primarySeed = progressiveUrl || mediaUrl;
-    const variants = primarySeed ? deriveGoogleMediaVariants(primarySeed) : [];
-    for (const extra of discoveredMp4Urls) {
-      if (!variants.includes(extra)) variants.push(extra);
+    const primarySeed = directAudioUrl || progressiveUrl || mediaUrl;
+    const variants = [];
+    const pushVariant = (u) => {
+      if (u && !variants.includes(u)) variants.push(u);
+    };
+    if (directAudioUrl) pushVariant(directAudioUrl);
+    if (primarySeed) {
+      for (const v of deriveGoogleMediaVariants(primarySeed)) pushVariant(v);
+    }
+    if (mediaUrl && mediaUrl !== primarySeed) {
+      for (const v of deriveGoogleMediaVariants(mediaUrl)) pushVariant(v);
+    }
+    for (const extra of discoveredStreamUrls) {
+      pushVariant(extra);
     }
     return {
       artifactId,
@@ -708,13 +806,14 @@
       language,
       mediaUrl,
       progressiveUrl: progressiveUrl || mediaUrl,
+      directAudioUrl,
       mediaVariants: variants,
-      mediaToken: extractMediaToken(mediaUrl || progressiveUrl || ""),
+      mediaToken: extractMediaToken(mediaUrl || progressiveUrl || directAudioUrl || ""),
       durationSeconds
     };
   }
   function collectVideoRowsFromPayload(node, out, seenIds, depth = 0) {
-    if (!Array.isArray(node) || depth > 5) return;
+    if (!Array.isArray(node) || depth > 7) return;
     const maybeVideo = extractVideoMetadataFromRow(node);
     if (maybeVideo) {
       if (!seenIds.has(maybeVideo.artifactId)) {
@@ -727,6 +826,16 @@
       if (Array.isArray(child)) {
         collectVideoRowsFromPayload(child, out, seenIds, depth + 1);
       }
+    }
+  }
+  function extractRpcIdsFromUrl(url) {
+    if (typeof url !== "string" || !url) return [];
+    try {
+      const u = new URL(url, "https://notebook.google.com");
+      const raw = u.searchParams.get("rpcids") || "";
+      return raw.split(",").map((s) => s.trim()).filter(Boolean);
+    } catch {
+      return [];
     }
   }
   function parseBatchExecuteResponse(responseText, rpcOverrides = {}) {
@@ -772,15 +881,76 @@
     }
     return results;
   }
+  function extractBalancedBracketJson(text, openBracketIndex) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = openBracketIndex; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === "\\") {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "[") {
+        depth++;
+      } else if (ch === "]") {
+        depth--;
+        if (depth === 0) {
+          return text.slice(openBracketIndex, i + 1);
+        }
+      }
+    }
+    return null;
+  }
+  function parseAfInitDataPayloads(scriptTexts = []) {
+    const results = [];
+    const seenIds = /* @__PURE__ */ new Set();
+    for (const scriptText of scriptTexts) {
+      if (typeof scriptText !== "string" || !scriptText.includes("AF_initDataCallback")) {
+        continue;
+      }
+      const dataKeyRe = /\bdata\s*:\s*\[/g;
+      let match;
+      while ((match = dataKeyRe.exec(scriptText)) !== null) {
+        const bracketIdx = scriptText.indexOf("[", match.index);
+        if (bracketIdx < 0) continue;
+        const jsonSlice = extractBalancedBracketJson(scriptText, bracketIdx);
+        if (!jsonSlice) continue;
+        try {
+          const parsed = JSON.parse(jsonSlice);
+          const before = results.length;
+          collectVideoRowsFromPayload(parsed, results, seenIds, 0);
+          for (let i = before; i < results.length; i++) {
+            results[i].rpcId = "AF_initDataCallback";
+            results[i].origin = "ssr";
+          }
+        } catch {
+        }
+      }
+    }
+    return results;
+  }
 
   // src/page/inject.js
   var GUARD_FLAG = "__notebooklmSubtitlesMainHooked__";
   var MAX_INLINE_M4A_BYTES = 20 * 1024 * 1024;
   var MAX_WAV_CHUNK_BYTES = 14 * 1024 * 1024;
+  var MAX_RPC_TRACE = 30;
   function installMainWorldObserver(win = globalThis) {
     if (!win || win[GUARD_FLAG]) return;
     win[GUARD_FLAG] = true;
     let rpcOverrides = {};
+    let ssrScanned = false;
+    const bufferedArtifacts = /* @__PURE__ */ new Map();
+    const rpcTrace = [];
     const nativeFetch = typeof win.fetch === "function" ? win.fetch.bind(win) : null;
     const trackedMediaBlobs = /* @__PURE__ */ new Map();
     if (win.URL && typeof win.URL.createObjectURL === "function") {
@@ -794,6 +964,10 @@
               trackedMediaBlobs.delete(oldestKey);
             }
             trackedMediaBlobs.set(url, obj);
+            emitPageDebug(
+              "blob.created",
+              `Captured media Blob (${Math.round(obj.size / 1024)} KB, ${obj.type || "unknown"})`
+            );
           }
         } catch {
         }
@@ -817,6 +991,56 @@
       } catch {
       }
     }
+    function emitPageDebug(event, detail, extra = null) {
+      postToContent(PAGE_MESSAGE.PAGE_DEBUG_EVENT, {
+        ts: (/* @__PURE__ */ new Date()).toISOString(),
+        layer: "PAGE",
+        event,
+        detail,
+        extra
+      });
+    }
+    function recordArtifacts(artifacts = []) {
+      for (const art of artifacts) {
+        if (art?.artifactId) {
+          bufferedArtifacts.set(art.artifactId, art);
+        }
+      }
+    }
+    function scanSsrInitDataScripts() {
+      try {
+        const doc = win.document;
+        if (!doc?.querySelectorAll) return [];
+        const scripts = doc.querySelectorAll("script");
+        if (!scripts || scripts.length === 0) return [];
+        const texts = [];
+        for (const s of scripts) {
+          const txt = s.textContent || "";
+          if (txt.includes("AF_initDataCallback")) {
+            texts.push(txt);
+          }
+        }
+        ssrScanned = true;
+        if (texts.length === 0) return [];
+        const found = parseAfInitDataPayloads(texts);
+        if (found.length > 0) {
+          recordArtifacts(found);
+          emitPageDebug(
+            "ssr.af_init_data",
+            `Found ${found.length} Video Overview(s) in SSR AF_initDataCallback scripts`
+          );
+          postToContent(PAGE_MESSAGE.BATCH_ARTIFACTS, {
+            isCreateVideoRequest: false,
+            notebookId: null,
+            artifacts: found,
+            observedAt: Date.now()
+          });
+        }
+        return found;
+      } catch {
+        return [];
+      }
+    }
     function discoverPerformanceMediaUrls() {
       const found = [];
       try {
@@ -825,8 +1049,10 @@
           const e = entries[i];
           const url = e?.name || "";
           if (!isTrustedGoogleMediaUrl(url)) continue;
-          const looksLikeMedia = e.initiatorType === "video" || e.initiatorType === "media" || /\/notebooklm\/|videoplayback|=m(?:18|22|140)/i.test(url);
-          if (looksLikeMedia && !found.includes(url)) {
+          if (e.initiatorType === "img" || e.initiatorType === "css") continue;
+          const isExplicitVideoInitiator = e.initiatorType === "video" || e.initiatorType === "audio" || e.initiatorType === "media";
+          const isPlayableStreamPattern = /videoplayback|=m(?:18|22|37|140)(?:-dv)?(?:$|\?)/i.test(url);
+          if ((isExplicitVideoInitiator || isPlayableStreamPattern) && !isThumbnailOrManifestUrl(url) && !found.includes(url)) {
             found.push(url);
           }
         }
@@ -865,7 +1091,7 @@
       const pcm = rendered.getChannelData(0);
       return slicePcmIntoWavChunks(pcm, sampleRate, MAX_WAV_CHUNK_BYTES);
     }
-    async function fetchSingleCandidateInPage(url) {
+    async function fetchSingleCandidateInPage(url, { blobOnly = false } = {}) {
       if (typeof url !== "string" || !url) {
         throw new Error("Empty media URL");
       }
@@ -878,6 +1104,9 @@
             contentType: tracked.type || "video/mp4"
           };
         }
+        if (blobOnly) {
+          throw new Error("MediaSource blob stream is not backed by a standalone Blob");
+        }
         if (!nativeFetch) throw new Error("fetch unavailable");
         const blobRes = await nativeFetch(url);
         if (!blobRes.ok) throw new Error(`blob HTTP ${blobRes.status}`);
@@ -887,6 +1116,9 @@
           bytes: validateMediaPayload(buf, ct),
           contentType: ct
         };
+      }
+      if (blobOnly) {
+        throw new Error("Deferring HTTPS Google CDN fetch to Service Worker");
       }
       if (!isTrustedGoogleMediaUrl(url)) {
         throw new Error("Untrusted media URL");
@@ -920,7 +1152,8 @@
     async function handleExtractAudioRequest({
       requestId,
       candidateUrls = [],
-      videoCurrentSrc = ""
+      videoCurrentSrc = "",
+      blobOnly = false
     } = {}) {
       const discoveredMediaUrls = discoverPerformanceMediaUrls();
       const expanded = [];
@@ -932,38 +1165,35 @@
       if (videoCurrentSrc && videoCurrentSrc.startsWith("blob:")) {
         pushUrl(videoCurrentSrc);
       }
-      for (const u of candidateUrls) {
-        for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
-        pushUrl(u);
-      }
-      if (videoCurrentSrc && isTrustedGoogleMediaUrl(videoCurrentSrc)) {
-        for (const v of deriveGoogleMediaVariants(videoCurrentSrc)) pushUrl(v);
-        pushUrl(videoCurrentSrc);
-      }
-      for (const u of discoveredMediaUrls) {
-        for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
-        pushUrl(u);
+      if (!blobOnly) {
+        for (const u of candidateUrls) {
+          for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
+          if (!isThumbnailOrManifestUrl(u)) pushUrl(u);
+        }
+        if (videoCurrentSrc && isTrustedGoogleMediaUrl(videoCurrentSrc)) {
+          for (const v of deriveGoogleMediaVariants(videoCurrentSrc)) pushUrl(v);
+          if (!isThumbnailOrManifestUrl(videoCurrentSrc)) pushUrl(videoCurrentSrc);
+        }
+        for (const u of discoveredMediaUrls) {
+          for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
+          pushUrl(u);
+        }
       }
       let downloaded = null;
-      let lastError = "No downloadable media stream matched in page.";
+      let lastError = blobOnly ? "Deferred HTTPS CDN download to Service Worker." : "No downloadable media stream matched in page.";
       for (const url of expanded) {
         try {
-          downloaded = await fetchSingleCandidateInPage(url);
+          downloaded = await fetchSingleCandidateInPage(url, { blobOnly });
           break;
         } catch (err) {
-          let host = "media";
-          try {
-            host = new URL(url).hostname || "media";
-          } catch {
-            host = url.startsWith("blob:") ? "blob" : "media";
-          }
-          lastError = `${host}: ${err?.message || String(err)}`;
+          lastError = err?.message || String(err);
         }
       }
       if (!downloaded) {
         postToContent(PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE, {
           requestId,
           ok: false,
+          deferred: Boolean(blobOnly),
           error: lastError,
           discoveredMediaUrls
         });
@@ -1030,6 +1260,18 @@
         });
       }
     }
+    function sendStateSnapshotToContent() {
+      if (!ssrScanned) {
+        scanSsrInitDataScripts();
+      }
+      postToContent(PAGE_MESSAGE.PAGE_STATE_SNAPSHOT, {
+        artifacts: [...bufferedArtifacts.values()],
+        rpcTrace: [...rpcTrace],
+        discoveredMediaUrls: discoverPerformanceMediaUrls(),
+        ssrScanned,
+        observedAt: Date.now()
+      });
+    }
     win.addEventListener("message", (event) => {
       if (event.source !== win) return;
       const msg = event.data;
@@ -1038,17 +1280,41 @@
         rpcOverrides = { ...msg.rpcOverrides };
         return;
       }
+      if (msg.type === PAGE_MESSAGE.REQUEST_PAGE_STATE) {
+        sendStateSnapshotToContent();
+        return;
+      }
       if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST) {
         handleExtractAudioRequest(msg.payload);
       }
     });
-    function inspectTransaction(requestBody, responseText) {
+    function inspectTransaction(url, requestBody, responseText, transport = "xhr") {
       try {
+        const rpcIds = extractRpcIdsFromUrl(url);
         const reqMeta = parseBatchExecuteRequest(requestBody, rpcOverrides);
         const artifacts = responseText ? parseBatchExecuteResponse(responseText, rpcOverrides).map((art) => ({
           ...art,
           notebookId: reqMeta?.notebookId || null
         })) : [];
+        if (artifacts.length > 0) {
+          recordArtifacts(artifacts);
+        }
+        const traceEntry = {
+          ts: (/* @__PURE__ */ new Date()).toISOString(),
+          transport,
+          rpcIds,
+          isCreateVideo: Boolean(reqMeta?.isVideoCreate),
+          videoCount: artifacts.length,
+          statuses: artifacts.map((a) => `${a.artifactId.slice(0, 8)}:${a.status}`)
+        };
+        rpcTrace.push(traceEntry);
+        if (rpcTrace.length > MAX_RPC_TRACE) rpcTrace.shift();
+        if (reqMeta?.isVideoCreate || artifacts.length > 0 || rpcIds.includes("gArtLc") || rpcIds.includes("R7cb6c")) {
+          emitPageDebug(
+            "rpc.batchexecute",
+            `${transport.toUpperCase()} rpcids=[${rpcIds.join(",") || "?"}] -> ${artifacts.length} video artifact(s)`
+          );
+        }
         const isCreateVideoRequest = Boolean(reqMeta?.isVideoCreate);
         if (isCreateVideoRequest || artifacts.length > 0) {
           postToContent(PAGE_MESSAGE.BATCH_ARTIFACTS, {
@@ -1078,7 +1344,7 @@
         if (isBatchExecuteUrl(url)) {
           promise.then((res) => {
             if (!res || typeof res.clone !== "function") return;
-            return res.clone().text().then((text) => inspectTransaction(reqBody, text));
+            return res.clone().text().then((text) => inspectTransaction(url, reqBody, text, "fetch"));
           }).catch(() => {
           });
         }
@@ -1109,7 +1375,7 @@
             () => {
               try {
                 if ((!this.responseType || this.responseType === "text") && typeof this.responseText === "string") {
-                  inspectTransaction(meta.body, this.responseText);
+                  inspectTransaction(meta.url, meta.body, this.responseText, "xhr");
                 }
               } catch {
               }
@@ -1119,6 +1385,36 @@
         }
         return Reflect.apply(nativeSend, this, arguments);
       };
+    }
+    const MediaProto = win.HTMLMediaElement?.prototype;
+    if (MediaProto && typeof MediaProto.play === "function") {
+      const origPlay = MediaProto.play;
+      MediaProto.play = function patchedPlay() {
+        try {
+          if (this?.tagName === "VIDEO") {
+            const src = this.currentSrc || this.src || "";
+            emitPageDebug(
+              "video.play",
+              `<video>.play() src=${summarizeMediaUrlForDebug(src)} dur=${Number.isFinite(this.duration) ? Math.round(this.duration) + "s" : "?"}`,
+              {
+                currentSrc: isTrustedGoogleMediaUrl(src) ? src : "",
+                isBlob: src.startsWith("blob:")
+              }
+            );
+          }
+        } catch {
+        }
+        return Reflect.apply(origPlay, this, arguments);
+      };
+    }
+    if (win.document) {
+      if (win.document.readyState === "loading") {
+        win.addEventListener?.("DOMContentLoaded", () => scanSsrInitDataScripts(), {
+          once: true
+        });
+      } else {
+        scanSsrInitDataScripts();
+      }
     }
   }
   if (typeof window !== "undefined") {

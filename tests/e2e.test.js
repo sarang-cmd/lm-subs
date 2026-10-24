@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { createRuntimeDispatcher } from "../src/background/service-worker.js";
 import { PAGE_MESSAGE, RUNTIME_MESSAGE } from "../src/config/selectors.js";
+import { collectVideosDeep } from "../src/content/content.js";
 import { createSyntheticMp4WithVideoAndAudio } from "../src/lib/audio-extract.js";
 import {
   getSavedKeyPresenceMap,
@@ -103,6 +104,14 @@ test("Manifest V3 least-privilege invariant: only 'storage' permission, Google C
       `Missing required host_permission: ${requiredOrigin}`
     );
   }
+  // Regression guard: both page.js and content.js must run at document_start so early RPCs are never dropped
+  for (const cs of manifest.content_scripts) {
+    assert.equal(
+      cs.run_at,
+      "document_start",
+      `Expected content_script ${cs.js.join(",")} to run at document_start`
+    );
+  }
 });
 
 test("Full E2E Pipeline: MAIN-world XHR capture -> MP4 audio extraction -> Groq 429 -> Mistral failover -> Cache hit", async () => {
@@ -169,9 +178,9 @@ test("Full E2E Pipeline: MAIN-world XHR capture -> MP4 audio extraction -> Groq 
   xhr.open("POST", "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids=gArtLc");
   xhr.send("f.req=%5B%5D");
 
-  assert.equal(bridgeMessages.length, 1);
-  assert.equal(bridgeMessages[0].type, PAGE_MESSAGE.BATCH_ARTIFACTS);
-  const capturedArtifact = bridgeMessages[0].payload.artifacts[0];
+  const batchMsg = bridgeMessages.find((m) => m.type === PAGE_MESSAGE.BATCH_ARTIFACTS);
+  assert.ok(batchMsg, "Expected BATCH_ARTIFACTS bridge message");
+  const capturedArtifact = batchMsg.payload.artifacts[0];
   assert.equal(capturedArtifact.title, "Quantum Cryptography Video Overview");
 
   // 2. Build a synthetic dual-track MP4 (80 KB video + 8 bytes audio) served by Google CDN
@@ -440,4 +449,204 @@ test("Regression: Layer 2 Service Worker falls back from credentials:'include' t
   });
   assert.equal(blobRes.response.ok, false);
   assert.match(blobRes.response.error, /Reload this NotebookLM tab once/);
+});
+
+test("Regression (notebook.google.com Lot dialog): REQUEST_PAGE_STATE replays SSR AF_initDataCallback & collectVideosDeep pierces Shadow DOM", () => {
+  const token = "ABzcPv3nfeEqLiveNotebookLmToken987654";
+  const ssrRow = [
+    "93731fdd-7bbd-4b5a-9d79-4873d75b4f1d",
+    "Notebook Studio Overview",
+    3,
+    [[["src-1"]]],
+    3,
+    null,
+    null,
+    null,
+    [
+      null,
+      `https://lh3.googleusercontent.com/notebooklm/${token}=mm,22`,
+      [[["src-1"]], "en", ""],
+      `https://lh3.googleusercontent.com/notebooklm/${token}=m22-dv`,
+      [[`https://lh3.googleusercontent.com/notebooklm/${token}=m22-dv`, 4, "video/mp4"]],
+      [150, 0],
+    ],
+  ];
+
+  const listeners = [];
+  const posted = [];
+  const mockDoc = {
+    readyState: "complete",
+    querySelectorAll: (sel) =>
+      sel === "script"
+        ? [
+            {
+              textContent: `AF_initDataCallback({key: 'ds:1', data: ${JSON.stringify(
+                [[ssrRow]]
+              )}});`,
+            },
+          ]
+        : [],
+  };
+  const mockWin = {
+    location: { origin: "https://notebook.google.com" },
+    document: mockDoc,
+    addEventListener: (evt, fn) => {
+      if (evt === "message") listeners.push(fn);
+    },
+    postMessage: (msg) => posted.push(msg),
+  };
+
+  installMainWorldObserver(mockWin);
+
+  // Simulate content.js requesting buffered state after attaching its listener
+  for (const fn of listeners) {
+    fn({
+      source: mockWin,
+      data: {
+        source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+        type: PAGE_MESSAGE.REQUEST_PAGE_STATE,
+      },
+    });
+  }
+
+  const snapshot = posted.find((m) => m.type === PAGE_MESSAGE.PAGE_STATE_SNAPSHOT);
+  assert.ok(snapshot, "Expected PAGE_STATE_SNAPSHOT reply from page.js");
+  assert.equal(snapshot.payload.artifacts.length, 1);
+  assert.equal(
+    snapshot.payload.artifacts[0].artifactId,
+    "93731fdd-7bbd-4b5a-9d79-4873d75b4f1d"
+  );
+
+  // Verify Shadow-DOM piercing finds `<video>` inside nested custom element shadowRoot
+  const shadowVideo = { tagName: "VIDEO" };
+  const nestedShadowRoot = {
+    querySelectorAll: (sel) => (sel === "video" ? [shadowVideo] : []),
+  };
+  const customPlayerHost = { shadowRoot: nestedShadowRoot };
+  const rootDoc = {
+    querySelectorAll: (sel) => (sel === "video" ? [] : [customPlayerHost]),
+  };
+  const discoveredVideos = collectVideosDeep(rootDoc);
+  assert.equal(discoveredVideos.length, 1);
+  assert.equal(discoveredVideos[0], shadowVideo);
+});
+
+test("Regression: Service Worker skips silent video-only preview MP4 (=s512-mm,22) and transcribes audio-bearing variant", async () => {
+  const storage = createMemoryStorage();
+  await setApiKey("groq", "gsk_super_secret_live_key_999999", storage);
+  await saveSettings({ enabled: true, debugMode: true, queueOrder: ["groq"] }, storage);
+
+  const silentPreviewMp4 = createSyntheticMp4WithVideoAndAudio({
+    videoPayloads: [new Uint8Array(2048).fill(0x33)],
+    audioPayloads: [], // Silent video-only preview!
+  });
+  const realMuxedMp4 = createSyntheticMp4WithVideoAndAudio({
+    videoPayloads: [new Uint8Array(4096).fill(0x44)],
+    audioPayloads: [new Uint8Array([10, 20, 30, 40])],
+  });
+
+  const triedUrls = [];
+  const swFetch = async (url) => {
+    const u = String(url);
+    triedUrls.push(u);
+    if (u.endsWith("=m140")) {
+      // Simulate silent motion preview accidentally returned on first variant
+      return new Response(silentPreviewMp4, {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      });
+    }
+    if (u.includes("googleusercontent.com")) {
+      return new Response(realMuxedMp4, {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      });
+    }
+    if (u.includes("api.groq.com")) {
+      return new Response(
+        JSON.stringify({
+          segments: [{ start: 0.1, end: 2.9, text: "Real audio track transcribed." }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    throw new Error(`Unexpected URL: ${u}`);
+  };
+
+  const dispatcher = createRuntimeDispatcher({
+    storageArea: storage,
+    fetchImpl: swFetch,
+  });
+
+  const res = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+    artifact: {
+      artifactId: "12121212-aaaa-4bbb-8ccc-343434343434",
+      title: "Silent Preview Skip Test",
+      mediaUrl:
+        "https://lh3.googleusercontent.com/notebooklm/ABzcSilentSkipToken123456=mm,22",
+    },
+  });
+
+  assert.equal(res.response.ok, true);
+  assert.ok(triedUrls.length >= 2, "Expected SW to advance past silent video-only MP4");
+  assert.equal(res.response.entry.cues[0].text, "Real audio track transcribed.");
+
+  // Verify GET_DEBUG_REPORT contains full timeline and strictly redacts raw API keys
+  await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.APPEND_DEBUG_LOG,
+    entry: {
+      layer: "TEST",
+      event: "leak.check",
+      detail: "Accidental key echo gsk_super_secret_live_key_999999 in log",
+    },
+  });
+
+  const debugRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.GET_DEBUG_REPORT,
+    tabContext: {
+      host: "notebook.google.com",
+      pathname: "/notebook/3c9b8b97",
+      artifactCount: 1,
+      videoCount: 1,
+    },
+  });
+
+  assert.equal(debugRes.response.ok, true);
+  assert.match(debugRes.response.reportText, /media\.skip_silent/);
+  assert.match(debugRes.response.reportText, /stt\.ok/);
+  assert.ok(
+    !debugRes.response.reportText.includes("gsk_super_secret_live_key_999999"),
+    "Debug report must never leak raw API keys"
+  );
+});
+
+test("Diagnostics: Withheld Google CDN host_permissions are detected and flagged with missingPermissions: true", async () => {
+  const storage = createMemoryStorage();
+  await setApiKey("groq", "gsk_perm_test_key_12345", storage);
+  await saveSettings({ enabled: true, queueOrder: ["groq"] }, storage);
+
+  const dispatcher = createRuntimeDispatcher({
+    storageArea: storage,
+    fetchImpl: async () => {
+      throw new TypeError("Failed to fetch");
+    },
+    permissionsApi: {
+      contains: async ({ origins }) => !origins.includes("https://*.google.com/*"),
+    },
+  });
+
+  const res = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+    artifact: {
+      artifactId: "56565656-aaaa-4bbb-8ccc-787878787878",
+      title: "Withheld Permission Video",
+      mediaUrl:
+        "https://lh3.googleusercontent.com/notebooklm/ABzcWithheldPermToken123456=m22",
+    },
+  });
+
+  assert.equal(res.response.ok, false);
+  assert.equal(res.response.missingPermissions, true);
+  assert.match(res.response.error, /Grant Google Media Access/);
 });

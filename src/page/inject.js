@@ -1,17 +1,20 @@
 /**
- * MAIN-world passive `batchexecute` observer & first-party audio extractor
+ * MAIN-world passive `batchexecute` & SSR `AF_initDataCallback` observer
  * (`src/page/inject.js` -> `extension/page.js`).
  *
  * Runs at `document_start` in NotebookLM's `MAIN` world so it can:
  * 1. Passively observe `/_/LabsTailwindUi/data/batchexecute` responses over both
  *    `XMLHttpRequest` and `window.fetch` without modifying or delaying traffic.
- * 2. Perform first-party media fetch (carrying NotebookLM's exact `Origin`, `Referer`,
- *    and partitioned Google session cookies, plus `blob:` URL support) and strip the
- *    compact `.m4a` / `.wav` audio track locally before transferring only the slim
- *    audio bytes to the isolated content script.
+ * 2. Scan inline Google Boq `AF_initDataCallback({...})` SSR hydration scripts so
+ *    existing Studio Video Overviews are captured even when `notebook.google.com`
+ *    does not issue a `gArtLc` XHR on tab refresh (`Ctrl+R`).
+ * 3. Buffer all discovered artifacts & RPC diagnostics in memory and replay them
+ *    on `REQUEST_PAGE_STATE` so `content.js` never misses early boot events.
+ * 4. Extract audio from in-memory `blob:` URLs (`URL.createObjectURL`) without
+ *    triggering cross-origin Google CDN CORS console errors.
  *
  * Security invariants:
- * - Has zero access to `chrome.storage` or user API keys.
+ * - Zero access to `chrome.storage` or user API keys.
  * - Enforces `isTrustedGoogleMediaUrl()` before any HTTPS media fetch.
  * - Restricts `postMessage` communication to `window.location.origin`.
  */
@@ -24,21 +27,29 @@ import {
 } from "../lib/audio-extract.js";
 import {
   deriveGoogleMediaVariants,
+  extractRpcIdsFromUrl,
   isBatchExecuteUrl,
+  isThumbnailOrManifestUrl,
   isTrustedGoogleMediaUrl,
+  parseAfInitDataPayloads,
   parseBatchExecuteRequest,
   parseBatchExecuteResponse,
+  summarizeMediaUrlForDebug,
 } from "../lib/batchexecute.js";
 
 const GUARD_FLAG = "__notebooklmSubtitlesMainHooked__";
 const MAX_INLINE_M4A_BYTES = 20 * 1024 * 1024;
 const MAX_WAV_CHUNK_BYTES = 14 * 1024 * 1024;
+const MAX_RPC_TRACE = 30;
 
 export function installMainWorldObserver(win = globalThis) {
   if (!win || win[GUARD_FLAG]) return;
   win[GUARD_FLAG] = true;
 
   let rpcOverrides = {};
+  let ssrScanned = false;
+  const bufferedArtifacts = new Map();
+  const rpcTrace = [];
   const nativeFetch =
     typeof win.fetch === "function" ? win.fetch.bind(win) : null;
 
@@ -52,14 +63,17 @@ export function installMainWorldObserver(win = globalThis) {
         if (
           typeof Blob !== "undefined" &&
           obj instanceof Blob &&
-          (obj.size > 65536 ||
-            /^(?:video|audio)\//i.test(obj.type || ""))
+          (obj.size > 65536 || /^(?:video|audio)\//i.test(obj.type || ""))
         ) {
           if (trackedMediaBlobs.size >= 4) {
             const oldestKey = trackedMediaBlobs.keys().next().value;
             trackedMediaBlobs.delete(oldestKey);
           }
           trackedMediaBlobs.set(url, obj);
+          emitPageDebug(
+            "blob.created",
+            `Captured media Blob (${Math.round(obj.size / 1024)} KB, ${obj.type || "unknown"})`
+          );
         }
       } catch {
         // Ignore MediaSource or non-Blob objects
@@ -92,9 +106,68 @@ export function installMainWorldObserver(win = globalThis) {
     }
   }
 
+  function emitPageDebug(event, detail, extra = null) {
+    postToContent(PAGE_MESSAGE.PAGE_DEBUG_EVENT, {
+      ts: new Date().toISOString(),
+      layer: "PAGE",
+      event,
+      detail,
+      extra,
+    });
+  }
+
+  function recordArtifacts(artifacts = []) {
+    for (const art of artifacts) {
+      if (art?.artifactId) {
+        bufferedArtifacts.set(art.artifactId, art);
+      }
+    }
+  }
+
   /**
-   * Scans browser Resource Timing entries for recently loaded Google media streams
-   * (useful when the extension was installed/reloaded after `gArtLc` ran).
+   * Scans inline Google Boq `AF_initDataCallback({...})` `<script>` tags so
+   * SSR-hydrated Video Overviews are captured even when zero `gArtLc` XHRs fire.
+   */
+  function scanSsrInitDataScripts() {
+    try {
+      const doc = win.document;
+      if (!doc?.querySelectorAll) return [];
+      const scripts = doc.querySelectorAll("script");
+      if (!scripts || scripts.length === 0) return [];
+
+      const texts = [];
+      for (const s of scripts) {
+        const txt = s.textContent || "";
+        if (txt.includes("AF_initDataCallback")) {
+          texts.push(txt);
+        }
+      }
+      ssrScanned = true;
+      if (texts.length === 0) return [];
+
+      const found = parseAfInitDataPayloads(texts);
+      if (found.length > 0) {
+        recordArtifacts(found);
+        emitPageDebug(
+          "ssr.af_init_data",
+          `Found ${found.length} Video Overview(s) in SSR AF_initDataCallback scripts`
+        );
+        postToContent(PAGE_MESSAGE.BATCH_ARTIFACTS, {
+          isCreateVideoRequest: false,
+          notebookId: null,
+          artifacts: found,
+          observedAt: Date.now(),
+        });
+      }
+      return found;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Scans browser Resource Timing entries for real audio/video streams,
+   * explicitly excluding Studio card thumbnails (`initiatorType === "img"`, `=s512...`).
    */
   function discoverPerformanceMediaUrls() {
     const found = [];
@@ -104,11 +177,20 @@ export function installMainWorldObserver(win = globalThis) {
         const e = entries[i];
         const url = e?.name || "";
         if (!isTrustedGoogleMediaUrl(url)) continue;
-        const looksLikeMedia =
+        if (e.initiatorType === "img" || e.initiatorType === "css") continue;
+
+        const isExplicitVideoInitiator =
           e.initiatorType === "video" ||
-          e.initiatorType === "media" ||
-          /\/notebooklm\/|videoplayback|=m(?:18|22|140)/i.test(url);
-        if (looksLikeMedia && !found.includes(url)) {
+          e.initiatorType === "audio" ||
+          e.initiatorType === "media";
+        const isPlayableStreamPattern =
+          /videoplayback|=m(?:18|22|37|140)(?:-dv)?(?:$|\?)/i.test(url);
+
+        if (
+          (isExplicitVideoInitiator || isPlayableStreamPattern) &&
+          !isThumbnailOrManifestUrl(url) &&
+          !found.includes(url)
+        ) {
           found.push(url);
         }
       }
@@ -141,7 +223,6 @@ export function installMainWorldObserver(win = globalThis) {
       }
     }
 
-    // Use 16 kHz mono for <= 10 min, 12 kHz mono for > 10 min to keep chunks compact
     const sampleRate = decoded.duration > 600 ? 12000 : 16000;
     const totalSamples = Math.max(1, Math.ceil(decoded.duration * sampleRate));
     const offline = new OfflineCtx(1, totalSamples, sampleRate);
@@ -155,7 +236,7 @@ export function installMainWorldObserver(win = globalThis) {
     return slicePcmIntoWavChunks(pcm, sampleRate, MAX_WAV_CHUNK_BYTES);
   }
 
-  async function fetchSingleCandidateInPage(url) {
+  async function fetchSingleCandidateInPage(url, { blobOnly = false } = {}) {
     if (typeof url !== "string" || !url) {
       throw new Error("Empty media URL");
     }
@@ -169,6 +250,9 @@ export function installMainWorldObserver(win = globalThis) {
           contentType: tracked.type || "video/mp4",
         };
       }
+      if (blobOnly) {
+        throw new Error("MediaSource blob stream is not backed by a standalone Blob");
+      }
       if (!nativeFetch) throw new Error("fetch unavailable");
       const blobRes = await nativeFetch(url);
       if (!blobRes.ok) throw new Error(`blob HTTP ${blobRes.status}`);
@@ -180,6 +264,10 @@ export function installMainWorldObserver(win = globalThis) {
       };
     }
 
+    if (blobOnly) {
+      throw new Error("Deferring HTTPS Google CDN fetch to Service Worker");
+    }
+
     if (!isTrustedGoogleMediaUrl(url)) {
       throw new Error("Untrusted media URL");
     }
@@ -187,8 +275,6 @@ export function installMainWorldObserver(win = globalThis) {
       throw new Error("fetch unavailable");
     }
 
-    // Try with first-party Google cookies first; retry with `credentials: "omit"`
-    // if the CDN responds with wildcard `Access-Control-Allow-Origin: *`.
     let lastErr = null;
     for (const credentialsMode of ["include", "omit"]) {
       try {
@@ -218,6 +304,7 @@ export function installMainWorldObserver(win = globalThis) {
     requestId,
     candidateUrls = [],
     videoCurrentSrc = "",
+    blobOnly = false,
   } = {}) {
     const discoveredMediaUrls = discoverPerformanceMediaUrls();
     const expanded = [];
@@ -230,34 +317,33 @@ export function installMainWorldObserver(win = globalThis) {
     if (videoCurrentSrc && videoCurrentSrc.startsWith("blob:")) {
       pushUrl(videoCurrentSrc);
     }
-    for (const u of candidateUrls) {
-      for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
-      pushUrl(u);
-    }
-    if (videoCurrentSrc && isTrustedGoogleMediaUrl(videoCurrentSrc)) {
-      for (const v of deriveGoogleMediaVariants(videoCurrentSrc)) pushUrl(v);
-      pushUrl(videoCurrentSrc);
-    }
-    for (const u of discoveredMediaUrls) {
-      for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
-      pushUrl(u);
+
+    if (!blobOnly) {
+      for (const u of candidateUrls) {
+        for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
+        if (!isThumbnailOrManifestUrl(u)) pushUrl(u);
+      }
+      if (videoCurrentSrc && isTrustedGoogleMediaUrl(videoCurrentSrc)) {
+        for (const v of deriveGoogleMediaVariants(videoCurrentSrc)) pushUrl(v);
+        if (!isThumbnailOrManifestUrl(videoCurrentSrc)) pushUrl(videoCurrentSrc);
+      }
+      for (const u of discoveredMediaUrls) {
+        for (const v of deriveGoogleMediaVariants(u)) pushUrl(v);
+        pushUrl(u);
+      }
     }
 
     let downloaded = null;
-    let lastError = "No downloadable media stream matched in page.";
+    let lastError = blobOnly
+      ? "Deferred HTTPS CDN download to Service Worker."
+      : "No downloadable media stream matched in page.";
 
     for (const url of expanded) {
       try {
-        downloaded = await fetchSingleCandidateInPage(url);
+        downloaded = await fetchSingleCandidateInPage(url, { blobOnly });
         break;
       } catch (err) {
-        let host = "media";
-        try {
-          host = new URL(url).hostname || "media";
-        } catch {
-          host = url.startsWith("blob:") ? "blob" : "media";
-        }
-        lastError = `${host}: ${err?.message || String(err)}`;
+        lastError = err?.message || String(err);
       }
     }
 
@@ -265,6 +351,7 @@ export function installMainWorldObserver(win = globalThis) {
       postToContent(PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE, {
         requestId,
         ok: false,
+        deferred: Boolean(blobOnly),
         error: lastError,
         discoveredMediaUrls,
       });
@@ -274,7 +361,6 @@ export function installMainWorldObserver(win = globalThis) {
     const originalBytes = downloaded.bytes.byteLength;
 
     try {
-      // Fast path: lossless ISO-BMFF `.mp4` -> `.m4a` audio-track remuxing (~12 ms)
       const extracted = extractAudioTrackFromMp4(downloaded.bytes);
       if (
         extracted &&
@@ -304,8 +390,6 @@ export function installMainWorldObserver(win = globalThis) {
         return;
       }
 
-      // Universal fallback: WebAudio decode -> 16 kHz / 12 kHz mono `.wav` chunks
-      // Handles fragmented MP4 (`fmp4`), WebM/Opus, and >20 MB long recordings!
       const wavChunks = await decodeBytesToWavChunks(downloaded.bytes);
       const transferList = [];
       let totalExtracted = 0;
@@ -343,6 +427,19 @@ export function installMainWorldObserver(win = globalThis) {
     }
   }
 
+  function sendStateSnapshotToContent() {
+    if (!ssrScanned) {
+      scanSsrInitDataScripts();
+    }
+    postToContent(PAGE_MESSAGE.PAGE_STATE_SNAPSHOT, {
+      artifacts: [...bufferedArtifacts.values()],
+      rpcTrace: [...rpcTrace],
+      discoveredMediaUrls: discoverPerformanceMediaUrls(),
+      ssrScanned,
+      observedAt: Date.now(),
+    });
+  }
+
   win.addEventListener("message", (event) => {
     if (event.source !== win) return;
     const msg = event.data;
@@ -357,13 +454,19 @@ export function installMainWorldObserver(win = globalThis) {
       return;
     }
 
+    if (msg.type === PAGE_MESSAGE.REQUEST_PAGE_STATE) {
+      sendStateSnapshotToContent();
+      return;
+    }
+
     if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST) {
       handleExtractAudioRequest(msg.payload);
     }
   });
 
-  function inspectTransaction(requestBody, responseText) {
+  function inspectTransaction(url, requestBody, responseText, transport = "xhr") {
     try {
+      const rpcIds = extractRpcIdsFromUrl(url);
       const reqMeta = parseBatchExecuteRequest(requestBody, rpcOverrides);
       const artifacts = responseText
         ? parseBatchExecuteResponse(responseText, rpcOverrides).map((art) => ({
@@ -371,6 +474,28 @@ export function installMainWorldObserver(win = globalThis) {
             notebookId: reqMeta?.notebookId || null,
           }))
         : [];
+
+      if (artifacts.length > 0) {
+        recordArtifacts(artifacts);
+      }
+
+      const traceEntry = {
+        ts: new Date().toISOString(),
+        transport,
+        rpcIds,
+        isCreateVideo: Boolean(reqMeta?.isVideoCreate),
+        videoCount: artifacts.length,
+        statuses: artifacts.map((a) => `${a.artifactId.slice(0, 8)}:${a.status}`),
+      };
+      rpcTrace.push(traceEntry);
+      if (rpcTrace.length > MAX_RPC_TRACE) rpcTrace.shift();
+
+      if (reqMeta?.isVideoCreate || artifacts.length > 0 || rpcIds.includes("gArtLc") || rpcIds.includes("R7cb6c")) {
+        emitPageDebug(
+          "rpc.batchexecute",
+          `${transport.toUpperCase()} rpcids=[${rpcIds.join(",") || "?"}] -> ${artifacts.length} video artifact(s)`
+        );
+      }
 
       const isCreateVideoRequest = Boolean(reqMeta?.isVideoCreate);
       if (isCreateVideoRequest || artifacts.length > 0) {
@@ -409,7 +534,7 @@ export function installMainWorldObserver(win = globalThis) {
             return res
               .clone()
               .text()
-              .then((text) => inspectTransaction(reqBody, text));
+              .then((text) => inspectTransaction(url, reqBody, text, "fetch"));
           })
           .catch(() => {});
       }
@@ -448,7 +573,7 @@ export function installMainWorldObserver(win = globalThis) {
                 (!this.responseType || this.responseType === "text") &&
                 typeof this.responseText === "string"
               ) {
-                inspectTransaction(meta.body, this.responseText);
+                inspectTransaction(meta.url, meta.body, this.responseText, "xhr");
               }
             } catch {
               // Ignore
@@ -459,6 +584,44 @@ export function installMainWorldObserver(win = globalThis) {
       }
       return Reflect.apply(nativeSend, this, arguments);
     };
+  }
+
+  // 3. Passive `HTMLMediaElement.prototype.play` hook so even `<video>` elements
+  //    mounted inside Shadow DOMs notify `content.js` immediately on playback.
+  const MediaProto = win.HTMLMediaElement?.prototype;
+  if (MediaProto && typeof MediaProto.play === "function") {
+    const origPlay = MediaProto.play;
+    MediaProto.play = function patchedPlay() {
+      try {
+        if (this?.tagName === "VIDEO") {
+          const src = this.currentSrc || this.src || "";
+          emitPageDebug(
+            "video.play",
+            `<video>.play() src=${summarizeMediaUrlForDebug(src)} dur=${
+              Number.isFinite(this.duration) ? Math.round(this.duration) + "s" : "?"
+            }`,
+            {
+              currentSrc: isTrustedGoogleMediaUrl(src) ? src : "",
+              isBlob: src.startsWith("blob:"),
+            }
+          );
+        }
+      } catch {
+        // Ignore
+      }
+      return Reflect.apply(origPlay, this, arguments);
+    };
+  }
+
+  // 4. Scan SSR `AF_initDataCallback` scripts as soon as the HTML document finishes parsing
+  if (win.document) {
+    if (win.document.readyState === "loading") {
+      win.addEventListener?.("DOMContentLoaded", () => scanSsrInitDataScripts(), {
+        once: true,
+      });
+    } else {
+      scanSsrInitDataScripts();
+    }
   }
 }
 
