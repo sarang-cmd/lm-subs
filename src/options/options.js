@@ -355,12 +355,12 @@ async function initOptions() {
       keyLink.href = spec.keyUrl;
       keyLink.target = "_blank";
       keyLink.rel = "noopener noreferrer";
-      keyLink.textContent = spec.id === "custom" ? "Docs ↗" : "Get key ↗";
+      keyLink.textContent = spec.id === "custom" ? "Docs" : "Get key";
 
       const upBtn = document.createElement("button");
       upBtn.type = "button";
       upBtn.className = "btn btn-sm";
-      upBtn.textContent = "↑";
+      upBtn.textContent = "Up";
       upBtn.title = "Move higher in failover queue";
       upBtn.disabled = idx === 0;
       upBtn.addEventListener("click", () => moveProviderInQueue(idx, -1));
@@ -368,7 +368,7 @@ async function initOptions() {
       const downBtn = document.createElement("button");
       downBtn.type = "button";
       downBtn.className = "btn btn-sm";
-      downBtn.textContent = "↓";
+      downBtn.textContent = "Down";
       downBtn.title = "Move lower in failover queue";
       downBtn.disabled = idx === settings.queueOrder.length - 1;
       downBtn.addEventListener("click", () => moveProviderInQueue(idx, 1));

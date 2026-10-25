@@ -193,7 +193,7 @@ Expected response:
 {
   "ok": true,
   "service": "lm-subs-sync",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "database": "neon-postgresql",
   "authProviders": {
     "emailCode": true,
