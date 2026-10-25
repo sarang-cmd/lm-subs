@@ -1,7 +1,7 @@
 /**
  * Manifest V3 Background Service Worker (`src/background/service-worker.js` -> `extension/background.js`).
  *
- * Security & speed invariants (`LM Subs v0.2.0`):
+ * Security & speed invariants (`LM Subs v0.2.1`):
  * - This is the ONLY module in the extension permitted to call `getApiKey`, `getSecretApiKeysMap`,
  *   or `getSecretCloudSyncToken`.
  * - Enforces `isTrustedGoogleMediaUrl()` SSRF validation before authenticated media downloads.
@@ -1624,7 +1624,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.0";
+          globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.1";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),

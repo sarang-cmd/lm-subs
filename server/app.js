@@ -325,7 +325,7 @@ export function createSyncApp({
     return c.json({
       ok: true,
       service: "lm-subs-neon-sync",
-      version: "0.2.0",
+      version: "0.2.1",
       neonProjectId: db.projectId || "falling-cherry-16443194",
       databaseMode: db.mode,
       neonManagedAuth: Boolean(process.env.NEON_AUTH_BASE_URL),

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LM Subs",
   "short_name": "LM Subs",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Sub-5s synchronized captions, .SRT/.VTT/.TXT/.JSON export & encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
   "minimum_chrome_version": "116",
   "icons": {

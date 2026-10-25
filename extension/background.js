@@ -4295,7 +4295,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.0";
+        const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.1";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,

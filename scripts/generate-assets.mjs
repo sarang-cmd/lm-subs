@@ -763,9 +763,16 @@ const screenshots = [
   ["04-settings-queue.png", SCREENSHOT_4_SETTINGS],
 ];
 
+const forceWireframe = process.argv.includes("--wireframe");
 for (const [filename, svg] of screenshots) {
-  renderSvgToPng(svg, `docs/assets/screenshots/${filename}`, 1280);
-  renderSvgToPng(svg, `store-assets/${filename}`, 1280);
+  const docTarget = path.join(ROOT, `docs/assets/screenshots/${filename}`);
+  const storeTarget = path.join(ROOT, `store-assets/${filename}`);
+  if (forceWireframe || !fs.existsSync(docTarget)) {
+    renderSvgToPng(svg, `docs/assets/screenshots/${filename}`, 1280);
+  }
+  if (forceWireframe || !fs.existsSync(storeTarget)) {
+    renderSvgToPng(svg, `store-assets/${filename}`, 1280);
+  }
 }
 
-console.log("Generated new LM Subs logo, favicons, icons, badges, architecture.svg, social banner, and 4 1280x800 screenshots.");
+console.log("Generated LM Subs logo, favicons, icons, badges, architecture.svg, social banner, and verified 4 1280x800 screenshots.");

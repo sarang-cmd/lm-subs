@@ -1,6 +1,6 @@
-# Chrome Web Store Publishing Guide: LM Subs (`v0.2.0`)
+# Chrome Web Store Publishing Guide: LM Subs (`v0.2.1`)
 
-Use the copy-pasteable fields below when submitting `docs/releases/lm-subs-v0.2.0.zip` (`https://github.com/sarang-cmd/lm-subs`, live web app `https://lm-subs.vercel.app`) in the Chrome Web Store Developer Dashboard.
+Use the copy-pasteable fields below when submitting `docs/releases/lm-subs-v0.2.1.zip` (`https://github.com/sarang-cmd/lm-subs`, live web app `https://lm-subs.vercel.app`) in the Chrome Web Store Developer Dashboard.
 
 ---
 

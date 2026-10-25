@@ -428,8 +428,27 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
   assert.ok(!aboutJsx.includes("notebooklm-subtitles"));
 
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
+  const manifestJson = JSON.parse(fs.readFileSync(path.resolve("extension/manifest.json"), "utf8"));
+  assert.equal(pkgJson.version, "0.2.1");
+  assert.equal(manifestJson.version, "0.2.1");
   assert.equal(pkgJson.repository?.url, "https://github.com/sarang-cmd/lm-subs.git");
   assert.equal(pkgJson.homepage, "https://lm-subs.vercel.app");
+  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.1.zip")));
+  assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.0.zip")));
+
+  const progressMd = fs.readFileSync(path.resolve("progress.md"), "utf8");
+  assert.ok(
+    progressMd.includes("## `v0.2.1`") &&
+      progressMd.includes("## `v0.2.0`") &&
+      progressMd.includes("## `v0.1.2`") &&
+      progressMd.includes("## `v0.1.1`") &&
+      progressMd.includes("## `v0.1.0`"),
+    "progress.md must document versions 0.1.0 through 0.2.1"
+  );
+  assert.ok(
+    !progressMd.includes("—") && !progressMd.includes("–"),
+    "progress.md must not contain em dashes or en dashes"
+  );
 
   const deployMd = fs.readFileSync(path.resolve("DEPLOYMENT_GUIDE.md"), "utf8");
   assert.ok(

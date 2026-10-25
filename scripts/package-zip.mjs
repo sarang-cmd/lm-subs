@@ -114,7 +114,7 @@ function createZipBuffer(files) {
 }
 
 const manifest = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8"));
-const version = manifest.version || "0.2.0";
+const version = manifest.version || "0.2.1";
 const files = collectFiles("extension", "lm-subs");
 const zipBuf = createZipBuffer(files);
 
