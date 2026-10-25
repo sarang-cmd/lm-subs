@@ -12,6 +12,7 @@ import {
 import { createDatabaseClient } from "../server/db.js";
 import { createRuntimeDispatcher } from "../src/background/service-worker.js";
 import { RUNTIME_MESSAGE } from "../src/config/selectors.js";
+import { VideoSubtitleController } from "../src/content/player-overlay.js";
 import {
   createSyntheticMp4WithVideoAndAudio,
   extractAudioTrackFromMp4,
@@ -464,4 +465,179 @@ test("Concurrent multi-chunk STT runs 3 chunks in parallel and emits progressive
   assert.equal(result.cues.length, 3);
   assert.ok(partialSnapshots.length >= 1);
   assert.equal(result.cues[2].startSec, 20.5);
+});
+
+test("In-Player VideoSubtitleController.exportSubtitles mounts download anchor inside ShadowRoot (<dialog>-inert safe)", () => {
+  const appendedToBody = [];
+  const shadowChildren = [];
+  const clickedDownloads = [];
+
+  const makeEl = (tag) => {
+    const listeners = {};
+    const children = [];
+    const el = {
+      tagName: tag.toUpperCase(),
+      style: {},
+      dataset: {},
+      children,
+      textContent: "",
+      href: "",
+      download: "",
+      rel: "",
+      appendChild(c) {
+        children.push(c);
+        if (this === mockDoc.body) appendedToBody.push(c);
+        return c;
+      },
+      append(...nodes) {
+        children.push(...nodes);
+      },
+      querySelector() {
+        return null;
+      },
+      remove() {},
+      addEventListener(ev, fn) {
+        listeners[ev] = listeners[ev] || [];
+        listeners[ev].push(fn);
+      },
+      removeEventListener() {},
+      click() {
+        let stopped = false;
+        for (const fn of listeners.click || []) {
+          fn({
+            stopPropagation() {
+              stopped = true;
+            },
+          });
+        }
+        clickedDownloads.push({
+          download: el.download,
+          href: el.href,
+          stoppedPropagation: stopped,
+        });
+      },
+      attachShadow() {
+        return {
+          append(...nodes) {
+            shadowChildren.push(...nodes);
+          },
+          appendChild(node) {
+            shadowChildren.push(node);
+            return node;
+          },
+        };
+      },
+    };
+    return el;
+  };
+
+  const mockDoc = {
+    body: makeEl("body"),
+    documentElement: makeEl("html"),
+    fullscreenElement: null,
+    createElement: makeEl,
+  };
+
+  const parentContainer = makeEl("div");
+  const mockVideo = makeEl("video");
+  mockVideo.paused = true;
+  mockVideo.currentTime = 1.0;
+  mockVideo.parentElement = parentContainer;
+  mockVideo.closest = () => makeEl("dialog");
+
+  const controller = new VideoSubtitleController(mockVideo, {
+    doc: mockDoc,
+    initialOffsetSec: 0.5,
+  });
+  controller.setCues(
+    [{ index: 1, startSec: 1.0, endSec: 3.5, text: "Exported inside Lot dialog." }],
+    { title: "Quantum Error Correction" }
+  );
+
+  assert.equal(controller.exportSubtitles("srt"), true);
+  assert.equal(controller.exportSubtitles("vtt"), true);
+  assert.equal(controller.exportSubtitles("txt"), true);
+  assert.equal(controller.exportSubtitles("json"), true);
+
+  assert.equal(clickedDownloads.length, 4);
+  assert.deepEqual(
+    clickedDownloads.map((d) => d.download),
+    [
+      "quantum-error-correction.srt",
+      "quantum-error-correction.vtt",
+      "quantum-error-correction.txt",
+      "quantum-error-correction.json",
+    ]
+  );
+  // Critical regression check: never appended to inert `document.body` outside `<dialog>`!
+  assert.equal(appendedToBody.length, 0);
+  assert.ok(clickedDownloads.every((d) => d.stoppedPropagation));
+  assert.equal(controller.getExportCues()[0].startSec, 1.5);
+  controller.destroy();
+});
+
+test("Neon Sync API /api/sync/export and /api/sync/export-all stream .srt/.vtt/.txt/.json file downloads", async () => {
+  const db = await createDatabaseClient({ inMemory: true });
+  const app = createSyncApp({
+    dbPromise: Promise.resolve(db),
+    encryptionSecret: "export-endpoint-test-secret",
+  });
+
+  try {
+    const signup = await (
+      await app.request("http://localhost/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "exporter@lmsubs.dev",
+          password: "exporter-password-123",
+        }),
+      })
+    ).json();
+
+    await app.request("http://localhost/api/sync/push", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${signup.token}`,
+      },
+      body: JSON.stringify({
+        subtitles: [
+          {
+            cacheKey: "artifact:exp-99",
+            artifactId: "exp-99",
+            title: "Distributed Consensus Deep Dive",
+            language: "en",
+            provider: "groq",
+            cues: [{ index: 1, startSec: 2, endSec: 5.5, text: "Export endpoint verified." }],
+          },
+        ],
+      }),
+    });
+
+    for (const fmt of ["srt", "vtt", "txt", "json"]) {
+      const expRes = await app.request(
+        `http://localhost/api/sync/export?cacheKey=artifact%3Aexp-99&format=${fmt}`,
+        { headers: { Authorization: `Bearer ${signup.token}` } }
+      );
+      assert.equal(expRes.status, 200);
+      assert.match(
+        expRes.headers.get("content-disposition") || "",
+        new RegExp(`distributed-consensus-deep-dive\\.${fmt}`)
+      );
+      const bodyText = await expRes.text();
+      assert.ok(bodyText.includes("Export endpoint verified."));
+    }
+
+    const allRes = await app.request("http://localhost/api/sync/export-all", {
+      headers: { Authorization: `Bearer ${signup.token}` },
+    });
+    assert.equal(allRes.status, 200);
+    assert.match(allRes.headers.get("content-disposition") || "", /lm-subs-vault-.*\.json/);
+    const allJson = await allRes.json();
+    assert.equal(allJson.schema, "lm-subs-vault/v1");
+    assert.equal(allJson.count, 1);
+  } finally {
+    await db.close();
+  }
 });

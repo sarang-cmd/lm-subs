@@ -712,6 +712,93 @@ ${body}`;
 ${blocks.join("\n\n")}
 `;
   }
+  function formatShortTimestamp(seconds) {
+    const clamped = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+    const s = clamped % 60;
+    const totalMins = Math.floor(clamped / 60);
+    const m = totalMins % 60;
+    const h = Math.floor(totalMins / 60);
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    if (h > 0) {
+      return `${String(h).padStart(2, "0")}:${mm}:${ss}`;
+    }
+    return `${mm}:${ss}`;
+  }
+  function formatTxt(cues, { includeTimestamps = true, title = "" } = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    if (normalized.length === 0) return "";
+    const header = title ? `# ${String(title).trim()}
+
+` : "";
+    const lines = normalized.map((cue) => {
+      const cleanText = String(cue.text || "").replace(/\s+/g, " ").trim();
+      const speakerPrefix = cue.speaker ? `${cue.speaker}: ` : "";
+      if (!includeTimestamps) {
+        return `${speakerPrefix}${cleanText}`;
+      }
+      return `[${formatShortTimestamp(cue.startSec)}] ${speakerPrefix}${cleanText}`;
+    });
+    return `${header}${lines.join("\n")}
+`;
+  }
+  function formatJsonSubtitles(cues, meta = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    const payload = {
+      schema: "lm-subs/v1",
+      title: meta.title || "NotebookLM Video Overview",
+      language: meta.language || "en",
+      ...meta.provider ? { provider: meta.provider } : {},
+      ...meta.model ? { model: meta.model } : {},
+      ...meta.artifactId ? { artifactId: meta.artifactId } : {},
+      cueCount: normalized.length,
+      exportedAt: meta.exportedAt || (/* @__PURE__ */ new Date()).toISOString(),
+      cues: normalized
+    };
+    return `${JSON.stringify(payload, null, 2)}
+`;
+  }
+  function slugifySubtitleFilename(title) {
+    const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+    return slug || "notebooklm-video-overview";
+  }
+  function serializeSubtitles(cues, format = "srt", meta = {}) {
+    const fmt = String(format || "srt").toLowerCase();
+    const base = slugifySubtitleFilename(meta.title);
+    if (fmt === "vtt") {
+      return {
+        content: formatVtt(cues),
+        extension: "vtt",
+        mimeType: "text/vtt;charset=utf-8",
+        filename: `${base}.vtt`
+      };
+    }
+    if (fmt === "txt") {
+      return {
+        content: formatTxt(cues, {
+          includeTimestamps: meta.includeTimestamps !== false,
+          title: meta.title || ""
+        }),
+        extension: "txt",
+        mimeType: "text/plain;charset=utf-8",
+        filename: `${base}.txt`
+      };
+    }
+    if (fmt === "json") {
+      return {
+        content: formatJsonSubtitles(cues, meta),
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        filename: `${base}.json`
+      };
+    }
+    return {
+      content: formatSrt(cues),
+      extension: "srt",
+      mimeType: "application/x-subrip;charset=utf-8",
+      filename: `${base}.srt`
+    };
+  }
 
   // src/ui/brand-icon.js
   var SVG_NS = "http://www.w3.org/2000/svg";
@@ -793,7 +880,7 @@ ${blocks.join("\n\n")}
     }
   }
   function downloadFile(content, filename, mime) {
-    const blob = new Blob([content], { type: mime });
+    const blob = new Blob(["\uFEFF", content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -801,10 +888,7 @@ ${blocks.join("\n\n")}
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2e3);
-  }
-  function slugify(title) {
-    return String(title || "video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "video-overview";
+    setTimeout(() => URL.revokeObjectURL(url), 3e3);
   }
   async function initOptions() {
     document.getElementById("brand-icon-slot")?.appendChild(createBrandMarkSvg(document, 32));
@@ -840,6 +924,7 @@ ${blocks.join("\n\n")}
     const cacheEmpty = document.getElementById("cache-empty");
     const cacheTableWrap = document.getElementById("cache-table-wrap");
     const cacheTbody = document.getElementById("cache-tbody");
+    const exportAllVaultBtn = document.getElementById("export-all-vault-btn");
     const clearCacheBtn = document.getElementById("clear-cache-btn");
     const rpcCreateInput = document.getElementById("rpc-create-input");
     const rpcPollInput = document.getElementById("rpc-poll-input");
@@ -1119,10 +1204,33 @@ ${blocks.join("\n\n")}
       if (!cacheList || cacheList.length === 0) {
         cacheEmpty.style.display = "block";
         cacheTableWrap.style.display = "none";
+        if (exportAllVaultBtn) exportAllVaultBtn.style.display = "none";
         return;
       }
       cacheEmpty.style.display = "none";
       cacheTableWrap.style.display = "block";
+      if (exportAllVaultBtn) exportAllVaultBtn.style.display = "inline-flex";
+      const makeFormatButton = (item, label, fmt) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-sm";
+        b.textContent = label;
+        b.addEventListener("click", () => {
+          const { content, filename, mimeType } = serializeSubtitles(
+            item.cues || [],
+            fmt,
+            {
+              title: item.title,
+              language: item.language || "en",
+              provider: item.provider,
+              model: item.model,
+              artifactId: item.artifactId
+            }
+          );
+          downloadFile(content, filename, mimeType);
+        });
+        return b;
+      };
       for (const item of cacheList) {
         const tr = document.createElement("tr");
         const tdTitle = document.createElement("td");
@@ -1152,27 +1260,34 @@ ${blocks.join("\n\n")}
         const tdActions = document.createElement("td");
         const actRow = document.createElement("div");
         actRow.className = "row";
-        const srtBtn = document.createElement("button");
-        srtBtn.type = "button";
-        srtBtn.className = "btn btn-sm";
-        srtBtn.textContent = ".SRT";
-        srtBtn.addEventListener("click", () => {
-          downloadFile(
-            formatSrt(item.cues || []),
-            `${slugify(item.title)}.srt`,
-            "application/x-subrip;charset=utf-8"
-          );
-        });
-        const vttBtn = document.createElement("button");
-        vttBtn.type = "button";
-        vttBtn.className = "btn btn-sm";
-        vttBtn.textContent = ".VTT";
-        vttBtn.addEventListener("click", () => {
-          downloadFile(
-            formatVtt(item.cues || []),
-            `${slugify(item.title)}.vtt`,
-            "text/vtt;charset=utf-8"
-          );
+        const srtBtn = makeFormatButton(item, ".SRT", "srt");
+        const vttBtn = makeFormatButton(item, ".VTT", "vtt");
+        const txtBtn = makeFormatButton(item, ".TXT", "txt");
+        const jsonBtn = makeFormatButton(item, ".JSON", "json");
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "btn btn-sm";
+        copyBtn.textContent = "Copy";
+        copyBtn.addEventListener("click", async () => {
+          const txt = formatTxt(item.cues || [], {
+            includeTimestamps: true,
+            title: item.title
+          });
+          try {
+            await navigator.clipboard.writeText(txt);
+            copyBtn.textContent = "Copied";
+          } catch {
+            const { content, filename, mimeType } = serializeSubtitles(
+              item.cues || [],
+              "txt",
+              { title: item.title }
+            );
+            downloadFile(content, filename, mimeType);
+            copyBtn.textContent = "Saved";
+          }
+          setTimeout(() => {
+            copyBtn.textContent = "Copy";
+          }, 1200);
         });
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -1184,12 +1299,27 @@ ${blocks.join("\n\n")}
           await triggerAutoSyncIfConnected({ deletedCacheKeys: [item.cacheKey] });
           renderCacheTable();
         });
-        actRow.append(srtBtn, vttBtn, delBtn);
+        actRow.append(srtBtn, vttBtn, txtBtn, jsonBtn, copyBtn, delBtn);
         tdActions.appendChild(actRow);
         tr.append(tdTitle, tdProv, tdSlim, tdCues, tdActions);
         cacheTbody.appendChild(tr);
       }
     }
+    exportAllVaultBtn?.addEventListener("click", () => {
+      if (!cacheList || cacheList.length === 0) return;
+      const bundle = {
+        schema: "lm-subs-vault/v1",
+        exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        count: cacheList.length,
+        transcripts: cacheList
+      };
+      downloadFile(
+        `${JSON.stringify(bundle, null, 2)}
+`,
+        `lm-subs-vault-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`,
+        "application/json;charset=utf-8"
+      );
+    });
     populateForm();
     renderSyncPanel();
     renderProviderQueue();

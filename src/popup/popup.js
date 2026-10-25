@@ -21,7 +21,7 @@ import {
   saveSettings,
   setApiKey,
 } from "../lib/storage.js";
-import { formatSrt } from "../lib/subtitles.js";
+import { formatTxt, serializeSubtitles } from "../lib/subtitles.js";
 import { createBrandMarkSvg } from "../ui/brand-icon.js";
 
 function sendRuntime(msg) {
@@ -46,22 +46,24 @@ async function requestProviderOrigin(providerId, customBaseUrl = "") {
   }
 }
 
-function downloadSrtFile(title, cues) {
-  const srt = formatSrt(cues);
-  const blob = new Blob([srt], { type: "application/x-subrip;charset=utf-8" });
+function exportSubtitleEntry(entry, format = "srt") {
+  if (!entry?.cues?.length) return;
+  const { content, filename, mimeType } = serializeSubtitles(entry.cues, format, {
+    title: entry.title,
+    language: entry.language || "en",
+    provider: entry.provider,
+    model: entry.model,
+    artifactId: entry.artifactId,
+  });
+  const blob = new Blob(["\uFEFF", content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const slug = String(title || "video-overview")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
   a.href = url;
-  a.download = `${slug || "video-overview"}.srt`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
 async function initPopup() {
@@ -91,7 +93,13 @@ async function initPopup() {
   const tabBadge = document.getElementById("tab-badge");
   const tabDescription = document.getElementById("tab-description");
   const generateNowBtn = document.getElementById("generate-now-btn");
+  const popupExportBar = document.getElementById("popup-export-bar");
+  const popupExportSource = document.getElementById("popup-export-source");
   const downloadLatestSrtBtn = document.getElementById("download-latest-srt-btn");
+  const downloadLatestVttBtn = document.getElementById("download-latest-vtt-btn");
+  const downloadLatestTxtBtn = document.getElementById("download-latest-txt-btn");
+  const downloadLatestJsonBtn = document.getElementById("download-latest-json-btn");
+  const copyLatestTxtBtn = document.getElementById("copy-latest-txt-btn");
   const lastStatusCard = document.getElementById("last-status-card");
   const lastStatusBadge = document.getElementById("last-status-badge");
   const lastStatusTitle = document.getElementById("last-status-title");
@@ -120,7 +128,31 @@ async function initPopup() {
 
   let activeTabId = null;
   let activeTabDiagnostics = null;
+  let activeTabSubtitles = null;
   let missingGoogleOrigins = [];
+
+  function resolveExportTarget() {
+    if (activeTabSubtitles?.cues?.length > 0) {
+      return activeTabSubtitles;
+    }
+    if (cacheList.length > 0 && cacheList[0]?.cues?.length > 0) {
+      return cacheList[0];
+    }
+    return null;
+  }
+
+  function renderExportBar() {
+    if (!popupExportBar) return;
+    const target = resolveExportTarget();
+    if (!target) {
+      popupExportBar.style.display = "none";
+      return;
+    }
+    popupExportBar.style.display = "block";
+    if (popupExportSource) {
+      popupExportSource.textContent = `${target.title || "Video Overview"} (${target.cues.length})`;
+    }
+  }
 
   async function inspectGoogleHostPermissions() {
     if (!chrome.permissions?.contains) return;
@@ -236,11 +268,7 @@ async function initPopup() {
       lastStatusMeta.textContent = lastStatus.message || "Failed";
     }
 
-    if (cacheList.length > 0 && cacheList[0]?.cues?.length > 0) {
-      downloadLatestSrtBtn.style.display = "inline-flex";
-      downloadLatestSrtBtn.onclick = () =>
-        downloadSrtFile(cacheList[0].title, cacheList[0].cues);
-    }
+    renderExportBar();
   }
 
   async function inspectActiveTab() {
@@ -278,6 +306,10 @@ async function initPopup() {
         if (state.diagnostics) {
           activeTabDiagnostics = state.diagnostics;
         }
+        if (state.activeSubtitles?.cues?.length > 0) {
+          activeTabSubtitles = state.activeSubtitles;
+          renderExportBar();
+        }
         if (state.hasVideoElement || state.readyArtifactCount > 0) {
           tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Ready`;
           tabBadge.className = "badge badge-saved";
@@ -309,6 +341,7 @@ async function initPopup() {
   renderSelectedProvider();
   renderSyncStatus();
   renderLastStatus();
+  renderExportBar();
   inspectGoogleHostPermissions();
   inspectActiveTab();
 
@@ -452,6 +485,7 @@ async function initPopup() {
       renderSelectedProvider();
       renderSyncStatus();
       renderLastStatus();
+      renderExportBar();
     } else if (res?.error) {
       popupSyncSummary.textContent = res.error;
     }
@@ -475,6 +509,53 @@ async function initPopup() {
       }
     );
   });
+
+  const bindExportButton = (btn, fmt) => {
+    btn?.addEventListener("click", () => {
+      const target = resolveExportTarget();
+      if (!target) return;
+      exportSubtitleEntry(target, fmt);
+    });
+  };
+  bindExportButton(downloadLatestSrtBtn, "srt");
+  bindExportButton(downloadLatestVttBtn, "vtt");
+  bindExportButton(downloadLatestTxtBtn, "txt");
+  bindExportButton(downloadLatestJsonBtn, "json");
+
+  copyLatestTxtBtn?.addEventListener("click", async () => {
+    const target = resolveExportTarget();
+    if (!target) return;
+    const txt = formatTxt(target.cues, {
+      includeTimestamps: true,
+      title: target.title,
+    });
+    try {
+      await navigator.clipboard.writeText(txt);
+      copyLatestTxtBtn.textContent = "Copied";
+    } catch {
+      exportSubtitleEntry(target, "txt");
+      copyLatestTxtBtn.textContent = "Saved";
+    }
+    setTimeout(() => {
+      copyLatestTxtBtn.textContent = "Copy";
+    }, 1200);
+  });
+
+  try {
+    chrome.storage?.onChanged?.addListener(async (changes, areaName) => {
+      if (areaName !== "local") return;
+      if (changes.subtitleCache || changes.lastStatus) {
+        [lastStatus, cacheList] = await Promise.all([
+          getLastStatus(),
+          getSubtitleCacheList(),
+        ]);
+        renderLastStatus();
+        renderExportBar();
+      }
+    });
+  } catch {
+    // Ignore
+  }
 
   const openOptions = () => chrome.runtime.openOptionsPage();
   openQueueBtn.addEventListener("click", openOptions);

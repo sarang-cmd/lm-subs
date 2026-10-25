@@ -109,9 +109,19 @@
         <button id="generate-now-btn" type="button" class="btn btn-ink" style="flex: 1" disabled>
           Generate Subtitles
         </button>
-        <button id="download-latest-srt-btn" type="button" class="btn" style="display: none">
-          .SRT
-        </button>
+      </div>
+      <div id="popup-export-bar" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border)">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 5px">
+          <span style="font-family: var(--mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted)">Export Subtitles</span>
+          <span id="popup-export-source" style="font-family: var(--mono); font-size: 10px; color: var(--text-muted); max-width: 195px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"></span>
+        </div>
+        <div class="row" style="gap: 4px; flex-wrap: wrap">
+          <button id="download-latest-srt-btn" type="button" class="btn btn-sm" style="flex: 1">.SRT</button>
+          <button id="download-latest-vtt-btn" type="button" class="btn btn-sm" style="flex: 1">.VTT</button>
+          <button id="download-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">.TXT</button>
+          <button id="download-latest-json-btn" type="button" class="btn btn-sm" style="flex: 1">.JSON</button>
+          <button id="copy-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">Copy</button>
+        </div>
       </div>
     </section>
 

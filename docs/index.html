@@ -6,12 +6,16 @@
     <title>LM Subs — Fast Subtitles &amp; Encrypted Neon Sync for NotebookLM</title>
     <meta
       name="description"
-      content="LM Subs adds sub-5-second synchronized captions, .SRT/.VTT export, 12-provider BYOK failover, and AES-256-GCM encrypted Neon Postgres sync to Google NotebookLM Video Overviews."
+      content="LM Subs adds sub-5-second synchronized captions, .SRT/.VTT/.TXT/.JSON subtitle export, 12-provider BYOK failover, and AES-256-GCM encrypted Neon Postgres sync to Google NotebookLM Video Overviews."
+    />
+    <meta
+      name="keywords"
+      content="lm-subs, notebooklm, google-notebooklm, subtitles, captions, srt, webvtt, transcript-export, chrome-extension, manifest-v3, whisper, groq, mistral, neon, postgresql, byok"
     />
     <meta property="og:title" content="LM Subs" />
     <meta
       property="og:description"
-      content="Sub-5-second synchronized captions & encrypted Neon Postgres API-key sync for Google NotebookLM Video Overviews."
+      content="Sub-5-second synchronized captions, .SRT/.VTT/.TXT/.JSON export & encrypted Neon Postgres API-key sync for Google NotebookLM Video Overviews."
     />
     <meta property="og:image" content="assets/banner-social-1280x640.png" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -105,6 +109,7 @@
                 <button id="sim-offset-up" type="button" title="Shift +0.25s">+0.25s</button>
                 <button id="sim-dl-srt" type="button" style="color: #4ade80">.SRT</button>
                 <button id="sim-dl-vtt" type="button">.VTT</button>
+                <button id="sim-dl-txt" type="button">.TXT</button>
               </div>
             </div>
 
@@ -310,7 +315,12 @@
                 </div>
 
                 <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border)">
-                  <div class="pane-title" style="margin-bottom: 8px">Synced Subtitle Transcripts</div>
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px">
+                    <div class="pane-title" style="margin-bottom: 0">Synced Subtitle Transcripts</div>
+                    <button id="web-export-all-btn" type="button" class="btn btn-sm" style="display: none">
+                      Export All (.JSON)
+                    </button>
+                  </div>
                   <div id="web-subs-empty" style="font-size: 12.5px; color: var(--ink-muted)">
                     No Video Overview transcripts synced yet. Caption a Video Overview in Chrome with LM Subs signed in to see it appear here automatically.
                   </div>

@@ -3,7 +3,7 @@
   "name": "LM Subs",
   "short_name": "LM Subs",
   "version": "0.2.0",
-  "description": "Fast synchronized subtitles, .SRT/.VTT export, and encrypted Neon cloud sync for Google NotebookLM Video Overviews.",
+  "description": "Sub-5s synchronized captions, .SRT/.VTT/.TXT/.JSON export & encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",

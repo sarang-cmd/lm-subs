@@ -212,11 +212,36 @@ export function normalizeAndSortCues(rawCues, offsetSec = 0) {
 }
 
 /**
- * Parses `.srt` or `.vtt` subtitle text into normalized `SubtitleCue[]`.
+ * Parses `.srt`, `.vtt`, or LM Subs `.json` subtitle payloads into normalized `SubtitleCue[]`.
  */
 export function parseSubtitleText(input, offsetSec = 0) {
   const cleaned = stripLlmFences(input);
   if (!cleaned) return [];
+
+  const trimmed = cleaned.replace(/^\uFEFF/, "").trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsedJson = JSON.parse(trimmed);
+      const cueArray = Array.isArray(parsedJson)
+        ? parsedJson
+        : Array.isArray(parsedJson?.cues)
+          ? parsedJson.cues
+          : null;
+      if (cueArray) {
+        return normalizeAndSortCues(
+          cueArray.map((c) => ({
+            startSec: Number(c.startSec ?? c.start ?? 0),
+            endSec: Number(c.endSec ?? c.end ?? 0),
+            text: String(c.text || ""),
+            ...(c.speaker ? { speaker: String(c.speaker) } : {}),
+          })),
+          offsetSec
+        );
+      }
+    } catch {
+      // Fall through to line-based SRT/VTT parser
+    }
+  }
 
   const lines = cleaned.replace(/^\uFEFF/, "").split(/\r?\n/);
   const rawCues = [];
@@ -318,6 +343,118 @@ export function formatVtt(cues) {
     )}\n${body}`;
   });
   return `WEBVTT\n\n${blocks.join("\n\n")}\n`;
+}
+
+/**
+ * Formats seconds into compact `[MM:SS]` or `[HH:MM:SS]` for plain-text transcripts.
+ */
+export function formatShortTimestamp(seconds) {
+  const clamped = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+  const s = clamped % 60;
+  const totalMins = Math.floor(clamped / 60);
+  const m = totalMins % 60;
+  const h = Math.floor(totalMins / 60);
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  if (h > 0) {
+    return `${String(h).padStart(2, "0")}:${mm}:${ss}`;
+  }
+  return `${mm}:${ss}`;
+}
+
+/**
+ * Formats normalized cues into a clean, readable plain-text (`.txt`) transcript
+ * suitable for Notion, Obsidian, Google Docs, or NotebookLM source notes.
+ */
+export function formatTxt(cues, { includeTimestamps = true, title = "" } = {}) {
+  const normalized = normalizeAndSortCues(cues);
+  if (normalized.length === 0) return "";
+  const header = title ? `# ${String(title).trim()}\n\n` : "";
+  const lines = normalized.map((cue) => {
+    const cleanText = String(cue.text || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const speakerPrefix = cue.speaker ? `${cue.speaker}: ` : "";
+    if (!includeTimestamps) {
+      return `${speakerPrefix}${cleanText}`;
+    }
+    return `[${formatShortTimestamp(cue.startSec)}] ${speakerPrefix}${cleanText}`;
+  });
+  return `${header}${lines.join("\n")}\n`;
+}
+
+/**
+ * Formats normalized cues and metadata into structured JSON (`.json`).
+ */
+export function formatJsonSubtitles(cues, meta = {}) {
+  const normalized = normalizeAndSortCues(cues);
+  const payload = {
+    schema: "lm-subs/v1",
+    title: meta.title || "NotebookLM Video Overview",
+    language: meta.language || "en",
+    ...(meta.provider ? { provider: meta.provider } : {}),
+    ...(meta.model ? { model: meta.model } : {}),
+    ...(meta.artifactId ? { artifactId: meta.artifactId } : {}),
+    cueCount: normalized.length,
+    exportedAt: meta.exportedAt || new Date().toISOString(),
+    cues: normalized,
+  };
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+/**
+ * Builds a clean filesystem-safe slug for exported subtitle filenames.
+ */
+export function slugifySubtitleFilename(title) {
+  const slug = String(title || "notebooklm-video-overview")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return slug || "notebooklm-video-overview";
+}
+
+/**
+ * Unified serializer returning `{ content, extension, mimeType, filename }`
+ * for `srt`, `vtt`, `txt`, or `json`.
+ */
+export function serializeSubtitles(cues, format = "srt", meta = {}) {
+  const fmt = String(format || "srt").toLowerCase();
+  const base = slugifySubtitleFilename(meta.title);
+
+  if (fmt === "vtt") {
+    return {
+      content: formatVtt(cues),
+      extension: "vtt",
+      mimeType: "text/vtt;charset=utf-8",
+      filename: `${base}.vtt`,
+    };
+  }
+  if (fmt === "txt") {
+    return {
+      content: formatTxt(cues, {
+        includeTimestamps: meta.includeTimestamps !== false,
+        title: meta.title || "",
+      }),
+      extension: "txt",
+      mimeType: "text/plain;charset=utf-8",
+      filename: `${base}.txt`,
+    };
+  }
+  if (fmt === "json") {
+    return {
+      content: formatJsonSubtitles(cues, meta),
+      extension: "json",
+      mimeType: "application/json;charset=utf-8",
+      filename: `${base}.json`,
+    };
+  }
+  return {
+    content: formatSrt(cues),
+    extension: "srt",
+    mimeType: "application/x-subrip;charset=utf-8",
+    filename: `${base}.srt`,
+  };
 }
 
 /**

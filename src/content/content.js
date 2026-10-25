@@ -1268,18 +1268,29 @@ export async function initContentCoordinator({
       );
       const matched = target ? matchArtifactForVideo(target.video) : readyArts[readyArts.length - 1] || null;
 
+      const hasLiveCues = Boolean(target && target.controller.cues.length > 0);
       sendResponse({
         ok: true,
         hasVideoElement: controllers.size > 0,
         videoCount: controllers.size,
         readyArtifactCount: readyArts.length,
         generatingCount: generatingArts.length,
-        hasSubtitles: Boolean(target && target.controller.cues.length > 0),
+        hasSubtitles: hasLiveCues,
         activeArtifact: matched
           ? { artifactId: matched.artifactId, title: matched.title }
           : target
             ? { title: target.controller.title || getNotebookTitleFallback() }
             : null,
+        activeSubtitles: hasLiveCues
+          ? {
+              title:
+                matched?.title ||
+                target.controller.title ||
+                getNotebookTitleFallback(),
+              language: target.controller.language || "en",
+              cues: target.controller.getExportCues(),
+            }
+          : null,
         diagnostics: buildTabDiagnosticSnapshot(),
       });
       return false;

@@ -13,7 +13,7 @@
 [![Tests](docs/assets/badges/tests.svg)](#development--testing)
 [![License: MIT](docs/assets/badges/license.svg)](LICENSE)
 
-[**Download `lm-subs-v0.2.0.zip`**](docs/releases/lm-subs-v0.2.0.zip) · [**Web App & Neon Cloud Sync Console (`docs/`)**](docs/index.html) · [**Architecture**](#system-architecture) · [**Setup Guide**](#quick-start)
+[**Download `lm-subs-v0.2.0.zip`**](docs/releases/lm-subs-v0.2.0.zip) · [**Web App & Neon Cloud Sync Console (`docs/`)**](docs/index.html) · [**Deployment Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) · [**Architecture**](#system-architecture) · [**Setup Guide**](#quick-start)
 
 <br />
 
@@ -43,8 +43,8 @@ Earlier naive approaches either upload 80–120 MB HD `.mp4` videos or decode co
 
 ## Visual Tour (`v0.2.0` Braun Specification UI)
 
-### 01 · In-Player Broadcast Captions & Control Bar
-Synchronized two-line broadcast captions (`CC`, `A-`/`A+`, `±0.25s` offset, `.SRT`/`.VTT` export & import, `Regen`) mounted directly inside NotebookLM's `<video>` container and Shadow DOM `Lot` dialogs.
+### 01 · In-Player Broadcast Captions & Multi-Format Export Bar
+Synchronized two-line broadcast captions (`CC`, `A-`/`A+`, `±0.25s` offset, `.SRT`/`.VTT`/`.TXT`/`.JSON` export, one-click `Copy`, `.srt`/`.vtt`/`.json` import, `Regen`) mounted directly inside NotebookLM's `<video>` container and Shadow DOM `Lot` dialogs.
 
 <p align="center">
   <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="In-Player Subtitles & Control Bar on Google NotebookLM" />
@@ -115,6 +115,8 @@ LM Subs ships with first-class **Neon** (`@neon/config/v1` IaC + Lakebase Postgr
 
 ### Provisioning & Deploying Your Own Neon Backend
 
+See [**`DEPLOYMENT_GUIDE.md`**](DEPLOYMENT_GUIDE.md) for the complete production runbook (Neon IaC, `LM_SUBS_ENCRYPTION_SECRET`, Vercel Fluid Compute, Neon Functions, self-hosted Node/Docker, and `/api/sync/export` verification).
+
 ```bash
 # 1. Authenticate with Neon in your browser and deploy neon.ts
 npx neon login
@@ -175,7 +177,7 @@ npm install          # Install build, server, and test dependencies (0 vulnerabi
 npm run build        # Bundle all 5 MV3 entrypoints via esbuild (~50 ms)
 npm run assets       # Regenerate Braun SVG/PNG icons, badges, diagrams & 4 screenshots
 npm run zip          # Package docs/releases/lm-subs-v0.2.0.zip
-npm test             # Run all 37 unit, security, speed & Postgres E2E tests
+npm test             # Run all 40 unit, security, speed, export & Postgres E2E tests
 npm start            # Start unified Web Console + /api/* Neon Sync server on 0.0.0.0:4173
 ```
 

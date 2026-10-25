@@ -670,6 +670,111 @@ ${formatTimestamp(cue.startSec, ",")} --> ${formatTimestamp(
 ${body}`;
     }).join("\n\n") + "\n";
   }
+  function formatVtt(cues) {
+    const normalized = normalizeAndSortCues(cues);
+    if (normalized.length === 0) return "WEBVTT\n\n";
+    const blocks = normalized.map((cue, idx) => {
+      const prefix = cue.speaker ? `[${cue.speaker}] ` : "";
+      const body = prefix ? wrapSubtitleLines(`${prefix}${cue.text.replace(/\n/g, " ")}`) : cue.text;
+      return `${idx + 1}
+${formatTimestamp(cue.startSec, ".")} --> ${formatTimestamp(
+        cue.endSec,
+        "."
+      )}
+${body}`;
+    });
+    return `WEBVTT
+
+${blocks.join("\n\n")}
+`;
+  }
+  function formatShortTimestamp(seconds) {
+    const clamped = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+    const s = clamped % 60;
+    const totalMins = Math.floor(clamped / 60);
+    const m = totalMins % 60;
+    const h = Math.floor(totalMins / 60);
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    if (h > 0) {
+      return `${String(h).padStart(2, "0")}:${mm}:${ss}`;
+    }
+    return `${mm}:${ss}`;
+  }
+  function formatTxt(cues, { includeTimestamps = true, title = "" } = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    if (normalized.length === 0) return "";
+    const header = title ? `# ${String(title).trim()}
+
+` : "";
+    const lines = normalized.map((cue) => {
+      const cleanText = String(cue.text || "").replace(/\s+/g, " ").trim();
+      const speakerPrefix = cue.speaker ? `${cue.speaker}: ` : "";
+      if (!includeTimestamps) {
+        return `${speakerPrefix}${cleanText}`;
+      }
+      return `[${formatShortTimestamp(cue.startSec)}] ${speakerPrefix}${cleanText}`;
+    });
+    return `${header}${lines.join("\n")}
+`;
+  }
+  function formatJsonSubtitles(cues, meta = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    const payload = {
+      schema: "lm-subs/v1",
+      title: meta.title || "NotebookLM Video Overview",
+      language: meta.language || "en",
+      ...meta.provider ? { provider: meta.provider } : {},
+      ...meta.model ? { model: meta.model } : {},
+      ...meta.artifactId ? { artifactId: meta.artifactId } : {},
+      cueCount: normalized.length,
+      exportedAt: meta.exportedAt || (/* @__PURE__ */ new Date()).toISOString(),
+      cues: normalized
+    };
+    return `${JSON.stringify(payload, null, 2)}
+`;
+  }
+  function slugifySubtitleFilename(title) {
+    const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+    return slug || "notebooklm-video-overview";
+  }
+  function serializeSubtitles(cues, format = "srt", meta = {}) {
+    const fmt = String(format || "srt").toLowerCase();
+    const base = slugifySubtitleFilename(meta.title);
+    if (fmt === "vtt") {
+      return {
+        content: formatVtt(cues),
+        extension: "vtt",
+        mimeType: "text/vtt;charset=utf-8",
+        filename: `${base}.vtt`
+      };
+    }
+    if (fmt === "txt") {
+      return {
+        content: formatTxt(cues, {
+          includeTimestamps: meta.includeTimestamps !== false,
+          title: meta.title || ""
+        }),
+        extension: "txt",
+        mimeType: "text/plain;charset=utf-8",
+        filename: `${base}.txt`
+      };
+    }
+    if (fmt === "json") {
+      return {
+        content: formatJsonSubtitles(cues, meta),
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        filename: `${base}.json`
+      };
+    }
+    return {
+      content: formatSrt(cues),
+      extension: "srt",
+      mimeType: "application/x-subrip;charset=utf-8",
+      filename: `${base}.srt`
+    };
+  }
 
   // src/ui/brand-icon.js
   var SVG_NS = "http://www.w3.org/2000/svg";
@@ -741,18 +846,24 @@ ${body}`;
       return true;
     }
   }
-  function downloadSrtFile(title, cues) {
-    const srt = formatSrt(cues);
-    const blob = new Blob([srt], { type: "application/x-subrip;charset=utf-8" });
+  function exportSubtitleEntry(entry, format = "srt") {
+    if (!entry?.cues?.length) return;
+    const { content, filename, mimeType } = serializeSubtitles(entry.cues, format, {
+      title: entry.title,
+      language: entry.language || "en",
+      provider: entry.provider,
+      model: entry.model,
+      artifactId: entry.artifactId
+    });
+    const blob = new Blob(["\uFEFF", content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const slug = String(title || "video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
     a.href = url;
-    a.download = `${slug || "video-overview"}.srt`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2e3);
+    setTimeout(() => URL.revokeObjectURL(url), 3e3);
   }
   async function initPopup() {
     const iconSlot = document.getElementById("brand-icon-slot");
@@ -778,7 +889,13 @@ ${body}`;
     const tabBadge = document.getElementById("tab-badge");
     const tabDescription = document.getElementById("tab-description");
     const generateNowBtn = document.getElementById("generate-now-btn");
+    const popupExportBar = document.getElementById("popup-export-bar");
+    const popupExportSource = document.getElementById("popup-export-source");
     const downloadLatestSrtBtn = document.getElementById("download-latest-srt-btn");
+    const downloadLatestVttBtn = document.getElementById("download-latest-vtt-btn");
+    const downloadLatestTxtBtn = document.getElementById("download-latest-txt-btn");
+    const downloadLatestJsonBtn = document.getElementById("download-latest-json-btn");
+    const copyLatestTxtBtn = document.getElementById("copy-latest-txt-btn");
     const lastStatusCard = document.getElementById("last-status-card");
     const lastStatusBadge = document.getElementById("last-status-badge");
     const lastStatusTitle = document.getElementById("last-status-title");
@@ -803,7 +920,29 @@ ${body}`;
     ]);
     let activeTabId = null;
     let activeTabDiagnostics = null;
+    let activeTabSubtitles = null;
     let missingGoogleOrigins = [];
+    function resolveExportTarget() {
+      if (activeTabSubtitles?.cues?.length > 0) {
+        return activeTabSubtitles;
+      }
+      if (cacheList.length > 0 && cacheList[0]?.cues?.length > 0) {
+        return cacheList[0];
+      }
+      return null;
+    }
+    function renderExportBar() {
+      if (!popupExportBar) return;
+      const target = resolveExportTarget();
+      if (!target) {
+        popupExportBar.style.display = "none";
+        return;
+      }
+      popupExportBar.style.display = "block";
+      if (popupExportSource) {
+        popupExportSource.textContent = `${target.title || "Video Overview"} (${target.cues.length})`;
+      }
+    }
     async function inspectGoogleHostPermissions() {
       if (!chrome.permissions?.contains) return;
       const required = [
@@ -894,10 +1033,7 @@ ${body}`;
         lastStatusBadge.className = "badge badge-err";
         lastStatusMeta.textContent = lastStatus.message || "Failed";
       }
-      if (cacheList.length > 0 && cacheList[0]?.cues?.length > 0) {
-        downloadLatestSrtBtn.style.display = "inline-flex";
-        downloadLatestSrtBtn.onclick = () => downloadSrtFile(cacheList[0].title, cacheList[0].cues);
-      }
+      renderExportBar();
     }
     async function inspectActiveTab() {
       if (!chrome.tabs?.query) return;
@@ -930,6 +1066,10 @@ ${body}`;
           if (state.diagnostics) {
             activeTabDiagnostics = state.diagnostics;
           }
+          if (state.activeSubtitles?.cues?.length > 0) {
+            activeTabSubtitles = state.activeSubtitles;
+            renderExportBar();
+          }
           if (state.hasVideoElement || state.readyArtifactCount > 0) {
             tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Ready`;
             tabBadge.className = "badge badge-saved";
@@ -956,6 +1096,7 @@ ${body}`;
     renderSelectedProvider();
     renderSyncStatus();
     renderLastStatus();
+    renderExportBar();
     inspectGoogleHostPermissions();
     inspectActiveTab();
     enabledToggle.addEventListener("change", async () => {
@@ -1081,6 +1222,7 @@ ${body}`;
         renderSelectedProvider();
         renderSyncStatus();
         renderLastStatus();
+        renderExportBar();
       } else if (res?.error) {
         popupSyncSummary.textContent = res.error;
       }
@@ -1101,6 +1243,49 @@ ${body}`;
         }
       );
     });
+    const bindExportButton = (btn, fmt) => {
+      btn?.addEventListener("click", () => {
+        const target = resolveExportTarget();
+        if (!target) return;
+        exportSubtitleEntry(target, fmt);
+      });
+    };
+    bindExportButton(downloadLatestSrtBtn, "srt");
+    bindExportButton(downloadLatestVttBtn, "vtt");
+    bindExportButton(downloadLatestTxtBtn, "txt");
+    bindExportButton(downloadLatestJsonBtn, "json");
+    copyLatestTxtBtn?.addEventListener("click", async () => {
+      const target = resolveExportTarget();
+      if (!target) return;
+      const txt = formatTxt(target.cues, {
+        includeTimestamps: true,
+        title: target.title
+      });
+      try {
+        await navigator.clipboard.writeText(txt);
+        copyLatestTxtBtn.textContent = "Copied";
+      } catch {
+        exportSubtitleEntry(target, "txt");
+        copyLatestTxtBtn.textContent = "Saved";
+      }
+      setTimeout(() => {
+        copyLatestTxtBtn.textContent = "Copy";
+      }, 1200);
+    });
+    try {
+      chrome.storage?.onChanged?.addListener(async (changes, areaName) => {
+        if (areaName !== "local") return;
+        if (changes.subtitleCache || changes.lastStatus) {
+          [lastStatus, cacheList] = await Promise.all([
+            getLastStatus(),
+            getSubtitleCacheList()
+          ]);
+          renderLastStatus();
+          renderExportBar();
+        }
+      });
+    } catch {
+    }
     const openOptions = () => chrome.runtime.openOptionsPage();
     openQueueBtn.addEventListener("click", openOptions);
     openOptionsBtn.addEventListener("click", openOptions);
