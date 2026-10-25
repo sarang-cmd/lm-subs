@@ -697,7 +697,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -2412,7 +2412,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.2";
+          runtimeApi?.getManifest?.()?.version || "0.2.3";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),

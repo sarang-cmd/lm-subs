@@ -10,8 +10,10 @@ import {
 } from "../src/background/service-worker.js";
 import { ALARM_NAMES, RUNTIME_MESSAGE } from "../src/config/selectors.js";
 import { createToastManager } from "../src/content/toast.js";
+import { VideoSubtitleController } from "../src/content/player-overlay.js";
 import { LM_SUBS_LOGO_DATA_URI, createBrandLogoElement } from "../src/lib/brand-logo.js";
-import { setApiKey } from "../src/lib/storage.js";
+import { PROJECT_STATS } from "../src/lib/project-stats.js";
+import { getSettings, saveSettings, setApiKey } from "../src/lib/storage.js";
 import { extractZipArchive } from "../src/lib/unpacked-updater.js";
 
 function createMemoryStorage() {
@@ -436,25 +438,27 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
 
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
   const manifestJson = JSON.parse(fs.readFileSync(path.resolve("extension/manifest.json"), "utf8"));
-  assert.equal(pkgJson.version, "0.2.2");
-  assert.equal(manifestJson.version, "0.2.2");
+  assert.equal(pkgJson.version, "0.2.3");
+  assert.equal(manifestJson.version, "0.2.3");
   assert.equal(pkgJson.repository?.url, "https://github.com/sarang-cmd/lm-subs.git");
   assert.equal(pkgJson.homepage, "https://lm-subs.vercel.app");
-  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.2.zip")));
+  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.3.zip")));
   assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-latest.zip")));
   assert.ok(fs.existsSync(path.resolve("docs/releases/latest.json")));
+  assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.2.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.1.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.0.zip")));
 
   const progressMd = fs.readFileSync(path.resolve("progress.md"), "utf8");
   assert.ok(
-    progressMd.includes("## `v0.2.2`") &&
+    progressMd.includes("## `v0.2.3`") &&
+      progressMd.includes("## `v0.2.2`") &&
       progressMd.includes("## `v0.2.1`") &&
       progressMd.includes("## `v0.2.0`") &&
       progressMd.includes("## `v0.1.2`") &&
       progressMd.includes("## `v0.1.1`") &&
       progressMd.includes("## `v0.1.0`"),
-    "progress.md must document versions 0.1.0 through 0.2.2"
+    "progress.md must document versions 0.1.0 through 0.2.3"
   );
   assert.ok(
     !progressMd.includes("—") && !progressMd.includes("–"),
@@ -824,7 +828,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   assert.equal(verRes.status, 200);
   const verJson = await verRes.json();
   assert.equal(verJson.ok, true);
-  assert.equal(verJson.version, "0.2.2");
+  assert.equal(verJson.version, "0.2.3");
 
   const realZipBytes = new Uint8Array(
     fs.readFileSync(path.resolve("docs/releases/lm-subs-latest.zip"))
@@ -832,7 +836,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   const latestMeta = JSON.parse(
     fs.readFileSync(path.resolve("docs/releases/latest.json"), "utf8")
   );
-  assert.equal(latestMeta.version, "0.2.2");
+  assert.equal(latestMeta.version, "0.2.3");
   assert.match(latestMeta.buildId, /^[0-9a-f]{12}$/);
   assert.match(latestMeta.zipSha256, /^[0-9a-f]{64}$/);
 
@@ -967,7 +971,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   assert.equal(checkUnlinked.autoApplied, false);
   assert.equal(badges.at(-1), "UPD");
   assert.equal(desktopAlerts.length, 1);
-  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.2/);
+  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.3/);
   assert.equal(desktopAlerts[0].opts.iconUrl, "icons/icon128.png");
 
   // 4. Linked unpacked folder: CHECK_FOR_UPDATES automatically verifies SHA-256, writes all files, notifies, and reloads!
@@ -1048,4 +1052,179 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
     "Background cloud tick must broadcast SUBTITLES_UPDATED to open NotebookLM tabs for live hot-reload"
   );
 });
+
+test("Caption Studio Customizations, NotebookLM Study Controls, Split-Grid Overflow Fix, and Project Codebase Telemetry", async () => {
+  // 1. Regression guard for options.html + ui.css split-grid button overflow bug
+  const uiCss = fs.readFileSync(path.resolve("extension/ui.css"), "utf8");
+  const optionsHtml = fs.readFileSync(path.resolve("extension/options.html"), "utf8");
+  assert.match(uiCss, /\.ext-split\s*>\s*\*\s*\{[^}]*min-width:\s*0/s);
+  assert.match(uiCss, /\.action-cluster\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(uiCss, /\.switch-row-item\s*>\s*:first-child\s*\{[^}]*min-width:\s*0/s);
+  assert.ok(optionsHtml.includes('id="opt-caption-preview-stage"'));
+  assert.ok(optionsHtml.includes('class="action-cluster"'));
+
+  // 2. Storage round-trip for all new caption customization & playback fields
+  const mem = createMemoryStorage();
+  const saved = await saveSettings(
+    {
+      fontSize: "xxlarge",
+      captionStyle: "amber",
+      captionFontFamily: "dyslexic",
+      captionColor: "yellow",
+      captionBgOpacity: 65,
+      captionPosition: "top",
+      captionMaxWidth: "wide",
+      karaokeHighlight: true,
+      showSpeakerLabels: false,
+      pauseOnCaptionHover: true,
+      clickCaptionToCopy: true,
+      defaultPlaybackSpeed: 1.5,
+    },
+    mem
+  );
+  assert.equal(saved.fontSize, "xxlarge");
+  assert.equal(saved.captionStyle, "amber");
+  assert.equal(saved.captionFontFamily, "dyslexic");
+  assert.equal(saved.captionColor, "yellow");
+  assert.equal(saved.captionBgOpacity, 65);
+  assert.equal(saved.captionPosition, "top");
+  assert.equal(saved.captionMaxWidth, "wide");
+  assert.equal(saved.karaokeHighlight, true);
+  assert.equal(saved.defaultPlaybackSpeed, 1.5);
+  const loaded = await getSettings(mem);
+  assert.equal(loaded.captionStyle, "amber");
+  assert.equal(loaded.captionPosition, "top");
+
+  // 3. VideoSubtitleController: live styler, karaoke word highlight, cue loop, cue jump, bookmark, speed, chapters
+  function makeMockNode(tag) {
+    const el = {
+      tagName: String(tag).toUpperCase(),
+      className: "",
+      dataset: {},
+      style: {},
+      children: [],
+      textContent: "",
+      value: "",
+      firstChild: null,
+      appendChild(child) {
+        this.children.push(child);
+        this.firstChild = this.children[0] || null;
+        return child;
+      },
+      append(...nodes) {
+        for (const n of nodes) this.appendChild(n);
+      },
+      removeChild(child) {
+        const idx = this.children.indexOf(child);
+        if (idx >= 0) this.children.splice(idx, 1);
+        this.firstChild = this.children[0] || null;
+      },
+      remove() {},
+      addEventListener() {},
+      removeEventListener() {},
+      setAttribute() {},
+      querySelector() {
+        return null;
+      },
+      attachShadow() {
+        return makeMockNode("shadow");
+      },
+    };
+    return el;
+  }
+
+  const mockDoc = {
+    createElement: (t) => makeMockNode(t),
+    createTextNode: (txt) => ({ nodeType: 3, textContent: txt }),
+    body: makeMockNode("body"),
+  };
+  const parent = makeMockNode("div");
+  const mockVideo = {
+    parentElement: parent,
+    currentTime: 1.5,
+    paused: false,
+    playbackRate: 1,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  let mutatedCues = null;
+  let lastStylePatch = null;
+  const ctrl = new VideoSubtitleController(mockVideo, {
+    doc: mockDoc,
+    initialFontSize: "xlarge",
+    initialCaptionStyle: "paper",
+    initialFontFamily: "serif",
+    initialCaptionColor: "yellow",
+    initialBgOpacity: 75,
+    initialCaptionPosition: "raised",
+    initialKaraokeHighlight: true,
+    initialPlaybackSpeed: 1.25,
+    onStylePatchChange: (p) => {
+      lastStylePatch = p;
+    },
+    onCuesMutated: (cues) => {
+      mutatedCues = cues;
+    },
+  });
+
+  ctrl.setCues(
+    [
+      { startSec: 0, endSec: 4, text: "First spoken technical sentence." },
+      { startSec: 5, endSec: 9, text: "Second spoken technical sentence." },
+      { startSec: 70, endSec: 75, text: "Next chapter opening sentence." },
+    ],
+    { title: "Study Demo" }
+  );
+
+  assert.equal(mockVideo.playbackRate, 1.25);
+  assert.equal(ctrl.stageEl.dataset.pos, "raised");
+  assert.equal(ctrl.captionBox.dataset.style, "paper");
+  assert.ok(
+    ctrl.captionBox.children.some((c) => c.className === "caption-word-done"),
+    "Karaoke word highlight must progressively mark spoken words"
+  );
+
+  // Cycle playback speed -> 1.5x
+  assert.equal(ctrl.cyclePlaybackSpeed(1), 1.5);
+  assert.equal(mockVideo.playbackRate, 1.5);
+  assert.deepEqual(lastStylePatch, { defaultPlaybackSpeed: 1.5 });
+
+  // Jump to next cue (K) & toggle single-sentence loop (L)
+  ctrl.seekRelativeCue(1);
+  assert.ok(mockVideo.currentTime >= 5);
+  assert.equal(ctrl.toggleCueLoop(), true);
+  mockVideo.currentTime = 9.2;
+  ctrl._enforceCueLoop();
+  assert.ok(mockVideo.currentTime < 5.5, "Cue loop must rewind to start of looped sentence");
+
+  // Bookmark active cue (M) -> persists via onCuesMutated
+  assert.equal(ctrl.toggleBookmarkActiveCue(), true);
+  assert.equal(mutatedCues[1].bookmarked, true);
+
+  // Open Transcript Drawer & switch to Smart Chapters tab
+  ctrl.toggleTranscriptDrawer(true);
+  ctrl._setDrawerTab("chapters");
+  assert.ok(
+    ctrl.drawerListEl.children.some((c) => c.className === "chapter-row"),
+    "Chapters tab must render clickable smart chapter rows"
+  );
+
+  // Toggle Style Studio popover
+  assert.equal(ctrl.toggleStylePopover(), true);
+  assert.equal(ctrl.drawerOpen, false, "Opening Style popover closes Transcript drawer cleanly");
+  ctrl.destroy();
+
+  // 4. Verify real machine-counted PROJECT_STATS for /about
+  assert.equal(PROJECT_STATS.version, "0.2.3");
+  assert.ok(PROJECT_STATS.totalLoc > 25000, "PROJECT_STATS must reflect real repository LOC");
+  assert.ok(PROJECT_STATS.nonBlankLoc > 20000);
+  assert.ok(PROJECT_STATS.sourceFiles >= 40);
+  assert.equal(PROJECT_STATS.subsystems.length, 7);
+  assert.ok(PROJECT_STATS.automatedTests >= 50);
+  assert.equal(PROJECT_STATS.exportFormats, 6);
+  const aboutSrc = fs.readFileSync(path.resolve("src/web/AboutView.jsx"), "utf8");
+  assert.ok(aboutSrc.includes("PROJECT_STATS") && aboutSrc.includes("Project and codebase metrics"));
+});
+
 

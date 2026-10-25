@@ -571,11 +571,14 @@ test("In-Player VideoSubtitleController.exportSubtitles mounts download anchor i
       "quantum-error-correction.json",
     ]
   );
-  // Verify interactive Transcript Drawer, Caption Style cycling, and Shortcuts popover
+  // Verify interactive Transcript Drawer, 6-theme Caption Style cycling, and Shortcuts popover
   assert.equal(controller.toggleTranscriptDrawer(true), true);
   assert.equal(controller.drawerEl.dataset.open, "true");
   assert.equal(controller.cycleCaptionStyle(), "contrast");
   assert.equal(controller.cycleCaptionStyle(), "minimal");
+  assert.equal(controller.cycleCaptionStyle(), "cinema");
+  assert.equal(controller.cycleCaptionStyle(), "paper");
+  assert.equal(controller.cycleCaptionStyle(), "amber");
   assert.equal(controller.cycleCaptionStyle(), "classic");
   assert.equal(controller.toggleShortcutsHelp(true), true);
   assert.equal(controller.shortcutsEl.dataset.open, "true");

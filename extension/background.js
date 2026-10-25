@@ -1176,7 +1176,16 @@ function normalizeAndSortCues(rawCues, offsetSec = 0) {
     if (!text.includes("\n") && text.length > DEFAULT_MAX_LINE_CHARS) {
       text = wrapSubtitleLines(text, DEFAULT_MAX_LINE_CHARS);
     }
-    cleaned.push({ startSec, endSec, text, ...speaker ? { speaker } : {} });
+    const secondaryText = typeof item.secondaryText === "string" && item.secondaryText.trim() ? item.secondaryText.trim() : null;
+    const bookmarked = Boolean(item.bookmarked);
+    cleaned.push({
+      startSec,
+      endSec,
+      text,
+      ...speaker ? { speaker } : {},
+      ...secondaryText ? { secondaryText } : {},
+      ...bookmarked ? { bookmarked: true } : {}
+    });
   }
   cleaned.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
   const out = [];
@@ -2682,6 +2691,37 @@ var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
 var MAX_DEBUG_LOGS = 120;
 var MAX_NOTIFICATIONS = 50;
+var CAPTION_FONT_SIZES = Object.freeze([
+  "small",
+  "medium",
+  "large",
+  "xlarge",
+  "xxlarge"
+]);
+var CAPTION_STYLES = Object.freeze([
+  "classic",
+  "contrast",
+  "minimal",
+  "cinema",
+  "paper",
+  "amber"
+]);
+var CAPTION_FONT_FAMILIES = Object.freeze([
+  "sans",
+  "serif",
+  "mono",
+  "dyslexic"
+]);
+var CAPTION_COLORS = Object.freeze([
+  "white",
+  "yellow",
+  "cyan",
+  "green",
+  "ink"
+]);
+var CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
+var CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
+var PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
 var DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   debugMode: false,
@@ -2695,9 +2735,24 @@ var DEFAULT_SETTINGS = Object.freeze({
   languageHint: "auto",
   translateTo: "original",
   fontSize: "medium",
-  // "small" | "medium" | "large" | "xlarge"
+  // "small" | "medium" | "large" | "xlarge" | "xxlarge"
   captionStyle: "classic",
-  // "classic" | "contrast" | "minimal"
+  // "classic" | "contrast" | "minimal" | "cinema" | "paper" | "amber"
+  captionFontFamily: "sans",
+  // "sans" | "serif" | "mono" | "dyslexic"
+  captionColor: "white",
+  // "white" | "yellow" | "cyan" | "green" | "ink"
+  captionBgOpacity: 88,
+  // 0..100
+  captionPosition: "bottom",
+  // "bottom" | "raised" | "top"
+  captionMaxWidth: "balanced",
+  // "compact" | "balanced" | "wide"
+  karaokeHighlight: false,
+  showSpeakerLabels: true,
+  pauseOnCaptionHover: false,
+  clickCaptionToCopy: true,
+  defaultPlaybackSpeed: 1,
   subtitleOffsetSec: 0,
   showToast: true,
   desktopNotifications: true,
@@ -2774,8 +2829,18 @@ async function getSettings(storageArea) {
     customEnabled: Boolean(saved.customEnabled),
     languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
     translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
-    fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
-    captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
+    fontSize: CAPTION_FONT_SIZES.includes(saved.fontSize) ? saved.fontSize : "medium",
+    captionStyle: CAPTION_STYLES.includes(saved.captionStyle) ? saved.captionStyle : "classic",
+    captionFontFamily: CAPTION_FONT_FAMILIES.includes(saved.captionFontFamily) ? saved.captionFontFamily : "sans",
+    captionColor: CAPTION_COLORS.includes(saved.captionColor) ? saved.captionColor : "white",
+    captionBgOpacity: Number.isFinite(Number(saved.captionBgOpacity)) ? Math.max(0, Math.min(100, Math.round(Number(saved.captionBgOpacity)))) : DEFAULT_SETTINGS.captionBgOpacity,
+    captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition) ? saved.captionPosition : "bottom",
+    captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth) ? saved.captionMaxWidth : "balanced",
+    karaokeHighlight: typeof saved.karaokeHighlight === "boolean" ? saved.karaokeHighlight : DEFAULT_SETTINGS.karaokeHighlight,
+    showSpeakerLabels: typeof saved.showSpeakerLabels === "boolean" ? saved.showSpeakerLabels : DEFAULT_SETTINGS.showSpeakerLabels,
+    pauseOnCaptionHover: typeof saved.pauseOnCaptionHover === "boolean" ? saved.pauseOnCaptionHover : DEFAULT_SETTINGS.pauseOnCaptionHover,
+    clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
+    defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed)) ? Number(saved.defaultPlaybackSpeed) : DEFAULT_SETTINGS.defaultPlaybackSpeed,
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
     showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
     desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
@@ -3210,9 +3275,9 @@ async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.2",
+        currentVersion: "0.2.3",
         currentBuildId: "",
-        latestVersion: "0.2.2",
+        latestVersion: "0.2.3",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -3224,9 +3289,9 @@ async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.2"),
+      currentVersion: String(saved.currentVersion || "0.2.3"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -3238,9 +3303,9 @@ async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.2",
+      currentVersion: "0.2.3",
       currentBuildId: "",
-      latestVersion: "0.2.2",
+      latestVersion: "0.2.3",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -4052,7 +4117,7 @@ function createRuntimeDispatcher({
     return { ok: true, profile: updatedProfile, mergeResult };
   }
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -5465,7 +5530,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,

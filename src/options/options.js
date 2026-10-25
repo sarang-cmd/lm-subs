@@ -113,6 +113,20 @@ async function initOptions() {
   const optTranslateTo = document.getElementById("opt-translate-to");
   const optFontSize = document.getElementById("opt-font-size");
   const optCaptionStyle = document.getElementById("opt-caption-style");
+  const optCaptionFont = document.getElementById("opt-caption-font");
+  const optCaptionColor = document.getElementById("opt-caption-color");
+  const optCaptionPosition = document.getElementById("opt-caption-position");
+  const optCaptionWidth = document.getElementById("opt-caption-width");
+  const optCaptionOpacity = document.getElementById("opt-caption-opacity");
+  const optCaptionOpacityLabel = document.getElementById("opt-caption-opacity-label");
+  const optPlaybackSpeed = document.getElementById("opt-playback-speed");
+  const optKaraokeHighlight = document.getElementById("opt-karaoke-highlight");
+  const optShowSpeakers = document.getElementById("opt-show-speakers");
+  const optHoverPause = document.getElementById("opt-hover-pause");
+  const optClickCopy = document.getElementById("opt-click-copy");
+  const resetCaptionStyleBtn = document.getElementById("reset-caption-style-btn");
+  const optPreviewStage = document.getElementById("opt-caption-preview-stage");
+  const optPreviewBox = document.getElementById("opt-caption-preview-box");
   const optOffsetSec = document.getElementById("opt-offset-sec");
   const optExcludePatterns = document.getElementById("opt-exclude-patterns");
   const saveBehaviorBtn = document.getElementById("save-behavior-btn");
@@ -374,6 +388,106 @@ async function initOptions() {
     }
   }
 
+  function renderCaptionPreview() {
+    if (!optPreviewStage || !optPreviewBox) return;
+    const size = optFontSize?.value || settings.fontSize || "medium";
+    const style = optCaptionStyle?.value || settings.captionStyle || "classic";
+    const font = optCaptionFont?.value || settings.captionFontFamily || "sans";
+    const color = optCaptionColor?.value || settings.captionColor || "white";
+    const pos = optCaptionPosition?.value || settings.captionPosition || "bottom";
+    const width = optCaptionWidth?.value || settings.captionMaxWidth || "balanced";
+    const opacity = Number(optCaptionOpacity?.value ?? settings.captionBgOpacity ?? 88);
+    const karaoke = Boolean(optKaraokeHighlight?.checked);
+    const showSpk = optShowSpeakers ? Boolean(optShowSpeakers.checked) : true;
+
+    if (optCaptionOpacityLabel) {
+      optCaptionOpacityLabel.textContent = `${opacity}%`;
+    }
+
+    optPreviewStage.dataset.pos = pos;
+    const sizePx = {
+      small: "13px",
+      medium: "15px",
+      large: "17.5px",
+      xlarge: "20px",
+      xxlarge: "23px",
+    }[size] || "15px";
+    const fontCss = {
+      sans: 'var(--font-sans)',
+      serif: 'Charter, Georgia, Cambria, serif',
+      mono: 'var(--font-mono)',
+      dyslexic: '"Trebuchet MS", Verdana, sans-serif',
+    }[font] || "var(--font-sans)";
+    const colorHex = {
+      white: "#fdfdfe",
+      yellow: "#fde047",
+      cyan: "#67e8f9",
+      green: "#86efac",
+      ink: "#111315",
+    }[color] || "#fdfdfe";
+    const maxWidthCss = {
+      compact: "68%",
+      balanced: "86%",
+      wide: "98%",
+    }[width] || "86%";
+
+    const alpha = Math.max(0.2, Math.min(1, opacity / 100));
+    let bg = `rgba(11, 13, 16, ${alpha.toFixed(2)})`;
+    let border = "1px solid rgba(255, 255, 255, 0.14)";
+    let radius = "7px";
+    let shadow = "none";
+    let resolvedText = colorHex;
+
+    if (style === "contrast") {
+      bg = `rgba(5, 6, 8, ${Math.max(0.75, alpha).toFixed(2)})`;
+      border = "1.5px solid #3b82f6";
+    } else if (style === "minimal") {
+      bg = "transparent";
+      border = "1px solid transparent";
+      shadow = "0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.85)";
+      if (color === "ink") resolvedText = "#fdfdfe";
+    } else if (style === "cinema") {
+      radius = "999px";
+    } else if (style === "paper") {
+      bg = `rgba(253, 253, 254, ${Math.max(0.82, alpha).toFixed(2)})`;
+      border = "1px solid rgba(17, 19, 21, 0.2)";
+      if (color === "white") resolvedText = "#111315";
+    } else if (style === "amber") {
+      bg = `rgba(28, 22, 12, ${Math.max(0.78, alpha).toFixed(2)})`;
+      border = "1px solid rgba(251, 191, 36, 0.35)";
+      if (color === "white") resolvedText = "#fde68a";
+    }
+
+    optPreviewBox.style.fontSize = sizePx;
+    optPreviewBox.style.fontFamily = fontCss;
+    optPreviewBox.style.maxWidth = maxWidthCss;
+    optPreviewBox.style.background = bg;
+    optPreviewBox.style.border = border;
+    optPreviewBox.style.borderRadius = radius;
+    optPreviewBox.style.textShadow = shadow;
+    optPreviewBox.style.color = resolvedText;
+    optPreviewBox.style.letterSpacing = font === "dyslexic" ? "0.045em" : "0.005em";
+    optPreviewBox.style.wordSpacing = font === "dyslexic" ? "0.12em" : "normal";
+
+    while (optPreviewBox.firstChild) {
+      optPreviewBox.removeChild(optPreviewBox.firstChild);
+    }
+    const prefix = showSpk ? "[Host] " : "";
+    if (!karaoke) {
+      optPreviewBox.textContent = `${prefix}Logical qubits suppress phase errors across physical stabilizer arrays.`;
+    } else {
+      const done = document.createElement("span");
+      done.style.color = "#93c5fd";
+      done.style.textDecoration = "underline";
+      done.style.textUnderlineOffset = "3px";
+      done.textContent = `${prefix}Logical qubits suppress phase errors`;
+      optPreviewBox.append(
+        done,
+        document.createTextNode(" across physical stabilizer arrays.")
+      );
+    }
+  }
+
   function populateForm() {
     optEnabled.checked = settings.enabled;
     if (optDebugMode) optDebugMode.checked = Boolean(settings.debugMode);
@@ -395,10 +509,21 @@ async function initOptions() {
     optTranslateTo.value = settings.translateTo || "original";
     optFontSize.value = settings.fontSize || "medium";
     if (optCaptionStyle) optCaptionStyle.value = settings.captionStyle || "classic";
+    if (optCaptionFont) optCaptionFont.value = settings.captionFontFamily || "sans";
+    if (optCaptionColor) optCaptionColor.value = settings.captionColor || "white";
+    if (optCaptionPosition) optCaptionPosition.value = settings.captionPosition || "bottom";
+    if (optCaptionWidth) optCaptionWidth.value = settings.captionMaxWidth || "balanced";
+    if (optCaptionOpacity) optCaptionOpacity.value = String(settings.captionBgOpacity ?? 88);
+    if (optPlaybackSpeed) optPlaybackSpeed.value = String(settings.defaultPlaybackSpeed || 1);
+    if (optKaraokeHighlight) optKaraokeHighlight.checked = Boolean(settings.karaokeHighlight);
+    if (optShowSpeakers) optShowSpeakers.checked = settings.showSpeakerLabels !== false;
+    if (optHoverPause) optHoverPause.checked = Boolean(settings.pauseOnCaptionHover);
+    if (optClickCopy) optClickCopy.checked = settings.clickCaptionToCopy !== false;
     optOffsetSec.value = String(settings.subtitleOffsetSec || 0);
     optExcludePatterns.value = (settings.excludePatterns || []).join("\n");
     rpcCreateInput.value = settings.rpcOverrides?.CREATE_STUDIO || "";
     rpcPollInput.value = settings.rpcOverrides?.POLL_STUDIO || "";
+    renderCaptionPreview();
   }
 
   async function renderUpdatePanel() {
@@ -408,7 +533,7 @@ async function initOptions() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.2";
+      "0.2.3";
 
     const avail = Boolean(updateStatus?.updateAvailable);
     optUpdateCard.dataset.available = avail ? "true" : "false";
@@ -964,6 +1089,7 @@ async function initOptions() {
       const vttBtn = makeFormatButton(item, ".VTT", "vtt");
       const txtBtn = makeFormatButton(item, ".TXT", "txt");
       const mdBtn = makeFormatButton(item, ".MD", "md");
+      const csvBtn = makeFormatButton(item, ".CSV", "csv");
       const jsonBtn = makeFormatButton(item, ".JSON", "json");
 
       const copyBtn = document.createElement("button");
@@ -1004,7 +1130,7 @@ async function initOptions() {
         renderStatisticsPanel();
       });
 
-      actRow.append(editBtn, srtBtn, vttBtn, txtBtn, mdBtn, jsonBtn, copyBtn, delBtn);
+      actRow.append(editBtn, srtBtn, vttBtn, txtBtn, mdBtn, csvBtn, jsonBtn, copyBtn, delBtn);
       tdActions.appendChild(actRow);
 
       tr.append(tdTitle, tdProv, tdSlim, tdCues, tdActions);
@@ -1559,13 +1685,12 @@ async function initOptions() {
     await triggerAutoSyncIfConnected({ pushOnly: true });
   });
 
-  saveBehaviorBtn.addEventListener("click", async () => {
+  function collectCaptionBehaviorPatch() {
     const patterns = optExcludePatterns.value
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
-
-    settings = await saveSettings({
+    return {
       autoOnGenerate: optAutoGenerate.checked,
       autoOnExistingVideos: optAutoExisting.checked,
       showToast: optShowToast.checked,
@@ -1573,9 +1698,66 @@ async function initOptions() {
       translateTo: optTranslateTo.value,
       fontSize: optFontSize.value,
       captionStyle: optCaptionStyle ? optCaptionStyle.value : settings.captionStyle,
+      captionFontFamily: optCaptionFont ? optCaptionFont.value : settings.captionFontFamily,
+      captionColor: optCaptionColor ? optCaptionColor.value : settings.captionColor,
+      captionPosition: optCaptionPosition ? optCaptionPosition.value : settings.captionPosition,
+      captionMaxWidth: optCaptionWidth ? optCaptionWidth.value : settings.captionMaxWidth,
+      captionBgOpacity: optCaptionOpacity ? Number(optCaptionOpacity.value) : settings.captionBgOpacity,
+      defaultPlaybackSpeed: optPlaybackSpeed ? Number(optPlaybackSpeed.value) : settings.defaultPlaybackSpeed,
+      karaokeHighlight: optKaraokeHighlight ? Boolean(optKaraokeHighlight.checked) : settings.karaokeHighlight,
+      showSpeakerLabels: optShowSpeakers ? Boolean(optShowSpeakers.checked) : settings.showSpeakerLabels,
+      pauseOnCaptionHover: optHoverPause ? Boolean(optHoverPause.checked) : settings.pauseOnCaptionHover,
+      clickCaptionToCopy: optClickCopy ? Boolean(optClickCopy.checked) : settings.clickCaptionToCopy,
       subtitleOffsetSec: Number(optOffsetSec.value) || 0,
       excludePatterns: patterns,
+    };
+  }
+
+  for (const liveCtrl of [
+    optFontSize,
+    optCaptionStyle,
+    optCaptionFont,
+    optCaptionColor,
+    optCaptionPosition,
+    optCaptionWidth,
+    optCaptionOpacity,
+    optPlaybackSpeed,
+    optKaraokeHighlight,
+    optShowSpeakers,
+    optHoverPause,
+    optClickCopy,
+  ]) {
+    liveCtrl?.addEventListener("input", renderCaptionPreview);
+    liveCtrl?.addEventListener("change", async () => {
+      renderCaptionPreview();
+      settings = await saveSettings(collectCaptionBehaviorPatch());
+      flashSavedPill();
     });
+  }
+
+  resetCaptionStyleBtn?.addEventListener("click", async () => {
+    settings = await saveSettings({
+      fontSize: "medium",
+      captionStyle: "classic",
+      captionFontFamily: "sans",
+      captionColor: "white",
+      captionPosition: "bottom",
+      captionMaxWidth: "balanced",
+      captionBgOpacity: 88,
+      defaultPlaybackSpeed: 1,
+      karaokeHighlight: false,
+      showSpeakerLabels: true,
+      pauseOnCaptionHover: false,
+      clickCaptionToCopy: true,
+      subtitleOffsetSec: 0,
+    });
+    populateForm();
+    flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
+  });
+
+  saveBehaviorBtn.addEventListener("click", async () => {
+    settings = await saveSettings(collectCaptionBehaviorPatch());
     flashSavedPill();
     await triggerAutoSyncIfConnected({ pushOnly: true });
   });

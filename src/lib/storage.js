@@ -29,6 +29,38 @@ export const MAX_HISTORY_ENTRIES = 60;
 export const MAX_DEBUG_LOGS = 120;
 export const MAX_NOTIFICATIONS = 50;
 
+export const CAPTION_FONT_SIZES = Object.freeze([
+  "small",
+  "medium",
+  "large",
+  "xlarge",
+  "xxlarge",
+]);
+export const CAPTION_STYLES = Object.freeze([
+  "classic",
+  "contrast",
+  "minimal",
+  "cinema",
+  "paper",
+  "amber",
+]);
+export const CAPTION_FONT_FAMILIES = Object.freeze([
+  "sans",
+  "serif",
+  "mono",
+  "dyslexic",
+]);
+export const CAPTION_COLORS = Object.freeze([
+  "white",
+  "yellow",
+  "cyan",
+  "green",
+  "ink",
+]);
+export const CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
+export const CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
+export const PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
+
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   debugMode: false,
@@ -41,8 +73,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
   customEnabled: false,
   languageHint: "auto",
   translateTo: "original",
-  fontSize: "medium", // "small" | "medium" | "large" | "xlarge"
-  captionStyle: "classic", // "classic" | "contrast" | "minimal"
+  fontSize: "medium", // "small" | "medium" | "large" | "xlarge" | "xxlarge"
+  captionStyle: "classic", // "classic" | "contrast" | "minimal" | "cinema" | "paper" | "amber"
+  captionFontFamily: "sans", // "sans" | "serif" | "mono" | "dyslexic"
+  captionColor: "white", // "white" | "yellow" | "cyan" | "green" | "ink"
+  captionBgOpacity: 88, // 0..100
+  captionPosition: "bottom", // "bottom" | "raised" | "top"
+  captionMaxWidth: "balanced", // "compact" | "balanced" | "wide"
+  karaokeHighlight: false,
+  showSpeakerLabels: true,
+  pauseOnCaptionHover: false,
+  clickCaptionToCopy: true,
+  defaultPlaybackSpeed: 1,
   subtitleOffsetSec: 0,
   showToast: true,
   desktopNotifications: true,
@@ -149,12 +191,46 @@ export async function getSettings(storageArea) {
       typeof saved.translateTo === "string" && saved.translateTo
         ? saved.translateTo
         : "original",
-    fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize)
+    fontSize: CAPTION_FONT_SIZES.includes(saved.fontSize)
       ? saved.fontSize
       : "medium",
-    captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle)
+    captionStyle: CAPTION_STYLES.includes(saved.captionStyle)
       ? saved.captionStyle
       : "classic",
+    captionFontFamily: CAPTION_FONT_FAMILIES.includes(saved.captionFontFamily)
+      ? saved.captionFontFamily
+      : "sans",
+    captionColor: CAPTION_COLORS.includes(saved.captionColor)
+      ? saved.captionColor
+      : "white",
+    captionBgOpacity: Number.isFinite(Number(saved.captionBgOpacity))
+      ? Math.max(0, Math.min(100, Math.round(Number(saved.captionBgOpacity))))
+      : DEFAULT_SETTINGS.captionBgOpacity,
+    captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition)
+      ? saved.captionPosition
+      : "bottom",
+    captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth)
+      ? saved.captionMaxWidth
+      : "balanced",
+    karaokeHighlight:
+      typeof saved.karaokeHighlight === "boolean"
+        ? saved.karaokeHighlight
+        : DEFAULT_SETTINGS.karaokeHighlight,
+    showSpeakerLabels:
+      typeof saved.showSpeakerLabels === "boolean"
+        ? saved.showSpeakerLabels
+        : DEFAULT_SETTINGS.showSpeakerLabels,
+    pauseOnCaptionHover:
+      typeof saved.pauseOnCaptionHover === "boolean"
+        ? saved.pauseOnCaptionHover
+        : DEFAULT_SETTINGS.pauseOnCaptionHover,
+    clickCaptionToCopy:
+      typeof saved.clickCaptionToCopy === "boolean"
+        ? saved.clickCaptionToCopy
+        : DEFAULT_SETTINGS.clickCaptionToCopy,
+    defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed))
+      ? Number(saved.defaultPlaybackSpeed)
+      : DEFAULT_SETTINGS.defaultPlaybackSpeed,
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec))
       ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec)))
       : 0,
@@ -788,9 +864,9 @@ export async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.2",
+        currentVersion: "0.2.3",
         currentBuildId: "",
-        latestVersion: "0.2.2",
+        latestVersion: "0.2.3",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -802,9 +878,9 @@ export async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.2"),
+      currentVersion: String(saved.currentVersion || "0.2.3"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -816,9 +892,9 @@ export async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.2",
+      currentVersion: "0.2.3",
       currentBuildId: "",
-      latestVersion: "0.2.2",
+      latestVersion: "0.2.3",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",

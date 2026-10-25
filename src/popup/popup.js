@@ -125,6 +125,7 @@ async function initPopup() {
   const downloadLatestVttBtn = document.getElementById("download-latest-vtt-btn");
   const downloadLatestTxtBtn = document.getElementById("download-latest-txt-btn");
   const downloadLatestMdBtn = document.getElementById("download-latest-md-btn");
+  const downloadLatestCsvBtn = document.getElementById("download-latest-csv-btn");
   const downloadLatestJsonBtn = document.getElementById("download-latest-json-btn");
   const copyLatestTxtBtn = document.getElementById("copy-latest-txt-btn");
 
@@ -411,7 +412,7 @@ async function initPopup() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.2";
+      "0.2.3";
 
     if (popupUpdateStatusHint) {
       const folderPart = dirInfo.linked
@@ -797,6 +798,7 @@ async function initPopup() {
   bindExportButton(downloadLatestVttBtn, "vtt");
   bindExportButton(downloadLatestTxtBtn, "txt");
   bindExportButton(downloadLatestMdBtn, "md");
+  bindExportButton(downloadLatestCsvBtn, "csv");
   bindExportButton(downloadLatestJsonBtn, "json");
 
   popupEnableOsNotifBtn?.addEventListener("click", async () => {

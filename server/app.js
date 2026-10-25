@@ -379,10 +379,10 @@ export function createSyncApp({
 
   app.get("/api/version", (c) => {
     let meta = {
-      version: "0.2.2",
+      version: "0.2.3",
       buildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
-      versionedZipUrl: "/releases/lm-subs-v0.2.2.zip",
+      versionedZipUrl: "/releases/lm-subs-v0.2.3.zip",
       zipSha256: "",
     };
     try {
@@ -408,7 +408,7 @@ export function createSyncApp({
     return c.json({
       ok: true,
       service: "lm-subs-neon-sync",
-      version: "0.2.2",
+      version: "0.2.3",
       neonProjectId: db.projectId || "falling-cherry-16443194",
       databaseMode: db.mode,
       neonManagedAuth: Boolean(process.env.NEON_AUTH_BASE_URL),
