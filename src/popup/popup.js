@@ -181,13 +181,16 @@ async function initPopup() {
     const activeIds = settings.queueOrder.filter((id) =>
       id === "custom" ? settings.customEnabled : presenceMap[id]
     );
+    const guideEl = document.getElementById("beginner-guide-details");
     if (activeIds.length === 0) {
       queueSummaryText.textContent = "Add Groq or Mistral key";
+      if (guideEl) guideEl.open = true;
     } else {
       queueSummaryText.textContent = activeIds
         .slice(0, 3)
         .map((id, i) => `#${i + 1} ${getProviderSpec(id).name.split(" ")[0]}`)
         .join(" -> ");
+      if (guideEl) guideEl.open = false;
     }
   }
 

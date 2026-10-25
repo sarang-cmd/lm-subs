@@ -15,23 +15,23 @@ const TOAST_CSS = `
     bottom: 20px;
     z-index: 2147483646;
     pointer-events: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .toast {
     display: inline-flex;
     align-items: center;
     gap: 10px;
     max-width: 380px;
-    padding: 9px 13px;
-    border-radius: 4px;
-    background: #161615;
-    color: #f4f2ed;
-    border: 1px solid #2e2d2a;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #111315;
+    color: #f6f7f8;
+    border: 1px solid #272b33;
     font-size: 12px;
     line-height: 1.4;
     opacity: 0;
     transform: translateY(4px);
-    transition: opacity 100ms linear, transform 100ms linear;
+    transition: opacity 120ms ease, transform 120ms ease;
     pointer-events: auto;
   }
   .toast[data-visible="true"] {
@@ -45,14 +45,14 @@ const TOAST_CSS = `
     }
   }
   .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 1.5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
     flex-shrink: 0;
-    background: #8c8980;
+    background: #9ca3af;
   }
   .toast[data-kind="working"] .dot {
-    background: #e96a26;
+    background: #3b82f6;
   }
   .toast[data-kind="success"] .dot {
     background: #22c55e;
@@ -68,7 +68,7 @@ const TOAST_CSS = `
   }
   .title {
     font-weight: 600;
-    color: #f9fafb;
+    color: #fdfdfe;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -134,7 +134,7 @@ export function createToastManager(doc = globalThis.document) {
     }
 
     toastEl.dataset.kind = kind;
-    titleEl.textContent = String(title || "Subtitles for NotebookLM");
+    titleEl.textContent = String(title || "LM Subs");
     detailEl.textContent = String(detail || "");
     detailEl.style.display = detail ? "block" : "none";
     toastEl.dataset.visible = "true";

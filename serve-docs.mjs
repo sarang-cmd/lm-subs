@@ -33,6 +33,9 @@ const MIME_TYPES = {
 
 const SPA_ROUTES = new Set([
   "/",
+  "/guide",
+  "/install",
+  "/about",
   "/library",
   "/workspace",
   "/stats",

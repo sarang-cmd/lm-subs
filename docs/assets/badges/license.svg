@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="105" height="20" role="img" aria-label="LICENSE: MIT">
-  <rect width="105" height="20" rx="2" fill="#161615"/>
-  <rect x="66" width="39" height="20" rx="2" fill="#45433E"/>
-  <rect x="66" width="2" height="20" fill="#45433E"/>
-  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
-    <text x="33.0" y="14">LICENSE</text>
-    <text x="85.5" y="14">MIT</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="105" height="22" role="img" aria-label="License: MIT">
+  <rect width="105" height="22" rx="4" fill="#111315"/>
+  <rect x="66" width="39" height="22" rx="4" fill="#343B48"/>
+  <rect x="66" width="4" height="22" fill="#343B48"/>
+  <g fill="#FDFDFE" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="700">
+    <text x="33.0" y="14.5">License</text>
+    <text x="85.5" y="14.5">MIT</text>
   </g>
 </svg>

@@ -327,33 +327,44 @@ test("Extension Service Worker supports Email 6-digit login, Sync Opt-In Prefere
 });
 
 test("Design & Copy Guardrails: no banned fonts/Lucide, no em/en dashes, no user Sync Server URL input", () => {
-  const cssFiles = ["docs/styles.css", "extension/ui.css"];
-  for (const file of cssFiles) {
+  const cssAndOverlayFiles = [
+    "docs/styles.css",
+    "extension/ui.css",
+    "src/content/player-overlay.js",
+    "src/content/toast.js",
+  ];
+  for (const file of cssAndOverlayFiles) {
     const css = fs.readFileSync(path.resolve(file), "utf8");
     assert.ok(
       !/\bInter\b|\bGeist\b|Space Grotesk/i.test(css),
       `Banned font family found in ${file}`
     );
     assert.ok(
-      !/#f4f1ea|#d97757/i.test(css),
-      `Avoided cream/terracotta AI-tell palette found in ${file}`
+      !/#f4f1ea|#d97757|#e96a26|#d9531e|#f4f2ed/i.test(css),
+      `Legacy orange/cream palette found in ${file}`
     );
   }
 
   const uiFiles = [
     "docs/index.html",
+    "docs/guide.html",
+    "docs/about.html",
     "docs/stats.html",
     "docs/privacy.html",
     "docs/terms.html",
     "extension/popup.html",
     "extension/options.html",
     "src/web/App.jsx",
+    "src/web/GuideView.jsx",
+    "src/web/AboutView.jsx",
     "src/web/ScreeningStage.jsx",
     "src/web/AuthDialog.jsx",
     "src/web/LibraryView.jsx",
     "src/web/StatsView.jsx",
     "src/web/LegalViews.jsx",
     "src/web/demo-data.jsx",
+    "README.md",
+    "DEPLOYMENT_GUIDE.md",
   ];
 
   for (const file of uiFiles) {
@@ -363,7 +374,7 @@ test("Design & Copy Guardrails: no banned fonts/Lucide, no em/en dashes, no user
       `Found prohibited em dash or en dash in ${file}`
     );
     assert.ok(
-      !/lucide-react|lucide/i.test(content),
+      !/lucide-react|\blucide\b/i.test(content),
       `Found prohibited Lucide icon dependency in ${file}`
     );
     assert.ok(
@@ -371,4 +382,52 @@ test("Design & Copy Guardrails: no banned fonts/Lucide, no em/en dashes, no user
       `End-user UI file ${file} must not ask users for a self-hosted Sync Server URL`
     );
   }
+});
+
+test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verification", () => {
+  const mainJsx = fs.readFileSync(path.resolve("src/web/main.jsx"), "utf8");
+  assert.ok(mainJsx.includes("@vercel/analytics/react"), "Vercel Analytics missing in main.jsx");
+  assert.ok(mainJsx.includes("@vercel/speed-insights/react"), "Vercel Speed Insights missing in main.jsx");
+
+  const appBundle = fs.readFileSync(path.resolve("docs/app.js"), "utf8");
+  assert.ok(
+    appBundle.includes("/assets/screenshots/01-player-subtitles.png"),
+    "Rebuilt docs/app.js must reference /assets/screenshots/01-player-subtitles.png"
+  );
+  assert.ok(
+    !appBundle.includes("screenshot-1-hero-player.png"),
+    "docs/app.js must not reference stale screenshot-1-hero-player.png"
+  );
+
+  for (const asset of [
+    "docs/favicon.svg",
+    "docs/favicon.png",
+    "docs/favicon.ico",
+    "docs/apple-touch-icon.png",
+    "docs/assets/logo.svg",
+    "docs/assets/architecture.svg",
+    "docs/assets/banner-social-1280x640.png",
+    "docs/assets/screenshots/01-player-subtitles.png",
+    "docs/assets/screenshots/02-audio-extraction-failover.png",
+    "docs/assets/screenshots/03-toolbar-popup.png",
+    "docs/assets/screenshots/04-settings-queue.png",
+    "extension/icons/icon16.png",
+    "extension/icons/icon32.png",
+    "extension/icons/icon48.png",
+    "extension/icons/icon128.png",
+  ]) {
+    assert.ok(fs.existsSync(path.resolve(asset)), `Expected generated asset ${asset} to exist`);
+  }
+
+  const logoSvg = fs.readFileSync(path.resolve("docs/assets/logo.svg"), "utf8");
+  assert.ok(!/#e96a26|#d9531e/i.test(logoSvg), "docs/assets/logo.svg must not contain legacy orange");
+
+  const aboutJsx = fs.readFileSync(path.resolve("src/web/AboutView.jsx"), "utf8");
+  assert.ok(aboutJsx.includes("Sarang") && aboutJsx.includes("@sarang-cmd"));
+
+  const deployMd = fs.readFileSync(path.resolve("DEPLOYMENT_GUIDE.md"), "utf8");
+  assert.ok(
+    deployMd.includes("Supabase") && deployMd.includes("Firebase") && deployMd.includes("Neon"),
+    "DEPLOYMENT_GUIDE.md must correlate Neon with Supabase and Firebase"
+  );
 });

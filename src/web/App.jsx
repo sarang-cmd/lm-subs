@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Tabs } from "radix-ui";
 import { listProviderSpecs } from "../lib/providers/registry.js";
+import { AboutView } from "./AboutView.jsx";
 import { AuthDialog } from "./AuthDialog.jsx";
+import { GuideView } from "./GuideView.jsx";
 import { LibraryView, SyncPreferencesSwitches } from "./LibraryView.jsx";
 import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
@@ -12,15 +14,25 @@ const ALL_PROVIDERS = listProviderSpecs();
 
 function resolveInitialView() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/guide" || path === "/guide.html" || path === "/install") {
+    return "guide";
+  }
+  if (path === "/about" || path === "/about.html") return "about";
   if (path === "/library" || path === "/workspace") return "library";
   if (path === "/stats" || path === "/stats.html") return "stats";
-  if (path === "/privacy" || path === "/privacy.html" || path === "/privacy-policy.html") {
+  if (
+    path === "/privacy" ||
+    path === "/privacy.html" ||
+    path === "/privacy-policy.html"
+  ) {
     return "privacy";
   }
   if (path === "/terms" || path === "/terms.html") return "terms";
 
   const params = new URLSearchParams(window.location.search);
   const v = params.get("view");
+  if (v === "guide" || v === "install") return "guide";
+  if (v === "about") return "about";
   if (v === "library" || v === "workspace") return "library";
   if (v === "stats") return "stats";
   if (v === "privacy") return "privacy";
@@ -28,18 +40,54 @@ function resolveInitialView() {
   return "overview";
 }
 
-function BrandMark() {
+export function BrandMark({ size = 26 }) {
   return (
-    <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="#111315" />
-      <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" stroke="#2A2E35" />
-      <path d="M12.5 8.2L20.5 12.8L12.5 17.4V8.2Z" fill="#F6F7F8" />
-      <rect x="6" y="21.5" width="12" height="2.4" rx="1.2" fill="#3B82F6" />
-      <rect x="20" y="21.5" width="6" height="2.4" rx="1.2" fill="#F6F7F8" />
-      <rect x="6" y="25.4" width="15" height="2" rx="1" fill="#767D89" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 128 128"
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect width="128" height="128" rx="28" fill="#111315" />
+      <rect
+        x="2"
+        y="2"
+        width="124"
+        height="124"
+        rx="26"
+        stroke="#262B35"
+        strokeWidth="2"
+      />
+      <rect
+        x="18"
+        y="22"
+        width="92"
+        height="84"
+        rx="14"
+        fill="#181C22"
+        stroke="#363D4A"
+        strokeWidth="2"
+      />
+      <path
+        d="M52 39.5C52 37.9 53.75 36.92 55.12 37.75L77.4 51.25C78.72 52.05 78.72 53.95 77.4 54.75L55.12 68.25C53.75 69.08 52 68.1 52 66.5V39.5Z"
+        fill="#F6F7F8"
+      />
+      <rect x="28" y="82" width="44" height="10" rx="5" fill="#3B82F6" />
+      <rect x="78" y="82" width="22" height="10" rx="5" fill="#F6F7F8" />
     </svg>
   );
 }
+
+const VIEW_URL_MAP = {
+  overview: "/",
+  guide: "/guide",
+  library: "/library",
+  stats: "/stats",
+  about: "/about",
+  privacy: "/privacy",
+  terms: "/terms",
+};
 
 export function App() {
   const [view, setView] = useState(resolveInitialView);
@@ -64,16 +112,7 @@ export function App() {
 
   const navigate = useCallback((nextView) => {
     setView(nextView);
-    const targetUrl =
-      nextView === "overview"
-        ? "/"
-        : nextView === "library"
-          ? "/library"
-          : nextView === "stats"
-            ? "/stats"
-            : nextView === "privacy"
-              ? "/privacy"
-              : "/terms";
+    const targetUrl = VIEW_URL_MAP[nextView] || "/";
     window.history.pushState({ view: nextView }, "", targetUrl);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
@@ -86,11 +125,12 @@ export function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  // Capture OAuth callback token from URL hash or OAuth setup notice from query
   useEffect(() => {
     const hash = window.location.hash || "";
     if (hash.startsWith("#auth_token=")) {
-      const captured = decodeURIComponent(hash.slice("#auth_token=".length)).trim();
+      const captured = decodeURIComponent(
+        hash.slice("#auth_token=".length)
+      ).trim();
       if (captured) {
         try {
           window.localStorage.setItem(TOKEN_STORAGE_KEY, captured);
@@ -114,39 +154,42 @@ export function App() {
     }
   }, []);
 
-  const refreshCloud = useCallback(async (activeToken = token) => {
-    if (!activeToken) {
-      setUser(null);
-      setCloudState(null);
-      return;
-    }
-    setLoadingCloud(true);
-    try {
-      const res = await fetch("/api/sync/pull?includeSecrets=0", {
-        headers: { Authorization: `Bearer ${activeToken}` },
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          try {
-            window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-          } catch {
-            // Ignore
-          }
-          setToken("");
-          setUser(null);
-          setCloudState(null);
-        }
+  const refreshCloud = useCallback(
+    async (activeToken = token) => {
+      if (!activeToken) {
+        setUser(null);
+        setCloudState(null);
         return;
       }
-      setUser(data.user);
-      setCloudState(data);
-    } catch {
-      // Keep existing state on transient offline error
-    } finally {
-      setLoadingCloud(false);
-    }
-  }, [token]);
+      setLoadingCloud(true);
+      try {
+        const res = await fetch("/api/sync/pull?includeSecrets=0", {
+          headers: { Authorization: `Bearer ${activeToken}` },
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.ok) {
+          if (res.status === 401) {
+            try {
+              window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+            } catch {
+              // Ignore
+            }
+            setToken("");
+            setUser(null);
+            setCloudState(null);
+          }
+          return;
+        }
+        setUser(data.user);
+        setCloudState(data);
+      } catch {
+        // Keep existing state on transient offline error
+      } finally {
+        setLoadingCloud(false);
+      }
+    },
+    [token]
+  );
 
   useEffect(() => {
     if (token) {
@@ -182,7 +225,10 @@ export function App() {
     setCloudState(null);
   }
 
-  async function handleUpdateSyncPreferences(partialPrefs, purgeDisabled = false) {
+  async function handleUpdateSyncPreferences(
+    partialPrefs,
+    purgeDisabled = false
+  ) {
     if (!token) {
       setPreviewPrefs((prev) => ({ ...prev, ...partialPrefs }));
       setAuthDialogOpen(true);
@@ -260,6 +306,17 @@ export function App() {
               Overview
             </a>
             <a
+              href="/guide"
+              className="nav-tab"
+              aria-current={view === "guide" ? "page" : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("guide");
+              }}
+            >
+              Setup guide
+            </a>
+            <a
               href="/library"
               className="nav-tab"
               aria-current={view === "library" ? "page" : undefined}
@@ -280,6 +337,17 @@ export function App() {
               }}
             >
               Statistics
+            </a>
+            <a
+              href="/about"
+              className="nav-tab"
+              aria-current={view === "about" ? "page" : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("about");
+              }}
+            >
+              About
             </a>
           </nav>
 
@@ -335,6 +403,13 @@ export function App() {
                   <button
                     type="button"
                     className="btn"
+                    onClick={() => navigate("guide")}
+                  >
+                    Step-by-step setup guide
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
                     onClick={() =>
                       user ? navigate("library") : setAuthDialogOpen(true)
                     }
@@ -350,7 +425,76 @@ export function App() {
               <ScreeningStage />
             </section>
 
-            {/* 2. Audio-Only Stream Architecture */}
+            {/* 2. Beginner-Friendly 4-Step Installation Walkthrough */}
+            <section className="section-block">
+              <div className="split-section">
+                <div>
+                  <h2 className="section-heading">
+                    Set up LM Subs in under two minutes
+                  </h2>
+                  <p className="section-prose">
+                    No coding background, terminal commands, or paid subscriptions are needed. Follow four steps in Chrome, Brave, Edge, or Arc.
+                  </p>
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "18px" }}>
+                    <button
+                      type="button"
+                      className="btn btn-ink"
+                      onClick={() => navigate("guide")}
+                    >
+                      Open visual installation guide
+                    </button>
+                    <a
+                      className="btn"
+                      href="/releases/lm-subs-v0.2.0.zip"
+                      download
+                    >
+                      Download .zip package
+                    </a>
+                  </div>
+                </div>
+
+                <div className="sheet" style={{ padding: "22px 24px" }}>
+                  <ol
+                    style={{
+                      margin: 0,
+                      paddingLeft: "20px",
+                      display: "grid",
+                      gap: "12px",
+                      fontSize: "14.5px",
+                      color: "var(--ink-secondary)",
+                    }}
+                  >
+                    <li>
+                      <strong style={{ color: "var(--ink)" }}>Download and unzip:</strong>{" "}
+                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.0.zip</code> and extract it into a regular folder in your Documents folder.
+                    </li>
+                    <li>
+                      <strong style={{ color: "var(--ink)" }}>Load in Chrome:</strong>{" "}
+                      Open <code style={{ fontFamily: "var(--font-mono)" }}>chrome://extensions</code>, turn on <strong style={{ color: "var(--ink)" }}>Developer mode</strong> in the top-right corner, click <strong style={{ color: "var(--ink)" }}>Load unpacked</strong>, and select that unzipped folder.
+                    </li>
+                    <li>
+                      <strong style={{ color: "var(--ink)" }}>Paste one free key:</strong>{" "}
+                      Sign in at{" "}
+                      <a
+                        className="link"
+                        href="https://console.groq.com/keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        console.groq.com/keys
+                      </a>{" "}
+                      (no card required), create a <code style={{ fontFamily: "var(--font-mono)" }}>gsk_...</code> key, paste it into the LM Subs toolbar icon, and click <strong style={{ color: "var(--ink)" }}>Save</strong>.
+                    </li>
+                    <li>
+                      <strong style={{ color: "var(--ink)" }}>Play any Video Overview:</strong>{" "}
+                      Open NotebookLM and press play. Captions and export buttons appear automatically inside the video player.
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </section>
+
+            {/* 3. Audio-Only Stream Architecture */}
             <section className="section-block">
               <div className="split-section">
                 <div>
@@ -403,7 +547,7 @@ export function App() {
 
                   <figure className="product-figure">
                     <img
-                      src="/assets/screenshots/01-player-subtitles.png"
+                      src="/assets/screenshots/01-player-subtitles.png?v=3"
                       alt="LM Subs closed captions and export bar rendered inside a NotebookLM Video Overview player"
                       width="1280"
                       height="800"
@@ -417,7 +561,7 @@ export function App() {
               </div>
             </section>
 
-            {/* 3. Hosted Cloud Sync & Opt-In Privacy */}
+            {/* 4. Hosted Cloud Sync & Opt-In Privacy */}
             <section className="section-block">
               <div className="split-section">
                 <div>
@@ -476,7 +620,7 @@ export function App() {
               </div>
             </section>
 
-            {/* 4. Supported Speech-to-Text Providers Table */}
+            {/* 5. Supported Speech-to-Text Providers Table */}
             <section className="section-block">
               <div
                 style={{
@@ -557,6 +701,14 @@ export function App() {
           </div>
         ) : null}
 
+        {view === "guide" ? (
+          <GuideView
+            onNavigate={navigate}
+            onOpenSignIn={() => setAuthDialogOpen(true)}
+            user={user}
+          />
+        ) : null}
+
         {view === "library" ? (
           <LibraryView
             token={token}
@@ -580,6 +732,7 @@ export function App() {
           />
         ) : null}
 
+        {view === "about" ? <AboutView onNavigate={navigate} /> : null}
         {view === "privacy" ? <PrivacyView onNavigate={navigate} /> : null}
         {view === "terms" ? <TermsView onNavigate={navigate} /> : null}
       </main>
@@ -587,9 +740,29 @@ export function App() {
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div>
-            <strong>LM Subs</strong> (v0.2.0, MIT License). Independent open-source tool, unaffiliated with Google LLC.
+            <strong>LM Subs</strong> (v0.2.0, MIT License) by{" "}
+            <a
+              className="link"
+              href="/about"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("about");
+              }}
+            >
+              Sarang (@sarang-cmd)
+            </a>
+            . Independent open-source tool, unaffiliated with Google LLC.
           </div>
           <div className="footer-links">
+            <a
+              href="/guide"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("guide");
+              }}
+            >
+              Setup guide
+            </a>
             <a
               href="/library"
               onClick={(e) => {
@@ -607,6 +780,15 @@ export function App() {
               }}
             >
               Statistics
+            </a>
+            <a
+              href="/about"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("about");
+              }}
+            >
+              About
             </a>
             <a
               href="/privacy.html"

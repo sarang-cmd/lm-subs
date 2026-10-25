@@ -1,88 +1,210 @@
-# LM Subs Maintainer Deployment Guide
+# Neon + Vercel Architecture and Deployment Guide
 
-Operator runbook for hosting the central **LM Subs** cloud service on **Neon Lakebase Postgres** (`falling-cherry-16443194`) and **Vercel**.
+This guide has two parts:
 
-End users never deploy a database or configure a server URL. You host one central Neon + Vercel deployment, and users sign in from the web app or Chrome extension using **Google**, **GitHub**, or a **6-digit email verification code**.
+1. **Neon explained for Supabase and Firebase developers:** how SQL migrations, storage buckets, Google/GitHub OAuth, and security rules compare across Firebase, Supabase, and Neon + Vercel.
+2. **Step-by-step production deployment:** exact clicks to connect your Neon database (`falling-cherry-16443194`), Google OAuth, GitHub OAuth, and 6-digit email login on Vercel.
 
 ---
 
-## 1. Architecture Overview
+## Part 1: Neon Explained for Supabase and Firebase Developers
 
-| Artifact | Entrypoint | Role |
+If you have built apps with **Firebase** or **Supabase**, those platforms bundle four separate products under one roof: a database, user authentication, binary file buckets, and client SDKs.
+
+**Neon** takes a focused UNIX-style approach: Neon is a **serverless PostgreSQL database** (with instant Git-style database branching and optional managed auth), and **Vercel** runs your frontend and `/api/*` backend routes right next to it.
+
+### 1. Side-by-side mental model
+
+| Layer | Firebase | Supabase | Neon + Vercel (how LM Subs works) |
+| :--- | :--- | :--- | :--- |
+| **Database engine** | Firestore (NoSQL documents) | PostgreSQL | **Serverless PostgreSQL** (identical SQL dialect to Supabase) |
+| **Where you run SQL / migrations** | None (schemaless collections) | Supabase **SQL Editor** or `supabase db push` | Neon **SQL Editor** in browser, `npm run db:migrate`, AND auto-bootstrap on API boot |
+| **File / data buckets** | Firebase Cloud Storage (`gs://`) | Supabase Storage (S3 buckets) | **Not needed for LM Subs** (no audio/video files touch your server; pair Cloudflare R2 or Vercel Blob only when storing large binary files) |
+| **User authentication** | Firebase Auth (Google auto-configured) | Supabase Auth (bring Google/GitHub OAuth keys) | **Built into `server/app.js`** (Google OAuth, GitHub OAuth, 6-digit email codes stored in Neon tables; also supports Neon Auth JWKS) |
+| **How frontend talks to DB** | Browser SDK + Firebase Security Rules | Browser SDK (`anon` key) + Postgres RLS | Browser calls Vercel `/api/*` -> Hono server queries Neon via private `DATABASE_URL` |
+| **Dev / PR environments** | Separate Firebase project | Paid/preview branches | **Instant Neon branches** (copy-on-write clone of Postgres in under 1 second) |
+
+---
+
+### 2. "Do I have to run migrations in a SQL Editor?"
+
+**Yes, Neon has a browser SQL Editor almost identical to Supabase's SQL Editor, AND LM Subs also auto-migrates for you.**
+
+* **Option A: Neon Browser SQL Editor (most familiar from Supabase)**
+  1. Open [console.neon.tech](https://console.neon.tech) and select your project (`falling-cherry-16443194`).
+  2. Click **SQL Editor** in the left sidebar.
+  3. Copy the contents of [`db/schema.sql`](db/schema.sql), paste them into the editor, and click **Run**.
+  4. Click **Tables** in the left sidebar: you will immediately see all 8 `lmsubs_*` tables (`lmsubs_users`, `lmsubs_sessions`, `lmsubs_email_codes`, `lmsubs_oauth_states`, `lmsubs_user_api_keys`, `lmsubs_user_settings`, `lmsubs_subtitles`, `lmsubs_transcription_events`).
+* **Option B: Terminal CLI migration**
+  Run `DATABASE_URL="postgresql://..." npm run db:migrate` from your machine.
+* **Option C: Automatic boot safety net**
+  Every `CREATE TABLE` and `ALTER TABLE` statement in `server/db.js` is idempotent (`IF NOT EXISTS`). Even on a brand-new Neon branch, the first request to `/api/health` creates any missing tables automatically.
+
+---
+
+### 3. "Are there data buckets in Neon?"
+
+* **Does Neon have Supabase-style Storage Buckets?**
+  No. Supabase bundles an S3 wrapper called *Supabase Storage* alongside Postgres. Neon focuses purely on serverless PostgreSQL (when a Neon app needs to host gigabytes of raw user-uploaded images or MP4 videos, developers pair Neon Postgres with **Cloudflare R2**, **Vercel Blob**, or **AWS S3**).
+* **Does LM Subs need a data bucket at all?**
+  **No bucket is needed anywhere in LM Subs.** Here is why:
+  1. When a user plays a NotebookLM Video Overview, the Chrome extension extracts the compact ~3.4 MB audio stream inside the browser and sends it **directly from Chrome to Groq, Mistral, or Gemini**.
+  2. Raw MP4 videos and audio files **never upload to your Vercel API or Neon database**.
+  3. Your Neon database only stores compact text and JSONB rows: user accounts, `AES-256-GCM` encrypted API key strings (~120 bytes each), settings JSON, and timed subtitle cues (`cues_json`, ~8 KB per video). Tens of thousands of captioned videos fit comfortably inside Neon's free Postgres storage tier.
+
+---
+
+### 4. "In Firebase I didn't have to touch Google Cloud Console for Google OAuth. Why is this different, and how does it work?"
+
+That difference comes down to **who owns the cloud platform**:
+
+1. **Why Firebase feels automatic for Google Sign-In:**
+   Every Firebase project **is** a Google Cloud Platform (GCP) project under the hood. Because Google owns both Firebase and Google Identity, toggling "Enable Google Sign-In" in Firebase Console gives Google permission to silently create an OAuth 2.0 Web Client ID, Client Secret, and OAuth Consent Screen inside your underlying GCP project for `your-app.firebaseapp.com`. (Notice that if you enable *GitHub* Sign-In in Firebase, Firebase still makes you go to GitHub Developer Settings to copy a Client ID and Secret, because Google does not own GitHub!)
+2. **Why Supabase, NextAuth, and Vercel + Neon ask for a Google Cloud OAuth Client ID:**
+   Neither Supabase nor Vercel nor Neon is owned by Google. Google's OAuth security rules require **you** (the app owner) to register an OAuth 2.0 Client ID in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) so Google knows:
+   * What app name and logo to display on the *"Sign in with Google"* screen (`LM Subs`).
+   * Which exact callback URL is allowed to receive the login code (`https://<your-vercel-domain>/api/auth/oauth/google/callback`).
+3. **How Neon's own Auth tab compares to LM Subs's built-in auth:**
+   * Neon Console has an optional **Auth** tab (powered by Better Auth). For quick *development testing*, Neon Auth lends you shared Neon dev OAuth credentials so Google/GitHub login works in dev without opening Google Cloud Console; for *production* on your own domain, Neon Auth still asks for your own Google Cloud Client ID + Secret.
+   * In **LM Subs**, our Hono backend (`server/app.js`) already implements **Google OAuth 2.0, GitHub OAuth, and passwordless 6-digit email verification** directly in your Neon Postgres tables, so you have zero beta SDK dependencies and full control over Chrome Extension token handoff (`lms_...` Bearer tokens). It also verifies Neon Auth JWTs if `NEON_AUTH_JWKS_URL` is set.
+
+---
+
+### 5. Security model: Supabase RLS vs LM Subs Server Vault
+
+* In **Firebase** and **Supabase**, your frontend JavaScript holds a public `anon` key and queries the database directly from the browser, relying on Security Rules or Postgres Row-Level Security (`auth.uid() = user_id`) to block cross-user reads.
+* In **LM Subs**, the browser and Chrome extension **never** talk directly to Postgres and never hold a database credential:
+  1. Only your Vercel Serverless Function (`api/[...route].js`) sees `DATABASE_URL` and `LM_SUBS_ENCRYPTION_SECRET`.
+  2. Every API route authenticates the `lms_...` session token via SHA-256 hash lookup (`lmsubs_sessions`) and scopes every SQL query by `WHERE user_id = $1`.
+  3. Before any user's Groq or Mistral API key is written to `lmsubs_user_api_keys`, `server/crypto.js` derives a per-user key via `HKDF-SHA256(LM_SUBS_ENCRYPTION_SECRET, userId)` and encrypts the key with `AES-256-GCM`. Even if someone read a raw database backup, user API keys remain encrypted ciphertext.
+
+---
+
+## Part 2: Step-by-Step Deployment Checklist (Neon + Vercel)
+
+End users **never** deploy anything: once you complete the 4 steps below on your Vercel deployment, every visitor and extension user simply signs in with **Google**, **GitHub**, or a **6-digit email code**.
+
+### Your Neon project identifiers
+
+ Configured in [`neon.ts`](neon.ts):
+* **Organization ID:** `org-snowy-moon-42934547`
+* **Project ID:** `falling-cherry-16443194`
+* **Production Branch:** `production`
+
+---
+
+### Step 1: Initialize Neon Postgres and copy `DATABASE_URL` (2 minutes)
+
+1. Sign in to [console.neon.tech](https://console.neon.tech) and open project **`falling-cherry-16443194`** (`production` branch).
+2. *(Optional visual check)* Click **SQL Editor** in the left sidebar, paste [`db/schema.sql`](db/schema.sql), and click **Run** to see all 8 `lmsubs_*` tables created right away.
+3. Click **Connect** near the top-right of the Neon dashboard:
+   * Toggle **Connection pooling** **ON** (recommended for Vercel serverless functions; hostname contains `-pooler`).
+   * Copy the connection string:
+     ```text
+     postgresql://neondb_owner:...@ep-...-pooler....aws.neon.tech/neondb?sslmode=require
+     ```
+   * Save this value for Vercel as `DATABASE_URL`.
+
+---
+
+### Step 2: Generate your `LM_SUBS_ENCRYPTION_SECRET` (15 seconds)
+
+Run this command in any terminal to generate a random 32-byte secret used to encrypt user API keys with `AES-256-GCM`:
+
+```bash
+openssl rand -base64 32
+```
+
+Save the output string for Vercel as `LM_SUBS_ENCRYPTION_SECRET`. *(Keep this secret stable in production so previously saved user keys can always be decrypted.)*
+
+---
+
+### Step 3: Create your Sign-In Provider Credentials
+
+Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for example `https://notebooklm-subtitles.vercel.app` or your custom domain).
+
+#### 3A. Google Sign-In (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`)
+1. Open [Google Cloud Console -> Credentials](https://console.cloud.google.com/apis/credentials) (create a new project named `LM Subs` if you do not have one).
+2. If prompted to configure the **OAuth consent screen** (Google Auth Platform -> Branding / Audience):
+   * Choose **External**, enter App name **`LM Subs`**, enter your support email, and click **Save**.
+   * Under **Audience**, click **Publish App** so any Google user (not only test users) can sign in. No sensitive Google scopes are requested (`openid email profile` only, so Google requires zero app verification review!).
+3. Go to **Credentials** -> click **+ Create Credentials** -> **OAuth client ID**:
+   * **Application type:** `Web application`
+   * **Name:** `LM Subs Web`
+   * **Authorized JavaScript origins:** `https://<your-vercel-domain>`
+   * **Authorized redirect URIs:**
+     ```text
+     https://<your-vercel-domain>/api/auth/oauth/google/callback
+     ```
+4. Click **Create** and copy **`GOOGLE_CLIENT_ID`** and **`GOOGLE_CLIENT_SECRET`**.
+
+#### 3B. GitHub Sign-In (`GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`)
+1. Open [GitHub -> Settings -> Developer settings -> OAuth Apps](https://github.com/settings/developers) and click **New OAuth App**.
+2. Fill in the four fields:
+   * **Application name:** `LM Subs`
+   * **Homepage URL:** `https://<your-vercel-domain>`
+   * **Authorization callback URL:**
+     ```text
+     https://<your-vercel-domain>/api/auth/oauth/github/callback
+     ```
+3. Click **Register application**, copy **`GITHUB_CLIENT_ID`**, then click **Generate a new client secret** and copy **`GITHUB_CLIENT_SECRET`**.
+
+#### 3C. 6-Digit Email Verification Codes (`RESEND_API_KEY` + `AUTH_EMAIL_FROM`)
+1. Create a free account at [resend.com](https://resend.com) (free tier includes 3,000 emails/month).
+2. Verify your sending domain under **Domains** (or use `onboarding@resend.dev` while testing your own email address).
+3. Click **API Keys** -> **Create API Key** and copy `re_...` as **`RESEND_API_KEY`**.
+4. Set **`AUTH_EMAIL_FROM`** to `LM Subs <login@yourdomain.com>`.
+
+---
+
+### Step 4: Add Environment Variables in Vercel and Redeploy
+
+1. Open your project on [vercel.com/dashboard](https://vercel.com/dashboard) -> **Settings** -> **Environment Variables**.
+2. Add the variables below for **Production** (and **Preview** if desired):
+
+| Variable | Required | Value |
 | :--- | :--- | :--- |
-| **Web Application** | `src/web/` -> `docs/app.js` + `docs/styles.css` | Product overview, interactive NotebookLM player preview, Cloud Library (`/` + `/library`), Statistics (`/stats`), Privacy Policy (`/privacy.html`), and Terms of Service (`/terms.html`). |
-| **Hosted Cloud API** | `server/app.js` (`api/[...route].js` on Vercel) | Google OAuth, GitHub OAuth, 6-digit passwordless email sign-in, granular sync opt-in enforcement, per-user AES-256-GCM API key encryption, and SQL usage statistics (`GET /api/stats`). |
-| **Chrome MV3 Extension** | `extension/` (`docs/releases/lm-subs-v0.2.0.zip`) | Captures NotebookLM Video Overview audio streams (`=m140` / HTTP `206` byte ranges), runs the 12-provider BYOK speech-to-text queue, renders captions, and syncs opted-in categories with the hosted service. |
+| `DATABASE_URL` | **Yes** | Pooled Neon PostgreSQL URL from Step 1 |
+| `LM_SUBS_ENCRYPTION_SECRET` | **Yes** | 32-byte random base64 string from Step 2 |
+| `PUBLIC_APP_URL` | **Yes** | `https://<your-vercel-domain>` (no trailing slash) |
+| `GOOGLE_CLIENT_ID` | For Google login | From Step 3A |
+| `GOOGLE_CLIENT_SECRET` | For Google login | From Step 3A |
+| `GITHUB_CLIENT_ID` | For GitHub login | From Step 3B |
+| `GITHUB_CLIENT_SECRET` | For GitHub login | From Step 3B |
+| `RESEND_API_KEY` | For Email OTP | From Step 3C (`re_...`) |
+| `AUTH_EMAIL_FROM` | For Email OTP | e.g. `LM Subs <login@yourdomain.com>` |
+
+3. Go to **Deployments** in Vercel and click **Redeploy** on the latest deployment so the new environment variables take effect.
+4. *(If your production URL differs from `https://notebooklm-subtitles.vercel.app`)* Update `DEFAULT_HOSTED_APP_URL` in `src/config/defaults.js` and run `npm run zip` before publishing the Chrome extension so the extension automatically points at your domain.
 
 ---
 
-## 2. Environment Variables (Operator Only)
+### Step 5: Smoke-Test Your Live Deployment (30 seconds)
 
-Configure these variables on your Vercel project (or in `.env.local` for local verification):
-
-| Variable | Required | Purpose |
-| :--- | :---: | :--- |
-| `DATABASE_URL` | **Yes** | Pooled Neon Postgres connection string (`-pooler` host) used by runtime `/api/*` requests (`pg.Pool`, `max: 5`). |
-| `DATABASE_URL_UNPOOLED` | Recommended | Direct Neon Postgres connection string used by `npm run db:migrate`. |
-| `LM_SUBS_ENCRYPTION_SECRET` | **Yes** | 32-byte secret (`openssl rand -base64 32`) for `HKDF-SHA256` + `AES-256-GCM` encryption of user BYOK API keys in `lmsubs_user_api_keys`. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Recommended | Enables "Continue with Google" OAuth (`https://<your-domain>/api/auth/oauth/google/callback`). |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Recommended | Enables "Continue with GitHub" OAuth (`https://<your-domain>/api/auth/oauth/github/callback`). |
-| `RESEND_API_KEY` | Recommended | Delivers 6-digit passwordless sign-in codes via email (`AUTH_FROM_EMAIL`). When omitted locally, `/api/auth/email/send-code` returns a clearly labeled preview code for local testing. |
-| `NEON_AUTH_BASE_URL` / `NEON_AUTH_JWKS_URL` | Optional | Optional Ed25519 JWKS verification if also accepting Neon Managed Auth tokens. |
-
-> When `DATABASE_URL` is omitted during local development or automated tests, `server/db.js` boots an embedded `@electric-sql/pglite` Postgres instance running the exact `db/schema.sql` schema.
-
----
-
-## 3. Provisioning Neon Lakebase Postgres
-
-`neon.ts` is pre-configured for Organization `org-snowy-moon-42934547` and Project `falling-cherry-16443194` (`production` branch):
+Run this health check against your Vercel URL:
 
 ```bash
-npm install -g neon@latest
-neon login
-neon init -y \
-  --org-id org-snowy-moon-42934547 \
-  --project-id falling-cherry-16443194 \
-  --branch production \
-  --services postgres
-neon deploy
-echo "LM_SUBS_ENCRYPTION_SECRET=$(openssl rand -base64 32)" >> .env.local
-npm run db:migrate
+curl -sS https://<your-vercel-domain>/api/health
 ```
 
-### Database Tables (`db/schema.sql`)
+Expected response:
 
-| Table | Purpose |
-| :--- | :--- |
-| `lmsubs_users` | User accounts (`id`, `email`, `name`, `avatar_url`, `auth_provider`). |
-| `lmsubs_sessions` | SHA-256 hashed `lms_...` session tokens (90-day expiry). |
-| `lmsubs_email_codes` | Short-lived (10-minute) SHA-256 hashed 6-digit email verification codes with attempt limits. |
-| `lmsubs_oauth_states` | CSRF state nonces for Google and GitHub OAuth 2.0 flows. |
-| `lmsubs_user_settings` | User preferences (`settings_json`) and granular opt-in sync flags (`sync_prefs_json`: `syncApiKeys`, `syncTranscripts`, `syncSettings`). |
-| `lmsubs_user_api_keys` | Per-user `AES-256-GCM` encrypted BYOK API keys (`ciphertext_b64`, `iv_b64`, `tag_b64`, `key_hint`). |
-| `lmsubs_subtitles` | Synced Video Overview transcripts (`cues_json`, `spoken_seconds`, `original_bytes`, `extracted_bytes`, `latency_ms`, `failover_used`). |
-| `lmsubs_usage_events` | Transcription, cache-hit, and export telemetry powering `GET /api/stats`. |
-
----
-
-## 4. Deploying to Vercel
-
-1. Import `sarang-cmd/notebooklm-subtitles` into Vercel (or run `vercel --prod`).
-2. Attach the Neon integration for project `falling-cherry-16443194` so `DATABASE_URL` and `DATABASE_URL_UNPOOLED` are populated automatically.
-3. Add `LM_SUBS_ENCRYPTION_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `RESEND_API_KEY` in Vercel Project Settings.
-4. Register these OAuth callback URLs in Google Cloud Console and GitHub Developer Settings:
-   - `https://<your-domain>/api/auth/oauth/google/callback`
-   - `https://<your-domain>/api/auth/oauth/github/callback`
-5. If using a custom domain instead of `https://notebooklm-subtitles.vercel.app`, update `HOSTED_CLOUD_URL` in `src/config/selectors.js` and run `npm run zip` before publishing the Chrome extension package.
-
----
-
-## 5. Build, Package & Verification Commands
-
-```bash
-npm install
-npm run zip      # Builds extension/ + docs/app.js and packages docs/releases/lm-subs-v0.2.0.zip
-npm test         # Runs full unit, security, audio fast-path, and Postgres API tests
-npm start        # Serves docs/ and /api/* locally on http://0.0.0.0:4173
+```json
+{
+  "ok": true,
+  "service": "lm-subs-sync",
+  "version": "0.2.0",
+  "database": "neon-postgresql",
+  "authProviders": {
+    "emailCode": true,
+    "google": true,
+    "github": true,
+    "neonManaged": false
+  }
+}
 ```
+
+Then open `https://<your-vercel-domain>` in your browser:
+1. Click **Sign in** and test **Continue with Google**, **Continue with GitHub**, or **6-digit email verification**.
+2. Toggle the opt-in switches (`Sync API keys`, `Sync transcriptions`, `Sync preferences`) under `/library`.
+3. Open `/stats` to verify live SQL aggregations from Neon Postgres.

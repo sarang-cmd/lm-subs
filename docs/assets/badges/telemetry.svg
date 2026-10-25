@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="126" height="20" role="img" aria-label="TELEMETRY: ZERO">
-  <rect width="126" height="20" rx="2" fill="#161615"/>
-  <rect x="80" width="46" height="20" rx="2" fill="#45433E"/>
-  <rect x="80" width="2" height="20" fill="#45433E"/>
-  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
-    <text x="40.0" y="14">TELEMETRY</text>
-    <text x="103.0" y="14">ZERO</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="223" height="22" role="img" aria-label="Sync Control: Granular Opt-In">
+  <rect width="223" height="22" rx="4" fill="#111315"/>
+  <rect x="101" width="122" height="22" rx="4" fill="#343B48"/>
+  <rect x="101" width="4" height="22" fill="#343B48"/>
+  <g fill="#FDFDFE" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="700">
+    <text x="50.5" y="14.5">Sync Control</text>
+    <text x="162.0" y="14.5">Granular Opt-In</text>
   </g>
 </svg>

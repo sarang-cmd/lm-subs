@@ -24,6 +24,33 @@
         </label>
       </header>
 
+      <!-- Step-by-step Beginner Guide -->
+      <section class="card">
+        <details>
+          <summary style="cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--accent); user-select: none">
+            First-time setup guide (no technical experience needed)
+          </summary>
+          <div style="margin-top: 12px; display: grid; gap: 10px; font-size: 13px; color: var(--text-muted); line-height: 1.55">
+            <div>
+              <strong style="color: var(--text)">Step 1: Get one free transcription key (60 seconds, no credit card).</strong>
+              Open <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="link">console.groq.com/keys</a>, sign in with your Google account, click <strong style="color: var(--text)">Create API Key</strong>, give it any label like <code style="font-family: var(--mono)">LM Subs</code>, and copy the code starting with <code style="font-family: var(--mono)">gsk_</code>.
+            </div>
+            <div>
+              <strong style="color: var(--text)">Step 2: Save your key in LM Subs.</strong>
+              Scroll down to <strong style="color: var(--text)">Speech-to-text providers and API keys</strong>, paste your <code style="font-family: var(--mono)">gsk_...</code> code into the <strong style="color: var(--text)">Groq</strong> row, and click <strong style="color: var(--text)">Save</strong>. Click <strong style="color: var(--text)">Test</strong> if you want to verify it right away.
+            </div>
+            <div>
+              <strong style="color: var(--text)">Step 3: Watch any NotebookLM Video Overview.</strong>
+              Open <a href="https://notebooklm.google.com" target="_blank" rel="noopener noreferrer" class="link">notebooklm.google.com</a> and play a Video Overview. Synchronized captions appear automatically inside the video player, and you can export <code style="font-family: var(--mono)">.srt</code>, <code style="font-family: var(--mono)">.vtt</code>, <code style="font-family: var(--mono)">.txt</code>, or <code style="font-family: var(--mono)">.json</code> files with one click.
+            </div>
+            <div>
+              <strong style="color: var(--text)">Step 4 (optional): Sign in below to sync across computers.</strong>
+              Use Google, GitHub, or a 6-digit email code in the <strong style="color: var(--text)">Account and cloud sync</strong> card below if you want your encrypted keys and saved transcripts available on another browser.
+            </div>
+          </div>
+        </details>
+      </section>
+
       <!-- Account & Cloud Sync -->
       <section id="sync-section" class="card">
         <div class="section-head">

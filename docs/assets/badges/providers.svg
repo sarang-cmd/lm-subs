@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="215" height="20" role="img" aria-label="BYOK QUEUE: 12 STT PROVIDERS">
-  <rect width="215" height="20" rx="2" fill="#161615"/>
-  <rect x="87" width="128" height="20" rx="2" fill="#D9531E"/>
-  <rect x="87" width="2" height="20" fill="#D9531E"/>
-  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
-    <text x="43.5" y="14">BYOK QUEUE</text>
-    <text x="151.0" y="14">12 STT PROVIDERS</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="215" height="22" role="img" aria-label="BYOK Queue: 12 STT Providers">
+  <rect width="215" height="22" rx="4" fill="#111315"/>
+  <rect x="87" width="128" height="22" rx="4" fill="#0055D4"/>
+  <rect x="87" width="4" height="22" fill="#0055D4"/>
+  <g fill="#FDFDFE" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="700">
+    <text x="43.5" y="14.5">BYOK Queue</text>
+    <text x="151.0" y="14.5">12 STT Providers</text>
   </g>
 </svg>
