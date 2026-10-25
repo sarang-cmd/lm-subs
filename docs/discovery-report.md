@@ -1,6 +1,6 @@
-# Discovery & Wire Protocol Report — Google NotebookLM Video Overviews
+# Discovery and Wire Protocol Report: Google NotebookLM Video Overviews
 
-This document records the exact network endpoints, protobuf-JSON (`wrb.fr`) wire positions, Google FIFE media URL variants, and DOM selectors used by **Subtitles for NotebookLM**, along with instructions for updating [`src/config/selectors.js`](../src/config/selectors.js) if Google changes them.
+This document records the exact network endpoints, protobuf-JSON (`wrb.fr`) wire positions, Google FIFE media URL variants, and DOM selectors used by **LM Subs** (`https://github.com/sarang-cmd/lm-subs`), along with instructions for updating [`src/config/selectors.js`](../src/config/selectors.js) if Google changes them.
 
 ---
 

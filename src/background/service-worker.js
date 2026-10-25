@@ -275,7 +275,7 @@ export function createRuntimeDispatcher({
   ) {
     const primaryBase = normalizeSyncServerUrl(serverUrl);
     const basesToTry = [primaryBase];
-    if (primaryBase === "https://lm-subs.vercel.app" || primaryBase === "https://notebooklm-subtitles.vercel.app") {
+    if (primaryBase === "https://lm-subs.vercel.app") {
       basesToTry.push("http://localhost:4173");
     }
 
@@ -1021,7 +1021,7 @@ export function createRuntimeDispatcher({
         tabsApi.sendMessage(
           tabId,
           {
-            type: "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK",
+            type: RUNTIME_MESSAGE.DECODE_WAV_FALLBACK,
             base64Media: uint8ToBase64(decodeSourceBytes),
           },
           (resp) => {
