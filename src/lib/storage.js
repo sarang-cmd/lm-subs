@@ -18,6 +18,7 @@ export const STORAGE_KEYS = Object.freeze({
   HISTORY: "subtitleHistory",
   LAST_STATUS: "lastStatus",
   DEBUG_LOGS: "debugLogs",
+  NOTIFICATIONS: "notifications",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret",
 });
@@ -25,6 +26,7 @@ export const STORAGE_KEYS = Object.freeze({
 export const MAX_CACHE_ENTRIES = 35;
 export const MAX_HISTORY_ENTRIES = 60;
 export const MAX_DEBUG_LOGS = 120;
+export const MAX_NOTIFICATIONS = 50;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
@@ -39,8 +41,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   languageHint: "auto",
   translateTo: "original",
   fontSize: "medium", // "small" | "medium" | "large" | "xlarge"
+  captionStyle: "classic", // "classic" | "contrast" | "minimal"
   subtitleOffsetSec: 0,
   showToast: true,
+  desktopNotifications: true,
+  soundAlerts: false,
+  badgeAlerts: true,
+  notifyOnFailover: true,
+  notifyOnSync: true,
   excludePatterns: [],
   rpcOverrides: {},
 });
@@ -141,6 +149,9 @@ export async function getSettings(storageArea) {
     fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize)
       ? saved.fontSize
       : "medium",
+    captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle)
+      ? saved.captionStyle
+      : "classic",
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec))
       ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec)))
       : 0,
@@ -148,6 +159,26 @@ export async function getSettings(storageArea) {
       typeof saved.showToast === "boolean"
         ? saved.showToast
         : DEFAULT_SETTINGS.showToast,
+    desktopNotifications:
+      typeof saved.desktopNotifications === "boolean"
+        ? saved.desktopNotifications
+        : DEFAULT_SETTINGS.desktopNotifications,
+    soundAlerts:
+      typeof saved.soundAlerts === "boolean"
+        ? saved.soundAlerts
+        : DEFAULT_SETTINGS.soundAlerts,
+    badgeAlerts:
+      typeof saved.badgeAlerts === "boolean"
+        ? saved.badgeAlerts
+        : DEFAULT_SETTINGS.badgeAlerts,
+    notifyOnFailover:
+      typeof saved.notifyOnFailover === "boolean"
+        ? saved.notifyOnFailover
+        : DEFAULT_SETTINGS.notifyOnFailover,
+    notifyOnSync:
+      typeof saved.notifyOnSync === "boolean"
+        ? saved.notifyOnSync
+        : DEFAULT_SETTINGS.notifyOnSync,
     excludePatterns: Array.isArray(saved.excludePatterns)
       ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean)
       : [],
@@ -585,22 +616,25 @@ export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) 
 
   for (const sub of cloudSubtitles) {
     if (!sub?.cacheKey || !Array.isArray(sub.cues) || sub.cues.length === 0) continue;
-    if (!byKey.has(sub.cacheKey)) {
+    const prev = byKey.get(sub.cacheKey);
+    const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
+    const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
+    if (!prev || (incomingTime && prevTime && incomingTime > prevTime)) {
       byKey.set(sub.cacheKey, {
         cacheKey: sub.cacheKey,
-        artifactId: sub.artifactId || null,
-        notebookId: sub.notebookId || null,
-        mediaToken: sub.mediaToken || null,
-        title: sub.title || "Video Overview",
-        language: sub.language || "en",
-        provider: sub.provider || "neon-sync",
-        model: sub.model || "",
-        failoverUsed: false,
+        artifactId: sub.artifactId || prev?.artifactId || null,
+        notebookId: sub.notebookId || prev?.notebookId || null,
+        mediaToken: sub.mediaToken || prev?.mediaToken || null,
+        title: sub.title || prev?.title || "Video Overview",
+        language: sub.language || prev?.language || "en",
+        provider: sub.provider || prev?.provider || "neon-sync",
+        model: sub.model || prev?.model || "",
+        failoverUsed: Boolean(prev?.failoverUsed),
         cueCount: sub.cues.length,
-        durationSeconds: null,
-        extractedBytes: sub.extractedBytes || null,
-        originalBytes: sub.originalBytes || null,
-        latencyMs: sub.latencyMs || null,
+        durationSeconds: prev?.durationSeconds || null,
+        extractedBytes: sub.extractedBytes || prev?.extractedBytes || null,
+        originalBytes: sub.originalBytes || prev?.originalBytes || null,
+        latencyMs: sub.latencyMs || prev?.latencyMs || null,
         cues: sub.cues,
         createdAt: sub.savedAt || new Date().toISOString(),
       });
@@ -669,3 +703,57 @@ export async function clearDebugLogs(storageArea) {
     // Ignore
   }
 }
+
+/**
+ * Notification Center state (`chrome.storage.local.notifications`).
+ */
+export async function getNotifications(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.NOTIFICATIONS);
+    const list = raw?.[STORAGE_KEYS.NOTIFICATIONS];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function appendNotification(item, storageArea) {
+  const store = resolveStorage(storageArea);
+  const existing = await getNotifications(store);
+  const record = {
+    id:
+      item?.id ||
+      `ntf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    kind: String(item?.kind || "info"),
+    title: String(item?.title || "LM Subs").slice(0, 140),
+    body: String(item?.body || "").slice(0, 280),
+    cacheKey: item?.cacheKey || null,
+    provider: item?.provider || null,
+    read: Boolean(item?.read),
+    createdAt: item?.createdAt || new Date().toISOString(),
+  };
+  const next = [record, ...existing.filter((n) => n?.id !== record.id)].slice(
+    0,
+    MAX_NOTIFICATIONS
+  );
+  await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: next });
+  return { notification: record, notifications: next };
+}
+
+export async function markNotificationsRead({ id = null } = {}, storageArea) {
+  const store = resolveStorage(storageArea);
+  const existing = await getNotifications(store);
+  const next = existing.map((n) =>
+    !id || n.id === id ? { ...n, read: true } : n
+  );
+  await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: next });
+  return next;
+}
+
+export async function clearNotifications(storageArea) {
+  const store = resolveStorage(storageArea);
+  await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: [] });
+  return [];
+}
+

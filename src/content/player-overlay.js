@@ -1,22 +1,24 @@
 /**
- * Synchronized Video Player Subtitle Overlay & Native PiP Track Bridge
- * (`src/content/player-overlay.js`).
+ * Synchronized Video Player Subtitle Overlay, Interactive Transcript Drawer,
+ * Keyboard Shortcuts Popover, and Native PiP Track Bridge (`src/content/player-overlay.js`).
  *
- * Attaches a closed ShadowRoot to the `<video>` container so captions and
- * controls render cleanly inside both inline Studio playback and Fullscreen,
- * while simultaneously populating a programmatic `TextTrack` (`VTTCue`) for
- * OS-level Picture-in-Picture windows.
+ * Attaches a closed ShadowRoot to the `<video>` container so captions, the
+ * searchable click-to-seek transcript drawer, and export controls render cleanly
+ * inside both inline Studio playback and Fullscreen, while populating a
+ * programmatic `TextTrack` (`VTTCue`) for OS-level Picture-in-Picture windows.
  */
 
 import { DOM_SELECTORS } from "../config/selectors.js";
 import {
   findActiveCue,
+  formatTimestamp,
   formatTxt,
   parseSubtitleText,
   serializeSubtitles,
 } from "../lib/subtitles.js";
 
 const FONT_SIZES = ["small", "medium", "large", "xlarge"];
+const CAPTION_STYLES = ["classic", "contrast", "minimal"];
 const FONT_SCALE_MAP = {
   small: "clamp(13px, 1.85cqh, 16px)",
   medium: "clamp(15px, 2.35cqh, 21px)",
@@ -40,6 +42,9 @@ const OVERLAY_CSS = `
     right: 14px;
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: calc(100% - 28px);
     gap: 3px;
     padding: 4px 6px;
     border-radius: 7px;
@@ -79,7 +84,8 @@ const OVERLAY_CSS = `
     background: rgba(255, 255, 255, 0.12);
     color: #fdfdfe;
   }
-  button:focus-visible {
+  button:focus-visible,
+  input:focus-visible {
     outline: 2px solid #3b82f6;
     outline-offset: 1px;
   }
@@ -127,6 +133,9 @@ const OVERLAY_CSS = `
     align-items: flex-end;
     pointer-events: none;
   }
+  .caption-stage[data-drawer-open="true"] {
+    right: calc(min(320px, 44%) + 26px);
+  }
   .caption-box {
     display: none;
     max-width: min(92%, 780px);
@@ -141,13 +150,185 @@ const OVERLAY_CSS = `
     white-space: pre-line;
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
+  .caption-box[data-style="contrast"] {
+    background: #050608;
+    color: #fdfdfe;
+    border: 1px solid #3b82f6;
+    font-weight: 600;
+  }
+  .caption-box[data-style="minimal"] {
+    background: transparent;
+    border-color: transparent;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.96), 0 0 10px rgba(0, 0, 0, 0.85);
+    font-weight: 600;
+  }
   .caption-box[data-visible="true"] {
     display: inline-block;
   }
+
+  /* Interactive Click-to-Seek Transcript Drawer */
+  .transcript-drawer {
+    position: absolute;
+    top: 86px;
+    right: 14px;
+    bottom: 58px;
+    width: min(320px, 44%);
+    min-width: 240px;
+    display: none;
+    flex-direction: column;
+    border-radius: 8px;
+    background: rgba(17, 19, 21, 0.96);
+    border: 1px solid #272b33;
+    color: #f6f7f8;
+    pointer-events: auto;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  .transcript-drawer[data-open="true"] {
+    display: flex;
+  }
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid #272b33;
+  }
+  .drawer-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #fdfdfe;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .drawer-search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-bottom: 1px solid #272b33;
+    background: #14171c;
+  }
+  .drawer-search-input {
+    all: unset;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 7px;
+    border-radius: 5px;
+    border: 1px solid #2f3540;
+    background: #0c0e12;
+    color: #fdfdfe;
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+  .drawer-search-input::placeholder {
+    color: #8b93a1;
+  }
+  .drawer-count {
+    font-size: 10.5px;
+    color: #9ca3af;
+    white-space: nowrap;
+  }
+  .drawer-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    overscroll-behavior: contain;
+  }
+  .cue-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    border-radius: 0;
+    text-align: left;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    border-left: 2px solid transparent;
+  }
+  .cue-row:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .cue-row[data-current="true"] {
+    background: rgba(0, 85, 212, 0.22);
+    border-left-color: #3b82f6;
+  }
+  .cue-stamp {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #93c5fd;
+    padding-top: 1px;
+    flex-shrink: 0;
+  }
+  .cue-text {
+    font-size: 11.5px;
+    color: #e5e7eb;
+    word-break: break-word;
+  }
+  .cue-row[data-current="true"] .cue-text {
+    color: #fdfdfe;
+    font-weight: 600;
+  }
+  .drawer-empty {
+    padding: 16px 12px;
+    font-size: 11.5px;
+    color: #9ca3af;
+    text-align: center;
+  }
+
+  /* Keyboard Shortcuts Cheat Sheet Popover */
+  .shortcuts-popover {
+    position: absolute;
+    top: 86px;
+    right: 14px;
+    width: 248px;
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(17, 19, 21, 0.96);
+    border: 1px solid #272b33;
+    color: #f6f7f8;
+    pointer-events: auto;
+    font-size: 11.5px;
+  }
+  .shortcuts-popover[data-open="true"] {
+    display: flex;
+  }
+  .shortcut-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #d1d5db;
+  }
+  .kbd {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #1d2129;
+    border: 1px solid #323846;
+    color: #fdfdfe;
+  }
+
   input[type="file"] {
     display: none;
   }
 `;
+
+function formatBriefStamp(sec) {
+  const full = formatTimestamp(sec, ".");
+  return sec >= 3600 ? full.slice(0, 8) : full.slice(3, 8);
+}
 
 function triggerTextDownload(doc, content, filename, mimeType, mountContainer = null) {
   const blob = new Blob(["\uFEFF", content], { type: mimeType });
@@ -192,10 +373,12 @@ export class VideoSubtitleController {
     {
       doc = globalThis.document,
       initialFontSize = "medium",
+      initialCaptionStyle = "classic",
       initialOffsetSec = 0,
       onRequestGenerate = () => {},
       onOffsetChange = () => {},
       onFontSizeChange = () => {},
+      onCaptionStyleChange = () => {},
       onImportSubtitles = () => {},
     } = {}
   ) {
@@ -207,6 +390,9 @@ export class VideoSubtitleController {
     this.fontSize = FONT_SIZES.includes(initialFontSize)
       ? initialFontSize
       : "medium";
+    this.captionStyle = CAPTION_STYLES.includes(initialCaptionStyle)
+      ? initialCaptionStyle
+      : "classic";
     this.offsetSec = Number.isFinite(initialOffsetSec) ? initialOffsetSec : 0;
     this.statusState = "idle"; // "idle" | "working" | "ready" | "error"
     this.statusLabel = "";
@@ -215,9 +401,17 @@ export class VideoSubtitleController {
     this.idleTimer = null;
     this.syncTimer = null;
 
+    this.drawerOpen = false;
+    this.drawerAutoScroll = true;
+    this.drawerQuery = "";
+    this.shortcutsOpen = false;
+    this.activeCueIndex = -1;
+    this.cueRowElements = [];
+
     this.onRequestGenerate = onRequestGenerate;
     this.onOffsetChange = onOffsetChange;
     this.onFontSizeChange = onFontSizeChange;
+    this.onCaptionStyleChange = onCaptionStyleChange;
     this.onImportSubtitles = onImportSubtitles;
 
     this._mount();
@@ -292,10 +486,7 @@ export class VideoSubtitleController {
         this.onRequestGenerate({ force: true });
         return;
       }
-      this.ccEnabled = !this.ccEnabled;
-      this._syncTrackVisibility();
-      this._renderToolbar();
-      this._renderActiveCue();
+      this.toggleSubtitles();
     });
 
     this.statusEl = this.doc.createElement("span");
@@ -306,26 +497,38 @@ export class VideoSubtitleController {
     this.controlsGroup.style.alignItems = "center";
     this.controlsGroup.style.gap = "3px";
 
+    const sep0 = this.doc.createElement("span");
+    sep0.className = "sep";
+
+    this.transcriptBtn = this._makeBtn(
+      "Transcript",
+      "Toggle interactive click-to-seek transcript (T)",
+      () => this.toggleTranscriptDrawer()
+    );
+
     const sep1 = this.doc.createElement("span");
     sep1.className = "sep";
 
-    this.sizeDownBtn = this._makeBtn("A-", "Smaller captions", () =>
+    this.sizeDownBtn = this._makeBtn("A-", "Smaller captions (-)", () =>
       this._stepFontSize(-1)
     );
-    this.sizeUpBtn = this._makeBtn("A+", "Larger captions", () =>
+    this.sizeUpBtn = this._makeBtn("A+", "Larger captions (+)", () =>
       this._stepFontSize(1)
+    );
+    this.styleBtn = this._makeBtn("Box", "Cycle caption backdrop (B)", () =>
+      this.cycleCaptionStyle()
     );
 
     const sep2 = this.doc.createElement("span");
     sep2.className = "sep";
 
-    this.offsetMinusBtn = this._makeBtn("-0.25s", "Shift subtitles earlier", () =>
+    this.offsetMinusBtn = this._makeBtn("-0.25s", "Shift subtitles earlier ([)", () =>
       this._adjustOffset(-0.25)
     );
-    this.offsetLabelBtn = this._makeBtn("0.0s", "Reset timing offset", () =>
+    this.offsetLabelBtn = this._makeBtn("0.0s", "Reset timing offset (\\)", () =>
       this._resetOffset()
     );
-    this.offsetPlusBtn = this._makeBtn("+0.25s", "Shift subtitles later", () =>
+    this.offsetPlusBtn = this._makeBtn("+0.25s", "Shift subtitles later (])", () =>
       this._adjustOffset(0.25)
     );
 
@@ -344,10 +547,16 @@ export class VideoSubtitleController {
       flashButtonLabel(this.vttBtn, "Saved");
     });
 
-    this.txtBtn = this._makeBtn(".TXT", "Export readable plain-text transcript (.txt)", () => {
+    this.txtBtn = this._makeBtn(".TXT", "Export timestamped transcript (.txt)", () => {
       if (this.cues.length === 0) return;
       this.exportSubtitles("txt");
       flashButtonLabel(this.txtBtn, "Saved");
+    });
+
+    this.mdBtn = this._makeBtn(".MD", "Export Markdown study notes (.md)", () => {
+      if (this.cues.length === 0) return;
+      this.exportSubtitles("md");
+      flashButtonLabel(this.mdBtn, "Saved");
     });
 
     this.copyBtn = this._makeBtn("Copy", "Copy transcript to clipboard", async () => {
@@ -360,11 +569,14 @@ export class VideoSubtitleController {
         await globalThis.navigator?.clipboard?.writeText(text);
         flashButtonLabel(this.copyBtn, "Copied");
       } catch {
-        // Fallback if clipboard API is restricted
         this.exportSubtitles("txt");
         flashButtonLabel(this.copyBtn, "Saved");
       }
     });
+
+    this.shortcutsBtn = this._makeBtn("?", "Keyboard shortcuts (?)", () =>
+      this.toggleShortcutsHelp()
+    );
 
     this.fileInput = this.doc.createElement("input");
     this.fileInput.type = "file";
@@ -390,9 +602,12 @@ export class VideoSubtitleController {
     });
 
     this.controlsGroup.append(
+      sep0,
+      this.transcriptBtn,
       sep1,
       this.sizeDownBtn,
       this.sizeUpBtn,
+      this.styleBtn,
       sep2,
       this.offsetMinusBtn,
       this.offsetLabelBtn,
@@ -401,7 +616,9 @@ export class VideoSubtitleController {
       this.srtBtn,
       this.vttBtn,
       this.txtBtn,
-      this.copyBtn
+      this.mdBtn,
+      this.copyBtn,
+      this.shortcutsBtn
     );
 
     this.toolbar.append(
@@ -413,16 +630,96 @@ export class VideoSubtitleController {
       this.fileInput
     );
 
-    const stage = this.doc.createElement("div");
-    stage.className = "caption-stage";
+    // Interactive Click-to-Seek Transcript Drawer
+    this.drawerEl = this.doc.createElement("aside");
+    this.drawerEl.className = "transcript-drawer";
+    this.drawerEl.dataset.open = "false";
+    this.drawerEl.setAttribute?.("aria-label", "Interactive video transcript");
+
+    const drawerHead = this.doc.createElement("div");
+    drawerHead.className = "drawer-head";
+    this.drawerTitleEl = this.doc.createElement("div");
+    this.drawerTitleEl.className = "drawer-title";
+    this.drawerTitleEl.textContent = "Transcript";
+
+    const drawerHeadActions = this.doc.createElement("div");
+    drawerHeadActions.style.display = "inline-flex";
+    drawerHeadActions.style.gap = "4px";
+
+    this.drawerAutoBtn = this._makeBtn("Follow", "Auto-scroll active line", () => {
+      this.drawerAutoScroll = !this.drawerAutoScroll;
+      this.drawerAutoBtn.dataset.active = this.drawerAutoScroll ? "true" : "false";
+    });
+    this.drawerAutoBtn.dataset.active = "true";
+
+    const drawerCloseBtn = this._makeBtn("Close", "Close transcript (T)", () => {
+      this.toggleTranscriptDrawer(false);
+    });
+    drawerHeadActions.append(this.drawerAutoBtn, drawerCloseBtn);
+    drawerHead.append(this.drawerTitleEl, drawerHeadActions);
+
+    const searchRow = this.doc.createElement("div");
+    searchRow.className = "drawer-search-row";
+    this.drawerSearchInput = this.doc.createElement("input");
+    this.drawerSearchInput.type = "search";
+    this.drawerSearchInput.className = "drawer-search-input";
+    this.drawerSearchInput.placeholder = "Filter spoken words…";
+    this.drawerSearchInput.setAttribute?.("aria-label", "Filter transcript");
+    for (const evtName of ["keydown", "keyup", "keypress"]) {
+      this.drawerSearchInput.addEventListener(evtName, (ev) => {
+        ev.stopPropagation();
+      });
+    }
+    this.drawerSearchInput.addEventListener("input", () => {
+      this.drawerQuery = this.drawerSearchInput.value || "";
+      this._renderTranscriptList();
+    });
+
+    this.drawerCountEl = this.doc.createElement("span");
+    this.drawerCountEl.className = "drawer-count";
+    searchRow.append(this.drawerSearchInput, this.drawerCountEl);
+
+    this.drawerListEl = this.doc.createElement("div");
+    this.drawerListEl.className = "drawer-list";
+
+    this.drawerEl.append(drawerHead, searchRow, this.drawerListEl);
+
+    // Keyboard Shortcuts Cheat Sheet
+    this.shortcutsEl = this.doc.createElement("div");
+    this.shortcutsEl.className = "shortcuts-popover";
+    this.shortcutsEl.dataset.open = "false";
+    const shortcutPairs = [
+      ["Toggle captions", "C"],
+      ["Transcript drawer", "T"],
+      ["Caption size", "- / +"],
+      ["Caption backdrop", "B"],
+      ["Timing -0.25s / +0.25s", "[ / ]"],
+      ["Reset timing", "\\"],
+      ["Shortcut guide", "?"],
+    ];
+    for (const [desc, keyLabel] of shortcutPairs) {
+      const row = this.doc.createElement("div");
+      row.className = "shortcut-item";
+      const d = this.doc.createElement("span");
+      d.textContent = desc;
+      const k = this.doc.createElement("span");
+      k.className = "kbd";
+      k.textContent = keyLabel;
+      row.append(d, k);
+      this.shortcutsEl.appendChild(row);
+    }
+
+    this.stageEl = this.doc.createElement("div");
+    this.stageEl.className = "caption-stage";
     this.captionBox = this.doc.createElement("div");
     this.captionBox.className = "caption-box";
-    stage.appendChild(this.captionBox);
+    this.stageEl.appendChild(this.captionBox);
 
-    shadow.append(style, stage, this.toolbar);
+    shadow.append(style, this.stageEl, this.drawerEl, this.shortcutsEl, this.toolbar);
     parent.appendChild(this.host);
 
     this._applyFontSize();
+    this._applyCaptionStyle();
     this._renderToolbar();
   }
 
@@ -493,13 +790,17 @@ export class VideoSubtitleController {
     if (!this.toolbar) return;
     this.toolbar.dataset.idle = "false";
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (!this.video.paused && this.statusState !== "working") {
+    if (!this.video.paused && this.statusState !== "working" && !this.drawerOpen && !this.shortcutsOpen) {
       this.idleTimer = setTimeout(() => {
-        if (this.toolbar && !this.video.paused) {
+        if (this.toolbar && !this.video.paused && !this.drawerOpen && !this.shortcutsOpen) {
           this.toolbar.dataset.idle = "true";
         }
       }, 2800);
     }
+  }
+
+  stepFontSize(delta) {
+    this._stepFontSize(delta);
   }
 
   _stepFontSize(delta) {
@@ -517,10 +818,41 @@ export class VideoSubtitleController {
     }
   }
 
+  cycleCaptionStyle() {
+    const idx = CAPTION_STYLES.indexOf(this.captionStyle);
+    this.captionStyle = CAPTION_STYLES[(idx + 1) % CAPTION_STYLES.length];
+    this._applyCaptionStyle();
+    this.onCaptionStyleChange(this.captionStyle);
+    return this.captionStyle;
+  }
+
+  _applyCaptionStyle() {
+    if (this.captionBox) {
+      this.captionBox.dataset.style = this.captionStyle;
+    }
+    if (this.styleBtn) {
+      const labelMap = {
+        classic: "Box",
+        contrast: "Hi-Con",
+        minimal: "Clean",
+      };
+      this.styleBtn.textContent = labelMap[this.captionStyle] || "Box";
+    }
+  }
+
+  adjustOffset(delta) {
+    this._adjustOffset(delta);
+  }
+
+  resetOffset() {
+    this._resetOffset();
+  }
+
   _adjustOffset(delta) {
     this.offsetSec = Math.round((this.offsetSec + delta) * 100) / 100;
     this._syncNativeTextTrack();
     this._renderToolbar();
+    this._renderTranscriptList();
     this._renderActiveCue();
     this.onOffsetChange(this.offsetSec);
   }
@@ -529,8 +861,49 @@ export class VideoSubtitleController {
     this.offsetSec = 0;
     this._syncNativeTextTrack();
     this._renderToolbar();
+    this._renderTranscriptList();
     this._renderActiveCue();
     this.onOffsetChange(0);
+  }
+
+  toggleTranscriptDrawer(forceState) {
+    if (this.cues.length === 0) return false;
+    this.drawerOpen =
+      typeof forceState === "boolean" ? forceState : !this.drawerOpen;
+    if (this.drawerOpen) {
+      this.shortcutsOpen = false;
+      if (this.shortcutsEl) this.shortcutsEl.dataset.open = "false";
+    }
+    if (this.drawerEl) {
+      this.drawerEl.dataset.open = this.drawerOpen ? "true" : "false";
+    }
+    if (this.stageEl) {
+      this.stageEl.dataset.drawerOpen = this.drawerOpen ? "true" : "false";
+    }
+    if (this.transcriptBtn) {
+      this.transcriptBtn.dataset.active = this.drawerOpen ? "true" : "false";
+    }
+    if (this.drawerOpen) {
+      this._renderTranscriptList();
+      this._highlightDrawerActiveCue(true);
+    }
+    this._renderToolbar();
+    return this.drawerOpen;
+  }
+
+  toggleShortcutsHelp(forceState) {
+    this.shortcutsOpen =
+      typeof forceState === "boolean" ? forceState : !this.shortcutsOpen;
+    if (this.shortcutsOpen && this.drawerOpen) {
+      this.toggleTranscriptDrawer(false);
+    }
+    if (this.shortcutsEl) {
+      this.shortcutsEl.dataset.open = this.shortcutsOpen ? "true" : "false";
+    }
+    if (this.shortcutsBtn) {
+      this.shortcutsBtn.dataset.active = this.shortcutsOpen ? "true" : "false";
+    }
+    return this.shortcutsOpen;
   }
 
   _shiftedCues() {
@@ -542,15 +915,20 @@ export class VideoSubtitleController {
     }));
   }
 
-  setSettings({ fontSize, subtitleOffsetSec } = {}) {
+  setSettings({ fontSize, captionStyle, subtitleOffsetSec } = {}) {
     if (fontSize && FONT_SIZES.includes(fontSize)) {
       this.fontSize = fontSize;
       this._applyFontSize();
+    }
+    if (captionStyle && CAPTION_STYLES.includes(captionStyle)) {
+      this.captionStyle = captionStyle;
+      this._applyCaptionStyle();
     }
     if (Number.isFinite(subtitleOffsetSec)) {
       this.offsetSec = subtitleOffsetSec;
       this._syncNativeTextTrack();
       this._renderToolbar();
+      this._renderTranscriptList();
       this._renderActiveCue();
     }
   }
@@ -580,8 +958,14 @@ export class VideoSubtitleController {
     this.language = language || "en";
     this.statusState = this.cues.length > 0 ? "ready" : "idle";
     this.statusLabel = "";
+    if (this.drawerTitleEl) {
+      this.drawerTitleEl.textContent = `Transcript (${this.cues.length})`;
+    }
     this._syncNativeTextTrack();
     this._renderToolbar();
+    if (this.drawerOpen) {
+      this._renderTranscriptList();
+    }
     this._renderActiveCue();
     this._scheduleIdleFade();
   }
@@ -609,6 +993,98 @@ export class VideoSubtitleController {
       this.shadow || openDialog
     );
     return true;
+  }
+
+  _renderTranscriptList() {
+    if (!this.drawerListEl) return;
+    while (this.drawerListEl.firstChild) {
+      this.drawerListEl.removeChild(this.drawerListEl.firstChild);
+    }
+    this.cueRowElements = [];
+
+    const shifted = this._shiftedCues();
+    const q = String(this.drawerQuery || "").trim().toLowerCase();
+    let matchCount = 0;
+
+    for (let i = 0; i < shifted.length; i++) {
+      const cue = shifted[i];
+      const singleLine = String(cue.text || "").replace(/\s*\n\s*/g, " ").trim();
+      const hay = `${cue.speaker || ""} ${singleLine}`.toLowerCase();
+      if (q && !hay.includes(q)) {
+        this.cueRowElements.push(null);
+        continue;
+      }
+      matchCount += 1;
+
+      const btn = this.doc.createElement("button");
+      btn.type = "button";
+      btn.className = "cue-row";
+      btn.dataset.cueIndex = String(i);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        try {
+          this.video.currentTime = Math.max(0, cue.startSec + 0.01);
+          if (this.video.paused && typeof this.video.play === "function") {
+            this.video.play().catch(() => {});
+          }
+        } catch {
+          // Ignore seek errors on unloaded media
+        }
+      });
+
+      const stamp = this.doc.createElement("span");
+      stamp.className = "cue-stamp";
+      stamp.textContent = formatBriefStamp(cue.startSec);
+
+      const textSpan = this.doc.createElement("span");
+      textSpan.className = "cue-text";
+      textSpan.textContent = cue.speaker
+        ? `[${cue.speaker}] ${singleLine}`
+        : singleLine;
+
+      btn.append(stamp, textSpan);
+      this.drawerListEl.appendChild(btn);
+      this.cueRowElements.push(btn);
+    }
+
+    if (this.drawerCountEl) {
+      this.drawerCountEl.textContent = q
+        ? `${matchCount}/${shifted.length}`
+        : `${shifted.length}`;
+    }
+
+    if (matchCount === 0) {
+      const empty = this.doc.createElement("div");
+      empty.className = "drawer-empty";
+      empty.textContent = q
+        ? "No spoken lines match your filter."
+        : "No transcript cues loaded yet.";
+      this.drawerListEl.appendChild(empty);
+    }
+
+    this._highlightDrawerActiveCue(false);
+  }
+
+  _highlightDrawerActiveCue(forceScroll = false) {
+    if (!this.drawerOpen || !this.cueRowElements.length) return;
+    for (let i = 0; i < this.cueRowElements.length; i++) {
+      const el = this.cueRowElements[i];
+      if (!el) continue;
+      const isCurrent = i === this.activeCueIndex;
+      el.dataset.current = isCurrent ? "true" : "false";
+      if (
+        isCurrent &&
+        (forceScroll || this.drawerAutoScroll) &&
+        !this.drawerQuery &&
+        typeof el.scrollIntoView === "function"
+      ) {
+        try {
+          el.scrollIntoView({ block: "nearest" });
+        } catch {
+          // Ignore in non-DOM test mocks
+        }
+      }
+    }
   }
 
   _syncNativeTextTrack() {
@@ -640,7 +1116,6 @@ export class VideoSubtitleController {
 
   _syncTrackVisibility() {
     if (!this.nativeTrack) return;
-    // Show native track only inside Picture-in-Picture so inline mode uses our crisp Shadow-DOM overlay
     this.nativeTrack.mode =
       this.ccEnabled && this.inPiP && this.cues.length > 0 ? "showing" : "hidden";
   }
@@ -676,6 +1151,9 @@ export class VideoSubtitleController {
     }
 
     this.controlsGroup.style.display = hasCues ? "inline-flex" : "none";
+    if (this.transcriptBtn) {
+      this.transcriptBtn.dataset.active = this.drawerOpen ? "true" : "false";
+    }
     this.regenBtn.style.display =
       hasCues || this.statusState === "error" ? "inline-flex" : "none";
     this.regenBtn.textContent = hasCues ? "Regen" : "Retry";
@@ -687,14 +1165,15 @@ export class VideoSubtitleController {
 
   _renderActiveCue() {
     if (!this.captionBox) return;
-    if (!this.ccEnabled || this.inPiP || this.cues.length === 0) {
-      this.captionBox.dataset.visible = "false";
-      return;
-    }
-
     const effectiveTime = (this.video.currentTime || 0) - this.offsetSec;
     const active = findActiveCue(this.cues, effectiveTime);
-    if (!active) {
+    const nextIdx = active ? this.cues.indexOf(active) : -1;
+    if (nextIdx !== this.activeCueIndex) {
+      this.activeCueIndex = nextIdx;
+      this._highlightDrawerActiveCue(false);
+    }
+
+    if (!this.ccEnabled || this.inPiP || !active) {
       this.captionBox.dataset.visible = "false";
       return;
     }

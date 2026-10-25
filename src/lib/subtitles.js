@@ -403,6 +403,105 @@ export function formatJsonSubtitles(cues, meta = {}) {
 }
 
 /**
+ * Formats normalized cues into structured Markdown study notes (`.md`) grouped
+ * into ~90-second sections with timestamp anchors and a full timestamped index.
+ */
+export function formatMarkdownNotes(cues, meta = {}) {
+  const normalized = normalizeAndSortCues(cues);
+  const title = String(meta.title || "NotebookLM Video Overview").trim();
+  const lang = String(meta.language || "en").trim();
+  const lastEnd =
+    normalized.length > 0 ? normalized[normalized.length - 1].endSec : 0;
+  const mins = Math.floor(lastEnd / 60);
+  const secs = Math.round(lastEnd % 60);
+  const durationLabel = `${mins}:${String(secs).padStart(2, "0")}`;
+
+  const lines = [
+    `# ${title}`,
+    "",
+    `- **Language:** ${lang}`,
+    `- **Duration:** ${durationLabel}`,
+    `- **Synchronized cues:** ${normalized.length}`,
+    ...(meta.provider ? [`- **Transcribed via:** ${meta.provider}`] : []),
+    "",
+  ];
+
+  if (normalized.length === 0) {
+    lines.push("_No caption cues available._", "");
+    return lines.join("\n");
+  }
+
+  // Group into ~90s sections so long lectures read cleanly as study notes
+  const SECTION_SPAN_SEC = 90;
+  const sections = [];
+  let current = null;
+
+  for (const cue of normalized) {
+    if (
+      !current ||
+      cue.startSec - current.startSec >= SECTION_SPAN_SEC
+    ) {
+      current = {
+        startSec: cue.startSec,
+        endSec: cue.endSec,
+        items: [],
+      };
+      sections.push(current);
+    }
+    current.endSec = Math.max(current.endSec, cue.endSec);
+    current.items.push(cue);
+  }
+
+  lines.push("## Study summary by timestamp", "");
+  sections.forEach((sec, idx) => {
+    const startStamp = formatTimestamp(sec.startSec, ".").slice(3, 8);
+    const endStamp = formatTimestamp(sec.endSec, ".").slice(3, 8);
+    lines.push(`### Part ${idx + 1} (${startStamp} to ${endStamp})`, "");
+    const prose = sec.items
+      .map((c) => {
+        const clean = c.text.replace(/\s*\n\s*/g, " ").trim();
+        return c.speaker ? `**${c.speaker}:** ${clean}` : clean;
+      })
+      .join(" ");
+    lines.push(prose, "");
+  });
+
+  lines.push("## Timestamped transcript", "");
+  for (const cue of normalized) {
+    const stamp = formatTimestamp(cue.startSec, ".").slice(3, 8);
+    const clean = cue.text.replace(/\s*\n\s*/g, " ").trim();
+    const speakerPrefix = cue.speaker ? `**${cue.speaker}:** ` : "";
+    lines.push(`- \`[${stamp}]\` ${speakerPrefix}${clean}`);
+  }
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+/**
+ * Performs case-insensitive full-text search across a cue array, returning
+ * matching cue indices and snippets.
+ */
+export function searchCues(cues, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q || !Array.isArray(cues) || cues.length === 0) return [];
+  const matches = [];
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i];
+    const hay = `${cue?.speaker || ""} ${cue?.text || ""}`.toLowerCase();
+    if (hay.includes(q)) {
+      matches.push({
+        index: i,
+        startSec: cue.startSec,
+        endSec: cue.endSec,
+        text: String(cue.text || "").replace(/\s*\n\s*/g, " ").trim(),
+      });
+    }
+  }
+  return matches;
+}
+
+/**
  * Builds a clean filesystem-safe slug for exported subtitle filenames.
  */
 export function slugifySubtitleFilename(title) {
@@ -416,7 +515,7 @@ export function slugifySubtitleFilename(title) {
 
 /**
  * Unified serializer returning `{ content, extension, mimeType, filename }`
- * for `srt`, `vtt`, `txt`, or `json`.
+ * for `srt`, `vtt`, `txt`, `md`, or `json`.
  */
 export function serializeSubtitles(cues, format = "srt", meta = {}) {
   const fmt = String(format || "srt").toLowerCase();
@@ -439,6 +538,14 @@ export function serializeSubtitles(cues, format = "srt", meta = {}) {
       extension: "txt",
       mimeType: "text/plain;charset=utf-8",
       filename: `${base}.txt`,
+    };
+  }
+  if (fmt === "md" || fmt === "markdown") {
+    return {
+      content: formatMarkdownNotes(cues, meta),
+      extension: "md",
+      mimeType: "text/markdown;charset=utf-8",
+      filename: `${base}-notes.md`,
     };
   }
   if (fmt === "json") {

@@ -129,7 +129,12 @@
     SYNC_GET_STATS: "LM_SUBS_SYNC_GET_STATS",
     SYNC_SIGNOUT: "LM_SUBS_SYNC_SIGNOUT",
     SYNC_NOW: "LM_SUBS_SYNC_NOW",
-    SYNC_STATUS: "LM_SUBS_SYNC_STATUS"
+    SYNC_STATUS: "LM_SUBS_SYNC_STATUS",
+    GET_NOTIFICATIONS: "LM_SUBS_GET_NOTIFICATIONS",
+    MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
+    CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
+    TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
+    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
   });
 
   // src/lib/audio-extract.js
@@ -422,6 +427,7 @@
     HISTORY: "subtitleHistory",
     LAST_STATUS: "lastStatus",
     DEBUG_LOGS: "debugLogs",
+    NOTIFICATIONS: "notifications",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
@@ -439,8 +445,15 @@
     translateTo: "original",
     fontSize: "medium",
     // "small" | "medium" | "large" | "xlarge"
+    captionStyle: "classic",
+    // "classic" | "contrast" | "minimal"
     subtitleOffsetSec: 0,
     showToast: true,
+    desktopNotifications: true,
+    soundAlerts: false,
+    badgeAlerts: true,
+    notifyOnFailover: true,
+    notifyOnSync: true,
     excludePatterns: [],
     rpcOverrides: {}
   });
@@ -509,8 +522,14 @@
       languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
       translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
       fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
+      captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
       subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
       showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
+      desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
+      soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+      badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
+      notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
+      notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
       excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
       rpcOverrides
     };
@@ -640,6 +659,16 @@
       subtitleCount: Number(saved.subtitleCount) || 0,
       lastSyncedAt: saved.lastSyncedAt || null
     };
+  }
+  async function getNotifications(storageArea) {
+    try {
+      const store = resolveStorage(storageArea);
+      const raw = await store.get(STORAGE_KEYS.NOTIFICATIONS);
+      const list = raw?.[STORAGE_KEYS.NOTIFICATIONS];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
   }
 
   // src/lib/subtitles.js
@@ -814,6 +843,63 @@ ${blocks.join("\n\n")}
     return `${JSON.stringify(payload, null, 2)}
 `;
   }
+  function formatMarkdownNotes(cues, meta = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    const title = String(meta.title || "NotebookLM Video Overview").trim();
+    const lang = String(meta.language || "en").trim();
+    const lastEnd = normalized.length > 0 ? normalized[normalized.length - 1].endSec : 0;
+    const mins = Math.floor(lastEnd / 60);
+    const secs = Math.round(lastEnd % 60);
+    const durationLabel = `${mins}:${String(secs).padStart(2, "0")}`;
+    const lines = [
+      `# ${title}`,
+      "",
+      `- **Language:** ${lang}`,
+      `- **Duration:** ${durationLabel}`,
+      `- **Synchronized cues:** ${normalized.length}`,
+      ...meta.provider ? [`- **Transcribed via:** ${meta.provider}`] : [],
+      ""
+    ];
+    if (normalized.length === 0) {
+      lines.push("_No caption cues available._", "");
+      return lines.join("\n");
+    }
+    const SECTION_SPAN_SEC = 90;
+    const sections = [];
+    let current = null;
+    for (const cue of normalized) {
+      if (!current || cue.startSec - current.startSec >= SECTION_SPAN_SEC) {
+        current = {
+          startSec: cue.startSec,
+          endSec: cue.endSec,
+          items: []
+        };
+        sections.push(current);
+      }
+      current.endSec = Math.max(current.endSec, cue.endSec);
+      current.items.push(cue);
+    }
+    lines.push("## Study summary by timestamp", "");
+    sections.forEach((sec, idx) => {
+      const startStamp = formatTimestamp(sec.startSec, ".").slice(3, 8);
+      const endStamp = formatTimestamp(sec.endSec, ".").slice(3, 8);
+      lines.push(`### Part ${idx + 1} (${startStamp} to ${endStamp})`, "");
+      const prose = sec.items.map((c) => {
+        const clean = c.text.replace(/\s*\n\s*/g, " ").trim();
+        return c.speaker ? `**${c.speaker}:** ${clean}` : clean;
+      }).join(" ");
+      lines.push(prose, "");
+    });
+    lines.push("## Timestamped transcript", "");
+    for (const cue of normalized) {
+      const stamp = formatTimestamp(cue.startSec, ".").slice(3, 8);
+      const clean = cue.text.replace(/\s*\n\s*/g, " ").trim();
+      const speakerPrefix = cue.speaker ? `**${cue.speaker}:** ` : "";
+      lines.push(`- \`[${stamp}]\` ${speakerPrefix}${clean}`);
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
   function slugifySubtitleFilename(title) {
     const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
     return slug || "notebooklm-video-overview";
@@ -838,6 +924,14 @@ ${blocks.join("\n\n")}
         extension: "txt",
         mimeType: "text/plain;charset=utf-8",
         filename: `${base}.txt`
+      };
+    }
+    if (fmt === "md" || fmt === "markdown") {
+      return {
+        content: formatMarkdownNotes(cues, meta),
+        extension: "md",
+        mimeType: "text/markdown;charset=utf-8",
+        filename: `${base}-notes.md`
       };
     }
     if (fmt === "json") {
@@ -993,8 +1087,15 @@ ${blocks.join("\n\n")}
     const downloadLatestSrtBtn = document.getElementById("download-latest-srt-btn");
     const downloadLatestVttBtn = document.getElementById("download-latest-vtt-btn");
     const downloadLatestTxtBtn = document.getElementById("download-latest-txt-btn");
+    const downloadLatestMdBtn = document.getElementById("download-latest-md-btn");
     const downloadLatestJsonBtn = document.getElementById("download-latest-json-btn");
     const copyLatestTxtBtn = document.getElementById("copy-latest-txt-btn");
+    const popupNotifBadge = document.getElementById("popup-notif-badge");
+    const popupNotifSummary = document.getElementById("popup-notif-summary");
+    const popupEnableOsNotifBtn = document.getElementById("popup-enable-os-notif-btn");
+    const popupMarkReadBtn = document.getElementById("popup-mark-read-btn");
+    const popupClearNotifBtn = document.getElementById("popup-clear-notif-btn");
+    const popupNotifList = document.getElementById("popup-notif-list");
     const lastStatusCard = document.getElementById("last-status-card");
     const lastStatusBadge = document.getElementById("last-status-badge");
     const lastStatusTitle = document.getElementById("last-status-title");
@@ -1010,12 +1111,13 @@ ${blocks.join("\n\n")}
       opt.textContent = `${spec.name} (${spec.badge})`;
       providerSelect.appendChild(opt);
     }
-    let [settings, presenceMap, lastStatus, cacheList, syncProfile] = await Promise.all([
+    let [settings, presenceMap, lastStatus, cacheList, syncProfile, notifications] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getLastStatus(),
       getSubtitleCacheList(),
-      getCloudSyncProfile()
+      getCloudSyncProfile(),
+      getNotifications()
     ]);
     let activeTabId = null;
     let activeTabDiagnostics = null;
@@ -1208,6 +1310,63 @@ ${blocks.join("\n\n")}
         }
       );
     }
+    async function inspectOsNotificationPermission() {
+      if (!popupEnableOsNotifBtn || !chrome.permissions?.contains) return;
+      try {
+        const granted = await chrome.permissions.contains({
+          permissions: ["notifications"]
+        });
+        popupEnableOsNotifBtn.textContent = granted ? "Test desktop alert" : "Enable desktop alerts";
+      } catch {
+      }
+    }
+    function renderNotifications() {
+      if (!popupNotifList) return;
+      const list = Array.isArray(notifications) ? notifications : [];
+      const unread = list.filter((n) => !n.read).length;
+      if (popupNotifBadge) {
+        popupNotifBadge.style.display = unread > 0 ? "inline-flex" : "none";
+        popupNotifBadge.textContent = unread > 99 ? "99+" : String(unread);
+      }
+      if (popupNotifSummary) {
+        popupNotifSummary.textContent = unread > 0 ? `${unread} unread` : list.length > 0 ? `${list.length} recent` : "No unread alerts";
+      }
+      popupNotifList.textContent = "";
+      if (list.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "hint";
+        empty.style.margin = "4px 0";
+        empty.textContent = "Caption completions, failovers, and sync updates appear here.";
+        popupNotifList.appendChild(empty);
+        return;
+      }
+      for (const item of list.slice(0, 12)) {
+        const row = document.createElement("div");
+        row.className = "notif-row";
+        row.dataset.unread = item.read ? "false" : "true";
+        const head = document.createElement("div");
+        head.className = "notif-row-head";
+        const title = document.createElement("span");
+        title.className = "notif-row-title";
+        title.textContent = item.title || "LM Subs";
+        const time = document.createElement("span");
+        time.className = "hint";
+        time.style.margin = "0";
+        time.textContent = item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit"
+        }) : "";
+        head.append(title, time);
+        row.appendChild(head);
+        if (item.body) {
+          const body = document.createElement("div");
+          body.className = "notif-row-body";
+          body.textContent = item.body;
+          row.appendChild(body);
+        }
+        popupNotifList.appendChild(row);
+      }
+    }
     enabledToggle.checked = settings.enabled;
     if (debugModeToggle) debugModeToggle.checked = Boolean(settings.debugMode);
     providerSelect.value = settings.primaryProvider || "groq";
@@ -1216,6 +1375,8 @@ ${blocks.join("\n\n")}
     renderSyncStatus();
     renderLastStatus();
     renderExportBar();
+    renderNotifications();
+    inspectOsNotificationPermission();
     inspectGoogleHostPermissions();
     inspectActiveTab();
     enabledToggle.addEventListener("change", async () => {
@@ -1442,7 +1603,33 @@ ${blocks.join("\n\n")}
     bindExportButton(downloadLatestSrtBtn, "srt");
     bindExportButton(downloadLatestVttBtn, "vtt");
     bindExportButton(downloadLatestTxtBtn, "txt");
+    bindExportButton(downloadLatestMdBtn, "md");
     bindExportButton(downloadLatestJsonBtn, "json");
+    popupEnableOsNotifBtn?.addEventListener("click", async () => {
+      if (chrome.permissions?.request) {
+        try {
+          await chrome.permissions.request({ permissions: ["notifications"] });
+        } catch {
+        }
+      }
+      settings = await saveSettings({ desktopNotifications: true });
+      await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
+      notifications = await getNotifications();
+      renderNotifications();
+      await inspectOsNotificationPermission();
+    });
+    popupMarkReadBtn?.addEventListener("click", async () => {
+      const res = await sendRuntime({
+        type: RUNTIME_MESSAGE.MARK_NOTIFICATIONS_READ
+      });
+      notifications = res?.notifications || await getNotifications();
+      renderNotifications();
+    });
+    popupClearNotifBtn?.addEventListener("click", async () => {
+      await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_NOTIFICATIONS });
+      notifications = [];
+      renderNotifications();
+    });
     copyLatestTxtBtn?.addEventListener("click", async () => {
       const target = resolveExportTarget();
       if (!target) return;
@@ -1471,6 +1658,10 @@ ${blocks.join("\n\n")}
           ]);
           renderLastStatus();
           renderExportBar();
+        }
+        if (changes.notifications) {
+          notifications = await getNotifications();
+          renderNotifications();
         }
       });
     } catch {

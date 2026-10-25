@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Collapsible, Dialog, DropdownMenu, Switch } from "radix-ui";
 import { listProviderSpecs } from "../lib/providers/registry.js";
-import { formatTxt, serializeSubtitles } from "../lib/subtitles.js";
+import {
+  formatTimestamp,
+  formatTxt,
+  parseTimestampSec,
+  searchCues,
+  serializeSubtitles,
+} from "../lib/subtitles.js";
 import { AuthCard } from "./AuthDialog.jsx";
 
 const PROVIDERS = listProviderSpecs().filter((p) => p.id !== "custom");
@@ -87,6 +93,8 @@ export function LibraryView({
   loadingCloud,
   oauthNotice,
   extConnectRequested = false,
+  focusedCacheKey = null,
+  onPushNotification,
   onAuthenticated,
   onSignOut,
   onRefreshCloud,
@@ -106,10 +114,21 @@ export function LibraryView({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedKey, setExpandedKey] = useState(null);
+  const [editingKey, setEditingKey] = useState(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftCues, setDraftCues] = useState([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
   const [copiedKey, setCopiedKey] = useState(null);
 
   const [confirmDisableModal, setConfirmDisableModal] = useState(null);
   const [confirmDeleteTranscript, setConfirmDeleteTranscript] = useState(null);
+
+  useEffect(() => {
+    if (focusedCacheKey) {
+      setExpandedKey(focusedCacheKey);
+    }
+  }, [focusedCacheKey]);
 
   // Automatically mint a dedicated Chrome extension local code whenever signed in
   useEffect(() => {
@@ -147,9 +166,12 @@ export function LibraryView({
   const filteredSubtitles = useMemo(() => {
     const list = cloudState?.subtitles || [];
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(
-      (s) =>
+    if (!q) {
+      return list.map((s) => ({ ...s, _cueMatches: [] }));
+    }
+    const out = [];
+    for (const s of list) {
+      const metaMatch =
         String(s.title || "")
           .toLowerCase()
           .includes(q) ||
@@ -158,8 +180,13 @@ export function LibraryView({
           .includes(q) ||
         String(s.language || "")
           .toLowerCase()
-          .includes(q)
-    );
+          .includes(q);
+      const cueMatches = searchCues(s.cues || [], q);
+      if (metaMatch || cueMatches.length > 0) {
+        out.push({ ...s, _cueMatches: cueMatches });
+      }
+    }
+    return out;
   }, [cloudState?.subtitles, searchQuery]);
 
   if (!token || !user) {
@@ -360,6 +387,107 @@ export function LibraryView({
     });
     setConfirmDeleteTranscript(null);
     await onRefreshCloud();
+  }
+
+  function startEditingTranscript(sub) {
+    setExpandedKey(sub.cacheKey);
+    setEditingKey(sub.cacheKey);
+    setEditError("");
+    setDraftTitle(sub.title || "Video Overview");
+    setDraftCues(
+      (sub.cues || []).map((c) => ({
+        startInput: formatTimestamp(c.startSec, "."),
+        endInput: formatTimestamp(c.endSec, "."),
+        text: String(c.text || ""),
+        speaker: c.speaker || "",
+      }))
+    );
+  }
+
+  function updateDraftCue(index, field, value) {
+    setDraftCues((prev) =>
+      prev.map((row, idx) => (idx === index ? { ...row, [field]: value } : row))
+    );
+  }
+
+  function addDraftCue() {
+    setDraftCues((prev) => {
+      const last = prev[prev.length - 1];
+      const lastEnd = last ? parseTimestampSec(last.endInput) : 0;
+      const startSec = Number.isFinite(lastEnd) ? lastEnd + 0.2 : 0;
+      return [
+        ...prev,
+        {
+          startInput: formatTimestamp(startSec, "."),
+          endInput: formatTimestamp(startSec + 3, "."),
+          text: "",
+          speaker: "",
+        },
+      ];
+    });
+  }
+
+  function removeDraftCue(index) {
+    setDraftCues((prev) => prev.filter((_, idx) => idx !== index));
+  }
+
+  async function handleSaveEditedTranscript(sub) {
+    setEditError("");
+    const parsedCues = [];
+    for (const row of draftCues) {
+      const text = String(row.text || "").trim();
+      if (!text) continue;
+      const startSec = parseTimestampSec(row.startInput);
+      const endSec = parseTimestampSec(row.endInput);
+      if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) {
+        setEditError("Enter valid timestamps in HH:MM:SS.mmm or MM:SS.mmm format.");
+        return;
+      }
+      parsedCues.push({
+        startSec,
+        endSec: Math.max(startSec + 0.25, endSec),
+        text,
+        ...(row.speaker ? { speaker: row.speaker } : {}),
+      });
+    }
+    if (parsedCues.length === 0) {
+      setEditError("Keep at least one non-empty caption cue before saving.");
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const res = await fetch("/api/sync/subtitle", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cacheKey: sub.cacheKey,
+          title: draftTitle,
+          language: sub.language || "en",
+          cues: parsedCues,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        setEditError(data?.error || "Could not save edited cues.");
+        return;
+      }
+      setEditingKey(null);
+      onPushNotification?.({
+        kind: "edit",
+        title: `Saved cue edits: ${draftTitle || sub.title}`,
+        body: `Updated ${parsedCues.length} synchronized cues.`,
+        cacheKey: sub.cacheKey,
+      });
+      await onRefreshCloud();
+    } catch {
+      setEditError("Network error while saving edited cues.");
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   const keyEntries = Object.entries(cloudState?.keyHints || {});
@@ -657,8 +785,8 @@ export function LibraryView({
               id="transcript-search"
               type="search"
               className="form-input"
-              style={{ width: "240px" }}
-              placeholder="Search title or provider…"
+              style={{ width: "260px" }}
+              placeholder="Search titles or spoken words…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -705,6 +833,8 @@ export function LibraryView({
               <tbody>
                 {filteredSubtitles.map((sub) => {
                   const isOpen = expandedKey === sub.cacheKey;
+                  const isEditing = editingKey === sub.cacheKey;
+                  const cueMatchCount = sub._cueMatches?.length || 0;
                   return (
                     <React.Fragment key={sub.cacheKey}>
                       <tr>
@@ -722,12 +852,28 @@ export function LibraryView({
                               cursor: "pointer",
                               textAlign: "left",
                             }}
-                            onClick={() =>
-                              setExpandedKey(isOpen ? null : sub.cacheKey)
-                            }
+                            onClick={() => {
+                              if (isOpen) {
+                                setExpandedKey(null);
+                                setEditingKey(null);
+                              } else {
+                                setExpandedKey(sub.cacheKey);
+                              }
+                            }}
                           >
                             {sub.title}
                           </button>
+                          {cueMatchCount > 0 ? (
+                            <div
+                              style={{
+                                marginTop: "3px",
+                                fontSize: "12px",
+                                color: "var(--accent)",
+                              }}
+                            >
+                              {cueMatchCount} matching spoken line{cueMatchCount === 1 ? "" : "s"}
+                            </div>
+                          ) : null}
                         </td>
                         <td>{sub.language || "en"}</td>
                         <td>{sub.provider || "manual"}</td>
@@ -738,8 +884,22 @@ export function LibraryView({
                               display: "inline-flex",
                               gap: "6px",
                               alignItems: "center",
+                              flexWrap: "wrap",
+                              justifyContent: "flex-end",
                             }}
                           >
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              onClick={() =>
+                                isEditing
+                                  ? setEditingKey(null)
+                                  : startEditingTranscript(sub)
+                              }
+                            >
+                              {isEditing ? "Cancel edit" : "Edit cues"}
+                            </button>
+
                             <button
                               type="button"
                               className="btn btn-sm"
@@ -772,14 +932,21 @@ export function LibraryView({
                                     ["srt", "SubRip (.srt)"],
                                     ["vtt", "WebVTT (.vtt)"],
                                     ["txt", "Timestamped text (.txt)"],
+                                    ["md", "Markdown study notes (.md)"],
                                     ["json", "Structured cues (.json)"],
                                   ].map(([fmt, label]) => (
                                     <DropdownMenu.Item
                                       key={fmt}
                                       className="radix-dropdown-item"
-                                      onSelect={() =>
-                                        handleExportTranscript(sub, fmt)
-                                      }
+                                      onSelect={() => {
+                                        handleExportTranscript(sub, fmt);
+                                        onPushNotification?.({
+                                          kind: "info",
+                                          title: `Exported .${fmt.toUpperCase()}`,
+                                          body: `${sub.title}`,
+                                          cacheKey: sub.cacheKey,
+                                        });
+                                      }}
                                     >
                                       {label}
                                     </DropdownMenu.Item>
@@ -801,20 +968,114 @@ export function LibraryView({
                       {isOpen ? (
                         <tr>
                           <td colSpan={5} style={{ background: "var(--bg-sheet)" }}>
-                            <div
-                              style={{
-                                maxHeight: "220px",
-                                overflowY: "auto",
-                                fontFamily: "var(--font-mono)",
-                                fontSize: "12px",
-                                lineHeight: 1.55,
-                                whiteSpace: "pre-wrap",
-                              }}
-                            >
-                              {formatTxt(sub.cues || [], {
-                                includeTimestamps: true,
-                              })}
-                            </div>
+                            {isEditing ? (
+                              <div style={{ display: "grid", gap: "12px", padding: "6px 0" }}>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "12px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <div style={{ flex: "1 1 260px" }}>
+                                    <label
+                                      className="form-label"
+                                      htmlFor={`edit-title-${sub.cacheKey}`}
+                                    >
+                                      Video Overview title
+                                    </label>
+                                    <input
+                                      id={`edit-title-${sub.cacheKey}`}
+                                      type="text"
+                                      className="form-input"
+                                      value={draftTitle}
+                                      onChange={(e) => setDraftTitle(e.target.value)}
+                                    />
+                                  </div>
+                                  <div style={{ display: "flex", gap: "8px", alignSelf: "flex-end" }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm"
+                                      onClick={addDraftCue}
+                                    >
+                                      Add cue
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-primary"
+                                      disabled={savingEdit}
+                                      onClick={() => handleSaveEditedTranscript(sub)}
+                                    >
+                                      {savingEdit ? "Saving…" : "Save edits"}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {editError ? (
+                                  <div className="field-error" role="alert">
+                                    {editError}
+                                  </div>
+                                ) : null}
+
+                                <div className="cue-editor-list">
+                                  {draftCues.map((row, idx) => (
+                                    <div key={idx} className="cue-editor-row">
+                                      <input
+                                        type="text"
+                                        className="form-input form-input-mono"
+                                        aria-label={`Cue ${idx + 1} start`}
+                                        value={row.startInput}
+                                        onChange={(e) =>
+                                          updateDraftCue(idx, "startInput", e.target.value)
+                                        }
+                                      />
+                                      <input
+                                        type="text"
+                                        className="form-input form-input-mono"
+                                        aria-label={`Cue ${idx + 1} end`}
+                                        value={row.endInput}
+                                        onChange={(e) =>
+                                          updateDraftCue(idx, "endInput", e.target.value)
+                                        }
+                                      />
+                                      <input
+                                        type="text"
+                                        className="form-input"
+                                        aria-label={`Cue ${idx + 1} text`}
+                                        value={row.text}
+                                        onChange={(e) =>
+                                          updateDraftCue(idx, "text", e.target.value)
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-danger"
+                                        onClick={() => removeDraftCue(idx)}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  maxHeight: "220px",
+                                  overflowY: "auto",
+                                  fontFamily: "var(--font-mono)",
+                                  fontSize: "12px",
+                                  lineHeight: 1.55,
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                {formatTxt(sub.cues || [], {
+                                  includeTimestamps: true,
+                                })}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       ) : null}

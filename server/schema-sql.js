@@ -125,4 +125,18 @@ CREATE TABLE IF NOT EXISTS lmsubs_usage_events (
 
 CREATE INDEX IF NOT EXISTS idx_lmsubs_usage_events_user_created
   ON lmsubs_usage_events (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS lmsubs_notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES lmsubs_users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'info',
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  cache_key TEXT,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lmsubs_notifications_user_created
+  ON lmsubs_notifications (user_id, created_at DESC);
 `;

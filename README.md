@@ -49,7 +49,7 @@ LM Subs connects directly from your browser to a speech-to-text provider so nobo
 ### Step 4: Watch any NotebookLM Video Overview
 1. Open [notebooklm.google.com](https://notebooklm.google.com), open any notebook, and play a **Video Overview**.
 2. Within about three seconds, synchronized captions appear at the bottom of the player.
-3. Hover near the top-right corner of the video to toggle **CC**, adjust font size (**A-** / **A+**), shift timing (`-0.25s` / `+0.25s`), or export **`.srt`**, **`.vtt`**, **`.txt`**, or **`.json`** files.
+3. Hover near the top-right corner of the video to toggle **CC**, open the interactive click-to-seek **Transcript** drawer (`T`), switch caption backdrop (`B`), adjust font size (**A-** / **A+**), shift timing (`-0.25s` / `+0.25s`), view keyboard shortcuts (`?`), or export **`.srt`**, **`.vtt`**, **`.txt`**, **`.md`** study notes, or **`.json`** files.
 
 ---
 

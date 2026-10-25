@@ -29,6 +29,7 @@
     "type": "module"
   },
   "permissions": ["storage"],
+  "optional_permissions": ["notifications"],
   "host_permissions": [
     "https://notebooklm.google.com/*",
     "https://notebook.google.com/*",

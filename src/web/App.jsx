@@ -5,6 +5,7 @@ import { AboutView } from "./AboutView.jsx";
 import { AuthDialog } from "./AuthDialog.jsx";
 import { GuideView } from "./GuideView.jsx";
 import { LibraryView, SyncPreferencesSwitches } from "./LibraryView.jsx";
+import { NotificationCenter } from "./NotificationCenter.jsx";
 import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
 import { StatsView } from "./StatsView.jsx";
@@ -99,11 +100,28 @@ export function App() {
     }
   });
   const [providerFilter, setProviderFilter] = useState("all");
+  const [focusedCacheKey, setFocusedCacheKey] = useState(null);
+  const [localNotifications, setLocalNotifications] = useState([]);
   const [previewPrefs, setPreviewPrefs] = useState({
     syncApiKeys: true,
     syncTranscripts: true,
     syncSettings: true,
   });
+
+  const pushLocalNotification = useCallback((item) => {
+    setLocalNotifications((prev) => [
+      {
+        id: `web_ntf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        kind: item?.kind || "info",
+        title: item?.title || "LM Subs",
+        body: item?.body || "",
+        cacheKey: item?.cacheKey || null,
+        read: false,
+        createdAt: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  }, []);
 
   const navigate = useCallback((nextView) => {
     setView(nextView);
@@ -351,6 +369,21 @@ export function App() {
           </nav>
 
           <div className="nav-actions">
+            <NotificationCenter
+              token={token}
+              localNotifications={localNotifications}
+              onClearLocalNotifications={() => setLocalNotifications([])}
+              onMarkLocalNotificationsRead={() =>
+                setLocalNotifications((prev) =>
+                  prev.map((n) => ({ ...n, read: true }))
+                )
+              }
+              onSelectTranscript={(ck) => {
+                setFocusedCacheKey(ck);
+                navigate("library");
+              }}
+              onOpenSignIn={() => setAuthDialogOpen(true)}
+            />
             {user ? (
               <button
                 type="button"
@@ -716,6 +749,8 @@ export function App() {
             loadingCloud={loadingCloud}
             oauthNotice={oauthNotice}
             extConnectRequested={extConnectRequested}
+            focusedCacheKey={focusedCacheKey}
+            onPushNotification={pushLocalNotification}
             onAuthenticated={handleAuthenticated}
             onSignOut={handleSignOut}
             onRefreshCloud={() => refreshCloud(token)}

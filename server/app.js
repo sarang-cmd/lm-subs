@@ -22,7 +22,7 @@ import crypto from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { serializeSubtitles } from "../src/lib/subtitles.js";
+import { normalizeAndSortCues, serializeSubtitles } from "../src/lib/subtitles.js";
 import { resolveAvoidedVideoBytes } from "../src/lib/audio-extract.js";
 import {
   decryptApiKeyForUser,
@@ -280,6 +280,38 @@ export function createSyncApp({
         Number.isFinite(Number(event.latencyMs)) ? Math.round(Number(event.latencyMs)) : null,
         Boolean(event.failoverUsed),
       ]
+    );
+  }
+
+  async function recordUserNotification(
+    db,
+    userId,
+    { kind = "info", title = "LM Subs", body = "", cacheKey = null } = {}
+  ) {
+    const id = `ntf_${crypto.randomUUID().replace(/-/g, "").slice(0, 22)}`;
+    await db.query(
+      `INSERT INTO lmsubs_notifications
+         (id, user_id, kind, title, body, cache_key, is_read, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW())`,
+      [
+        id,
+        userId,
+        String(kind || "info").slice(0, 24),
+        String(title || "LM Subs").slice(0, 160),
+        String(body || "").slice(0, 320),
+        cacheKey ? String(cacheKey).slice(0, 200) : null,
+      ]
+    );
+    await db.query(
+      `DELETE FROM lmsubs_notifications
+       WHERE user_id = $1
+         AND id NOT IN (
+           SELECT id FROM lmsubs_notifications
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT 60
+         )`,
+      [userId]
     );
   }
 
@@ -1268,6 +1300,20 @@ export function createSyncApp({
             latencyMs: latMs,
             failoverUsed: failover,
           });
+          await recordUserNotification(db, user.id, {
+            kind: "ready",
+            title: `Transcript synced: ${String(sub.title || "Video Overview").slice(0, 100)}`,
+            body: `${sub.cues.length} cues stored via ${prov || "AI"}.`,
+            cacheKey: cacheKeyStr,
+          });
+          if (failover) {
+            await recordUserNotification(db, user.id, {
+              kind: "failover",
+              title: `Failover completed via ${prov || "backup provider"}`,
+              body: `Automatic provider switch completed "${String(sub.title || "Video Overview").slice(0, 90)}".`,
+              cacheKey: cacheKeyStr,
+            });
+          }
         }
       }
     }
@@ -1350,6 +1396,195 @@ export function createSyncApp({
         savedAt: r.updated_at,
       },
     });
+  });
+
+  // Inline Caption Cue Editor API
+  app.put("/api/sync/subtitle", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+
+    const cacheKey = String(body?.cacheKey || "").trim();
+    if (!cacheKey) {
+      return c.json({ ok: false, error: "cacheKey is required." }, 400);
+    }
+
+    const normalizedCues = normalizeAndSortCues(body?.cues || []);
+    if (normalizedCues.length === 0) {
+      return c.json(
+        { ok: false, error: "Transcript must keep at least one valid cue." },
+        400
+      );
+    }
+
+    const found = await db.query(
+      `SELECT cache_key, title, language
+       FROM lmsubs_subtitles
+       WHERE user_id = $1 AND cache_key = $2
+       LIMIT 1`,
+      [user.id, cacheKey]
+    );
+    if (found.rows.length === 0) {
+      return c.json({ ok: false, error: "Subtitle transcript not found." }, 404);
+    }
+
+    const nextTitle =
+      typeof body?.title === "string" && body.title.trim()
+        ? body.title.trim().slice(0, 240)
+        : found.rows[0].title;
+    const nextLang =
+      typeof body?.language === "string" && body.language.trim()
+        ? body.language.trim().slice(0, 16)
+        : found.rows[0].language || "en";
+    const spokenSecs = estimateSpokenSeconds(normalizedCues);
+
+    const updated = await db.query(
+      `UPDATE lmsubs_subtitles
+       SET title = $3,
+           language = $4,
+           cue_count = $5,
+           spoken_seconds = $6,
+           cues_json = $7::jsonb,
+           updated_at = NOW()
+       WHERE user_id = $1 AND cache_key = $2
+       RETURNING cache_key, artifact_id, notebook_id, media_token, title, language,
+                 provider, model, cue_count, spoken_seconds, original_bytes,
+                 extracted_bytes, latency_ms, failover_used, cues_json, updated_at`,
+      [
+        user.id,
+        cacheKey,
+        nextTitle,
+        nextLang,
+        normalizedCues.length,
+        spokenSecs,
+        JSON.stringify(normalizedCues),
+      ]
+    );
+
+    const r = updated.rows[0];
+    await recordUserNotification(db, user.id, {
+      kind: "edit",
+      title: `Edited cues: ${r.title}`,
+      body: `Saved ${normalizedCues.length} updated cues to cloud storage.`,
+      cacheKey: r.cache_key,
+    });
+
+    return c.json({
+      ok: true,
+      entry: {
+        cacheKey: r.cache_key,
+        artifactId: r.artifact_id,
+        notebookId: r.notebook_id,
+        mediaToken: r.media_token,
+        title: r.title,
+        language: r.language,
+        provider: r.provider,
+        model: r.model,
+        cueCount: Number(r.cue_count) || 0,
+        spokenSeconds: r.spoken_seconds ? Number(r.spoken_seconds) : null,
+        cues: Array.isArray(r.cues_json) ? r.cues_json : normalizedCues,
+        savedAt: r.updated_at,
+      },
+    });
+  });
+
+  // Cloud Notification Center API
+  app.get("/api/notifications", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    const res = await db.query(
+      `SELECT id, kind, title, body, cache_key, is_read, created_at
+       FROM lmsubs_notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [user.id]
+    );
+
+    const notifications = res.rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      body: r.body,
+      cacheKey: r.cache_key,
+      read: Boolean(r.is_read),
+      createdAt: r.created_at,
+    }));
+    const unreadCount = notifications.filter((n) => !n.read).length;
+
+    return c.json({
+      ok: true,
+      unreadCount,
+      notifications,
+    });
+  });
+
+  app.post("/api/notifications/read", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    let body = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    if (body?.id && typeof body.id === "string") {
+      await db.query(
+        `UPDATE lmsubs_notifications
+         SET is_read = TRUE
+         WHERE user_id = $1 AND id = $2`,
+        [user.id, body.id.trim()]
+      );
+    } else {
+      await db.query(
+        `UPDATE lmsubs_notifications
+         SET is_read = TRUE
+         WHERE user_id = $1 AND is_read = FALSE`,
+        [user.id]
+      );
+    }
+
+    const countRes = await db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM lmsubs_notifications
+       WHERE user_id = $1 AND is_read = FALSE`,
+      [user.id]
+    );
+    return c.json({
+      ok: true,
+      unreadCount: Number(countRes.rows[0]?.count) || 0,
+    });
+  });
+
+  app.delete("/api/notifications", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    await db.query(`DELETE FROM lmsubs_notifications WHERE user_id = $1`, [
+      user.id,
+    ]);
+    return c.json({ ok: true, unreadCount: 0, notifications: [] });
   });
 
   app.get("/api/sync/export", async (c) => {

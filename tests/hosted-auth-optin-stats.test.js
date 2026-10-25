@@ -360,6 +360,7 @@ test("Design & Copy Guardrails: no banned fonts/Lucide, no em/en dashes, no user
     "src/web/ScreeningStage.jsx",
     "src/web/AuthDialog.jsx",
     "src/web/LibraryView.jsx",
+    "src/web/NotificationCenter.jsx",
     "src/web/StatsView.jsx",
     "src/web/LegalViews.jsx",
     "src/web/demo-data.jsx",
@@ -503,4 +504,213 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
       libraryJsx.includes("Collapsible.Root"),
     "LibraryView.jsx must render the open local extension code box and collapsible API keys section"
   );
+
+  assert.deepEqual(manifestJson.permissions, ["storage"]);
+  assert.deepEqual(manifestJson.optional_permissions, ["notifications"]);
 });
+
+test("Notifications Center, Desktop OS Alerts, Toolbar Badge, Inline Cue Editor, and Markdown Study Notes", async () => {
+  const dbPromise = createDatabaseClient({ pgliteDataDir: "memory://" });
+  const app = createSyncApp({
+    dbPromise,
+    encryptionSecret: "test-secret-32-chars-minimum-123456",
+  });
+
+  // 1. Authenticate user
+  const sendRes = await app.request("http://localhost/api/auth/email/send-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alerts@university.edu" }),
+  });
+  const { previewCode } = await sendRes.json();
+  const verifyRes = await app.request("http://localhost/api/auth/email/verify-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alerts@university.edu", code: previewCode }),
+  });
+  const { token } = await verifyRes.json();
+  const authHeaders = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+
+  // 2. Push a new subtitle and verify unread cloud notification is created
+  const pushRes = await app.request("http://localhost/api/sync/push", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({
+      subtitles: [
+        {
+          cacheKey: "art:notif-test-1",
+          artifactId: "notif-test-1",
+          title: "Distributed Systems Overview",
+          language: "en",
+          provider: "groq",
+          model: "whisper-large-v3-turbo",
+          failoverUsed: true,
+          originalBytes: 34_000_000,
+          extractedBytes: 2_800_000,
+          latencyMs: 2400,
+          cues: [
+            { startSec: 1.0, endSec: 4.5, text: "Consensus requires quorum intersection." },
+            { startSec: 5.0, endSec: 9.2, text: "State machine replication orders client commands." },
+          ],
+        },
+      ],
+    }),
+  });
+  assert.equal(pushRes.status, 200);
+
+  const notifRes1 = await app.request("http://localhost/api/notifications", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(notifRes1.status, 200);
+  const notifJson1 = await notifRes1.json();
+  assert.equal(notifJson1.ok, true);
+  assert.ok(notifJson1.unreadCount >= 1);
+  assert.ok(
+    notifJson1.notifications.some(
+      (n) => n.kind === "ready" && n.title.includes("Distributed Systems Overview")
+    )
+  );
+
+  // 3. Edit cues inline via PUT /api/sync/subtitle and export .md study notes
+  const editRes = await app.request("http://localhost/api/sync/subtitle", {
+    method: "PUT",
+    headers: authHeaders,
+    body: JSON.stringify({
+      cacheKey: "art:notif-test-1",
+      title: "Distributed Systems Overview (Edited)",
+      cues: [
+        { startSec: 1.0, endSec: 4.5, text: "Paxos and Raft rely on majority quorums." },
+        { startSec: 5.0, endSec: 9.2, text: "State machine replication orders client commands." },
+      ],
+    }),
+  });
+  assert.equal(editRes.status, 200);
+  const editJson = await editRes.json();
+  assert.equal(editJson.entry.title, "Distributed Systems Overview (Edited)");
+  assert.equal(editJson.entry.cues[0].text, "Paxos and Raft rely on majority quorums.");
+
+  const mdExportRes = await app.request(
+    "http://localhost/api/sync/export?cacheKey=art:notif-test-1&format=md",
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  assert.equal(mdExportRes.status, 200);
+  const mdText = await mdExportRes.text();
+  assert.ok(mdText.includes("# Distributed Systems Overview (Edited)"));
+  assert.ok(mdText.includes("Paxos and Raft rely on majority quorums."));
+
+  // 4. Mark cloud notifications read and clear
+  const markReadRes = await app.request("http://localhost/api/notifications/read", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ all: true }),
+  });
+  const markReadJson = await markReadRes.json();
+  assert.equal(markReadJson.unreadCount, 0);
+
+  const clearNotifRes = await app.request("http://localhost/api/notifications", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const clearNotifJson = await clearNotifRes.json();
+  assert.equal(clearNotifJson.notifications.length, 0);
+
+  // 5. Extension runtime dispatcher: toolbar badge + desktop OS alert + UPDATE_CACHED_SUBTITLES
+  const extStorage = createMemoryStorage();
+  await setApiKey("groq", "gsk_ext_notif_test_key_12345", extStorage);
+
+  const badgeTexts = [];
+  const osAlerts = [];
+  const tabMessages = [];
+
+  const dispatcher = createRuntimeDispatcher({
+    storageArea: extStorage,
+    actionApi: {
+      setBadgeText: async ({ text }) => badgeTexts.push(text),
+      setBadgeBackgroundColor: async () => {},
+    },
+    notificationsApi: {
+      create: (id, opts, cb) => {
+        osAlerts.push({ id, opts });
+        cb?.(id);
+      },
+    },
+    permissionsApi: {
+      contains: async ({ permissions }) =>
+        Array.isArray(permissions) && permissions.includes("notifications")
+          ? true
+          : true,
+    },
+    tabsApi: {
+      sendMessage: (tabId, payload, cb) => {
+        tabMessages.push({ tabId, payload });
+        cb?.({ ok: false });
+      },
+    },
+    fetchImpl: async (url) => {
+      const u = String(url);
+      if (u.includes("googleusercontent.com")) {
+        const buf = new Uint8Array(2048).fill(7);
+        return new Response(buf, {
+          status: 200,
+          headers: {
+            "content-type": "audio/mp4",
+            "content-length": "2048",
+          },
+        });
+      }
+      if (u.includes("api.groq.com")) {
+        return new Response(
+          JSON.stringify({
+            text: "Hello world.",
+            segments: [{ start: 0.5, end: 2.5, text: "Hello world." }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      throw new Error(`Unexpected URL: ${u}`);
+    },
+  });
+
+  const ensureRes = await invokeDispatcher(
+    dispatcher,
+    {
+      type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+      artifact: {
+        artifactId: "99999999-aaaa-4bbb-8ccc-111111111111",
+        title: "Quantum Computing Overview",
+        mediaUrl: "https://lh3.googleusercontent.com/notebooklm/ABzcNotifToken=m140",
+      },
+    },
+    { tab: { id: 42 } }
+  );
+  assert.equal(ensureRes.ok, true);
+  assert.ok(badgeTexts.includes("..."), "Toolbar badge should display '...' during transcription");
+  assert.equal(badgeTexts.at(-1), "1", "Toolbar badge should show unread count '1' on completion");
+  assert.equal(osAlerts.length, 1, "OS desktop notification should fire when permitted");
+  assert.ok(osAlerts[0].opts.title.includes("Quantum Computing Overview"));
+  assert.ok(
+    tabMessages.some((m) => m.tabId === 42 && m.payload.type === RUNTIME_MESSAGE.SUBTITLES_READY),
+    "Background worker should notify originating tab via SUBTITLES_READY"
+  );
+
+  // Update cached subtitles via UPDATE_CACHED_SUBTITLES
+  const updateCachedRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.UPDATE_CACHED_SUBTITLES,
+    cacheKey: ensureRes.entry.cacheKey,
+    title: "Quantum Computing Overview (Revised)",
+    cues: [{ startSec: 0.5, endSec: 3.0, text: "Logical qubits suppress phase errors." }],
+  });
+  assert.equal(updateCachedRes.ok, true);
+  assert.equal(updateCachedRes.entry.cues[0].text, "Logical qubits suppress phase errors.");
+
+  // Mark extension notifications read -> toolbar badge clears to ""
+  const markExtRead = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.MARK_NOTIFICATIONS_READ,
+  });
+  assert.equal(markExtRead.ok, true);
+  assert.equal(badgeTexts.at(-1), "", "Toolbar badge should clear when notifications are marked read");
+});
+

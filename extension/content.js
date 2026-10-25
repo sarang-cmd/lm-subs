@@ -132,7 +132,12 @@
     SYNC_GET_STATS: "LM_SUBS_SYNC_GET_STATS",
     SYNC_SIGNOUT: "LM_SUBS_SYNC_SIGNOUT",
     SYNC_NOW: "LM_SUBS_SYNC_NOW",
-    SYNC_STATUS: "LM_SUBS_SYNC_STATUS"
+    SYNC_STATUS: "LM_SUBS_SYNC_STATUS",
+    GET_NOTIFICATIONS: "LM_SUBS_GET_NOTIFICATIONS",
+    MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
+    CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
+    TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
+    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
   });
 
   // src/lib/audio-extract.js
@@ -581,6 +586,7 @@
     HISTORY: "subtitleHistory",
     LAST_STATUS: "lastStatus",
     DEBUG_LOGS: "debugLogs",
+    NOTIFICATIONS: "notifications",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
@@ -598,8 +604,15 @@
     translateTo: "original",
     fontSize: "medium",
     // "small" | "medium" | "large" | "xlarge"
+    captionStyle: "classic",
+    // "classic" | "contrast" | "minimal"
     subtitleOffsetSec: 0,
     showToast: true,
+    desktopNotifications: true,
+    soundAlerts: false,
+    badgeAlerts: true,
+    notifyOnFailover: true,
+    notifyOnSync: true,
     excludePatterns: [],
     rpcOverrides: {}
   });
@@ -668,8 +681,14 @@
       languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
       translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
       fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
+      captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
       subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
       showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
+      desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
+      soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+      badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
+      notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
+      notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
       excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
       rpcOverrides
     };
@@ -1311,6 +1330,63 @@ ${blocks.join("\n\n")}
     return `${JSON.stringify(payload, null, 2)}
 `;
   }
+  function formatMarkdownNotes(cues, meta = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    const title = String(meta.title || "NotebookLM Video Overview").trim();
+    const lang = String(meta.language || "en").trim();
+    const lastEnd = normalized.length > 0 ? normalized[normalized.length - 1].endSec : 0;
+    const mins = Math.floor(lastEnd / 60);
+    const secs = Math.round(lastEnd % 60);
+    const durationLabel = `${mins}:${String(secs).padStart(2, "0")}`;
+    const lines = [
+      `# ${title}`,
+      "",
+      `- **Language:** ${lang}`,
+      `- **Duration:** ${durationLabel}`,
+      `- **Synchronized cues:** ${normalized.length}`,
+      ...meta.provider ? [`- **Transcribed via:** ${meta.provider}`] : [],
+      ""
+    ];
+    if (normalized.length === 0) {
+      lines.push("_No caption cues available._", "");
+      return lines.join("\n");
+    }
+    const SECTION_SPAN_SEC = 90;
+    const sections = [];
+    let current = null;
+    for (const cue of normalized) {
+      if (!current || cue.startSec - current.startSec >= SECTION_SPAN_SEC) {
+        current = {
+          startSec: cue.startSec,
+          endSec: cue.endSec,
+          items: []
+        };
+        sections.push(current);
+      }
+      current.endSec = Math.max(current.endSec, cue.endSec);
+      current.items.push(cue);
+    }
+    lines.push("## Study summary by timestamp", "");
+    sections.forEach((sec, idx) => {
+      const startStamp = formatTimestamp(sec.startSec, ".").slice(3, 8);
+      const endStamp = formatTimestamp(sec.endSec, ".").slice(3, 8);
+      lines.push(`### Part ${idx + 1} (${startStamp} to ${endStamp})`, "");
+      const prose = sec.items.map((c) => {
+        const clean = c.text.replace(/\s*\n\s*/g, " ").trim();
+        return c.speaker ? `**${c.speaker}:** ${clean}` : clean;
+      }).join(" ");
+      lines.push(prose, "");
+    });
+    lines.push("## Timestamped transcript", "");
+    for (const cue of normalized) {
+      const stamp = formatTimestamp(cue.startSec, ".").slice(3, 8);
+      const clean = cue.text.replace(/\s*\n\s*/g, " ").trim();
+      const speakerPrefix = cue.speaker ? `**${cue.speaker}:** ` : "";
+      lines.push(`- \`[${stamp}]\` ${speakerPrefix}${clean}`);
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
   function slugifySubtitleFilename(title) {
     const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
     return slug || "notebooklm-video-overview";
@@ -1335,6 +1411,14 @@ ${blocks.join("\n\n")}
         extension: "txt",
         mimeType: "text/plain;charset=utf-8",
         filename: `${base}.txt`
+      };
+    }
+    if (fmt === "md" || fmt === "markdown") {
+      return {
+        content: formatMarkdownNotes(cues, meta),
+        extension: "md",
+        mimeType: "text/markdown;charset=utf-8",
+        filename: `${base}-notes.md`
       };
     }
     if (fmt === "json") {
@@ -1378,6 +1462,7 @@ ${blocks.join("\n\n")}
 
   // src/content/player-overlay.js
   var FONT_SIZES = ["small", "medium", "large", "xlarge"];
+  var CAPTION_STYLES = ["classic", "contrast", "minimal"];
   var FONT_SCALE_MAP = {
     small: "clamp(13px, 1.85cqh, 16px)",
     medium: "clamp(15px, 2.35cqh, 21px)",
@@ -1400,6 +1485,9 @@ ${blocks.join("\n\n")}
     right: 14px;
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: calc(100% - 28px);
     gap: 3px;
     padding: 4px 6px;
     border-radius: 7px;
@@ -1439,7 +1527,8 @@ ${blocks.join("\n\n")}
     background: rgba(255, 255, 255, 0.12);
     color: #fdfdfe;
   }
-  button:focus-visible {
+  button:focus-visible,
+  input:focus-visible {
     outline: 2px solid #3b82f6;
     outline-offset: 1px;
   }
@@ -1487,6 +1576,9 @@ ${blocks.join("\n\n")}
     align-items: flex-end;
     pointer-events: none;
   }
+  .caption-stage[data-drawer-open="true"] {
+    right: calc(min(320px, 44%) + 26px);
+  }
   .caption-box {
     display: none;
     max-width: min(92%, 780px);
@@ -1501,13 +1593,184 @@ ${blocks.join("\n\n")}
     white-space: pre-line;
     border: 1px solid rgba(255, 255, 255, 0.12);
   }
+  .caption-box[data-style="contrast"] {
+    background: #050608;
+    color: #fdfdfe;
+    border: 1px solid #3b82f6;
+    font-weight: 600;
+  }
+  .caption-box[data-style="minimal"] {
+    background: transparent;
+    border-color: transparent;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.96), 0 0 10px rgba(0, 0, 0, 0.85);
+    font-weight: 600;
+  }
   .caption-box[data-visible="true"] {
     display: inline-block;
   }
+
+  /* Interactive Click-to-Seek Transcript Drawer */
+  .transcript-drawer {
+    position: absolute;
+    top: 86px;
+    right: 14px;
+    bottom: 58px;
+    width: min(320px, 44%);
+    min-width: 240px;
+    display: none;
+    flex-direction: column;
+    border-radius: 8px;
+    background: rgba(17, 19, 21, 0.96);
+    border: 1px solid #272b33;
+    color: #f6f7f8;
+    pointer-events: auto;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  .transcript-drawer[data-open="true"] {
+    display: flex;
+  }
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid #272b33;
+  }
+  .drawer-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #fdfdfe;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .drawer-search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-bottom: 1px solid #272b33;
+    background: #14171c;
+  }
+  .drawer-search-input {
+    all: unset;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 7px;
+    border-radius: 5px;
+    border: 1px solid #2f3540;
+    background: #0c0e12;
+    color: #fdfdfe;
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+  .drawer-search-input::placeholder {
+    color: #8b93a1;
+  }
+  .drawer-count {
+    font-size: 10.5px;
+    color: #9ca3af;
+    white-space: nowrap;
+  }
+  .drawer-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    overscroll-behavior: contain;
+  }
+  .cue-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    border-radius: 0;
+    text-align: left;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    border-left: 2px solid transparent;
+  }
+  .cue-row:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .cue-row[data-current="true"] {
+    background: rgba(0, 85, 212, 0.22);
+    border-left-color: #3b82f6;
+  }
+  .cue-stamp {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #93c5fd;
+    padding-top: 1px;
+    flex-shrink: 0;
+  }
+  .cue-text {
+    font-size: 11.5px;
+    color: #e5e7eb;
+    word-break: break-word;
+  }
+  .cue-row[data-current="true"] .cue-text {
+    color: #fdfdfe;
+    font-weight: 600;
+  }
+  .drawer-empty {
+    padding: 16px 12px;
+    font-size: 11.5px;
+    color: #9ca3af;
+    text-align: center;
+  }
+
+  /* Keyboard Shortcuts Cheat Sheet Popover */
+  .shortcuts-popover {
+    position: absolute;
+    top: 86px;
+    right: 14px;
+    width: 248px;
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(17, 19, 21, 0.96);
+    border: 1px solid #272b33;
+    color: #f6f7f8;
+    pointer-events: auto;
+    font-size: 11.5px;
+  }
+  .shortcuts-popover[data-open="true"] {
+    display: flex;
+  }
+  .shortcut-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #d1d5db;
+  }
+  .kbd {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #1d2129;
+    border: 1px solid #323846;
+    color: #fdfdfe;
+  }
+
   input[type="file"] {
     display: none;
   }
 `;
+  function formatBriefStamp(sec) {
+    const full = formatTimestamp(sec, ".");
+    return sec >= 3600 ? full.slice(0, 8) : full.slice(3, 8);
+  }
   function triggerTextDownload(doc, content, filename, mimeType, mountContainer = null) {
     const blob = new Blob(["\uFEFF", content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -1540,12 +1803,15 @@ ${blocks.join("\n\n")}
     constructor(video, {
       doc = globalThis.document,
       initialFontSize = "medium",
+      initialCaptionStyle = "classic",
       initialOffsetSec = 0,
       onRequestGenerate = () => {
       },
       onOffsetChange = () => {
       },
       onFontSizeChange = () => {
+      },
+      onCaptionStyleChange = () => {
       },
       onImportSubtitles = () => {
       }
@@ -1556,6 +1822,7 @@ ${blocks.join("\n\n")}
       this.title = "NotebookLM Video Overview";
       this.ccEnabled = true;
       this.fontSize = FONT_SIZES.includes(initialFontSize) ? initialFontSize : "medium";
+      this.captionStyle = CAPTION_STYLES.includes(initialCaptionStyle) ? initialCaptionStyle : "classic";
       this.offsetSec = Number.isFinite(initialOffsetSec) ? initialOffsetSec : 0;
       this.statusState = "idle";
       this.statusLabel = "";
@@ -1563,9 +1830,16 @@ ${blocks.join("\n\n")}
       this.inPiP = false;
       this.idleTimer = null;
       this.syncTimer = null;
+      this.drawerOpen = false;
+      this.drawerAutoScroll = true;
+      this.drawerQuery = "";
+      this.shortcutsOpen = false;
+      this.activeCueIndex = -1;
+      this.cueRowElements = [];
       this.onRequestGenerate = onRequestGenerate;
       this.onOffsetChange = onOffsetChange;
       this.onFontSizeChange = onFontSizeChange;
+      this.onCaptionStyleChange = onCaptionStyleChange;
       this.onImportSubtitles = onImportSubtitles;
       this._mount();
       this._bindEvents();
@@ -1629,10 +1903,7 @@ ${blocks.join("\n\n")}
           this.onRequestGenerate({ force: true });
           return;
         }
-        this.ccEnabled = !this.ccEnabled;
-        this._syncTrackVisibility();
-        this._renderToolbar();
-        this._renderActiveCue();
+        this.toggleSubtitles();
       });
       this.statusEl = this.doc.createElement("span");
       this.statusEl.className = "status-pill";
@@ -1640,33 +1911,45 @@ ${blocks.join("\n\n")}
       this.controlsGroup.style.display = "inline-flex";
       this.controlsGroup.style.alignItems = "center";
       this.controlsGroup.style.gap = "3px";
+      const sep0 = this.doc.createElement("span");
+      sep0.className = "sep";
+      this.transcriptBtn = this._makeBtn(
+        "Transcript",
+        "Toggle interactive click-to-seek transcript (T)",
+        () => this.toggleTranscriptDrawer()
+      );
       const sep1 = this.doc.createElement("span");
       sep1.className = "sep";
       this.sizeDownBtn = this._makeBtn(
         "A-",
-        "Smaller captions",
+        "Smaller captions (-)",
         () => this._stepFontSize(-1)
       );
       this.sizeUpBtn = this._makeBtn(
         "A+",
-        "Larger captions",
+        "Larger captions (+)",
         () => this._stepFontSize(1)
+      );
+      this.styleBtn = this._makeBtn(
+        "Box",
+        "Cycle caption backdrop (B)",
+        () => this.cycleCaptionStyle()
       );
       const sep2 = this.doc.createElement("span");
       sep2.className = "sep";
       this.offsetMinusBtn = this._makeBtn(
         "-0.25s",
-        "Shift subtitles earlier",
+        "Shift subtitles earlier ([)",
         () => this._adjustOffset(-0.25)
       );
       this.offsetLabelBtn = this._makeBtn(
         "0.0s",
-        "Reset timing offset",
+        "Reset timing offset (\\)",
         () => this._resetOffset()
       );
       this.offsetPlusBtn = this._makeBtn(
         "+0.25s",
-        "Shift subtitles later",
+        "Shift subtitles later (])",
         () => this._adjustOffset(0.25)
       );
       const sep3 = this.doc.createElement("span");
@@ -1681,10 +1964,15 @@ ${blocks.join("\n\n")}
         this.exportSubtitles("vtt");
         flashButtonLabel(this.vttBtn, "Saved");
       });
-      this.txtBtn = this._makeBtn(".TXT", "Export readable plain-text transcript (.txt)", () => {
+      this.txtBtn = this._makeBtn(".TXT", "Export timestamped transcript (.txt)", () => {
         if (this.cues.length === 0) return;
         this.exportSubtitles("txt");
         flashButtonLabel(this.txtBtn, "Saved");
+      });
+      this.mdBtn = this._makeBtn(".MD", "Export Markdown study notes (.md)", () => {
+        if (this.cues.length === 0) return;
+        this.exportSubtitles("md");
+        flashButtonLabel(this.mdBtn, "Saved");
       });
       this.copyBtn = this._makeBtn("Copy", "Copy transcript to clipboard", async () => {
         if (this.cues.length === 0) return;
@@ -1700,6 +1988,11 @@ ${blocks.join("\n\n")}
           flashButtonLabel(this.copyBtn, "Saved");
         }
       });
+      this.shortcutsBtn = this._makeBtn(
+        "?",
+        "Keyboard shortcuts (?)",
+        () => this.toggleShortcutsHelp()
+      );
       this.fileInput = this.doc.createElement("input");
       this.fileInput.type = "file";
       this.fileInput.accept = ".srt,.vtt,.json,text/vtt,text/plain,application/json";
@@ -1721,9 +2014,12 @@ ${blocks.join("\n\n")}
         this.onRequestGenerate({ force: true });
       });
       this.controlsGroup.append(
+        sep0,
+        this.transcriptBtn,
         sep1,
         this.sizeDownBtn,
         this.sizeUpBtn,
+        this.styleBtn,
         sep2,
         this.offsetMinusBtn,
         this.offsetLabelBtn,
@@ -1732,7 +2028,9 @@ ${blocks.join("\n\n")}
         this.srtBtn,
         this.vttBtn,
         this.txtBtn,
-        this.copyBtn
+        this.mdBtn,
+        this.copyBtn,
+        this.shortcutsBtn
       );
       this.toolbar.append(
         this.ccBtn,
@@ -1742,14 +2040,82 @@ ${blocks.join("\n\n")}
         this.regenBtn,
         this.fileInput
       );
-      const stage = this.doc.createElement("div");
-      stage.className = "caption-stage";
+      this.drawerEl = this.doc.createElement("aside");
+      this.drawerEl.className = "transcript-drawer";
+      this.drawerEl.dataset.open = "false";
+      this.drawerEl.setAttribute?.("aria-label", "Interactive video transcript");
+      const drawerHead = this.doc.createElement("div");
+      drawerHead.className = "drawer-head";
+      this.drawerTitleEl = this.doc.createElement("div");
+      this.drawerTitleEl.className = "drawer-title";
+      this.drawerTitleEl.textContent = "Transcript";
+      const drawerHeadActions = this.doc.createElement("div");
+      drawerHeadActions.style.display = "inline-flex";
+      drawerHeadActions.style.gap = "4px";
+      this.drawerAutoBtn = this._makeBtn("Follow", "Auto-scroll active line", () => {
+        this.drawerAutoScroll = !this.drawerAutoScroll;
+        this.drawerAutoBtn.dataset.active = this.drawerAutoScroll ? "true" : "false";
+      });
+      this.drawerAutoBtn.dataset.active = "true";
+      const drawerCloseBtn = this._makeBtn("Close", "Close transcript (T)", () => {
+        this.toggleTranscriptDrawer(false);
+      });
+      drawerHeadActions.append(this.drawerAutoBtn, drawerCloseBtn);
+      drawerHead.append(this.drawerTitleEl, drawerHeadActions);
+      const searchRow = this.doc.createElement("div");
+      searchRow.className = "drawer-search-row";
+      this.drawerSearchInput = this.doc.createElement("input");
+      this.drawerSearchInput.type = "search";
+      this.drawerSearchInput.className = "drawer-search-input";
+      this.drawerSearchInput.placeholder = "Filter spoken words\u2026";
+      this.drawerSearchInput.setAttribute?.("aria-label", "Filter transcript");
+      for (const evtName of ["keydown", "keyup", "keypress"]) {
+        this.drawerSearchInput.addEventListener(evtName, (ev) => {
+          ev.stopPropagation();
+        });
+      }
+      this.drawerSearchInput.addEventListener("input", () => {
+        this.drawerQuery = this.drawerSearchInput.value || "";
+        this._renderTranscriptList();
+      });
+      this.drawerCountEl = this.doc.createElement("span");
+      this.drawerCountEl.className = "drawer-count";
+      searchRow.append(this.drawerSearchInput, this.drawerCountEl);
+      this.drawerListEl = this.doc.createElement("div");
+      this.drawerListEl.className = "drawer-list";
+      this.drawerEl.append(drawerHead, searchRow, this.drawerListEl);
+      this.shortcutsEl = this.doc.createElement("div");
+      this.shortcutsEl.className = "shortcuts-popover";
+      this.shortcutsEl.dataset.open = "false";
+      const shortcutPairs = [
+        ["Toggle captions", "C"],
+        ["Transcript drawer", "T"],
+        ["Caption size", "- / +"],
+        ["Caption backdrop", "B"],
+        ["Timing -0.25s / +0.25s", "[ / ]"],
+        ["Reset timing", "\\"],
+        ["Shortcut guide", "?"]
+      ];
+      for (const [desc, keyLabel] of shortcutPairs) {
+        const row = this.doc.createElement("div");
+        row.className = "shortcut-item";
+        const d = this.doc.createElement("span");
+        d.textContent = desc;
+        const k = this.doc.createElement("span");
+        k.className = "kbd";
+        k.textContent = keyLabel;
+        row.append(d, k);
+        this.shortcutsEl.appendChild(row);
+      }
+      this.stageEl = this.doc.createElement("div");
+      this.stageEl.className = "caption-stage";
       this.captionBox = this.doc.createElement("div");
       this.captionBox.className = "caption-box";
-      stage.appendChild(this.captionBox);
-      shadow.append(style, stage, this.toolbar);
+      this.stageEl.appendChild(this.captionBox);
+      shadow.append(style, this.stageEl, this.drawerEl, this.shortcutsEl, this.toolbar);
       parent.appendChild(this.host);
       this._applyFontSize();
+      this._applyCaptionStyle();
       this._renderToolbar();
     }
     _makeBtn(label, title, onClick) {
@@ -1814,13 +2180,16 @@ ${blocks.join("\n\n")}
       if (!this.toolbar) return;
       this.toolbar.dataset.idle = "false";
       if (this.idleTimer) clearTimeout(this.idleTimer);
-      if (!this.video.paused && this.statusState !== "working") {
+      if (!this.video.paused && this.statusState !== "working" && !this.drawerOpen && !this.shortcutsOpen) {
         this.idleTimer = setTimeout(() => {
-          if (this.toolbar && !this.video.paused) {
+          if (this.toolbar && !this.video.paused && !this.drawerOpen && !this.shortcutsOpen) {
             this.toolbar.dataset.idle = "true";
           }
         }, 2800);
       }
+    }
+    stepFontSize(delta) {
+      this._stepFontSize(delta);
     }
     _stepFontSize(delta) {
       const idx = FONT_SIZES.indexOf(this.fontSize);
@@ -1834,10 +2203,37 @@ ${blocks.join("\n\n")}
         this.captionBox.style.fontSize = FONT_SCALE_MAP[this.fontSize] || FONT_SCALE_MAP.medium;
       }
     }
+    cycleCaptionStyle() {
+      const idx = CAPTION_STYLES.indexOf(this.captionStyle);
+      this.captionStyle = CAPTION_STYLES[(idx + 1) % CAPTION_STYLES.length];
+      this._applyCaptionStyle();
+      this.onCaptionStyleChange(this.captionStyle);
+      return this.captionStyle;
+    }
+    _applyCaptionStyle() {
+      if (this.captionBox) {
+        this.captionBox.dataset.style = this.captionStyle;
+      }
+      if (this.styleBtn) {
+        const labelMap = {
+          classic: "Box",
+          contrast: "Hi-Con",
+          minimal: "Clean"
+        };
+        this.styleBtn.textContent = labelMap[this.captionStyle] || "Box";
+      }
+    }
+    adjustOffset(delta) {
+      this._adjustOffset(delta);
+    }
+    resetOffset() {
+      this._resetOffset();
+    }
     _adjustOffset(delta) {
       this.offsetSec = Math.round((this.offsetSec + delta) * 100) / 100;
       this._syncNativeTextTrack();
       this._renderToolbar();
+      this._renderTranscriptList();
       this._renderActiveCue();
       this.onOffsetChange(this.offsetSec);
     }
@@ -1845,8 +2241,45 @@ ${blocks.join("\n\n")}
       this.offsetSec = 0;
       this._syncNativeTextTrack();
       this._renderToolbar();
+      this._renderTranscriptList();
       this._renderActiveCue();
       this.onOffsetChange(0);
+    }
+    toggleTranscriptDrawer(forceState) {
+      if (this.cues.length === 0) return false;
+      this.drawerOpen = typeof forceState === "boolean" ? forceState : !this.drawerOpen;
+      if (this.drawerOpen) {
+        this.shortcutsOpen = false;
+        if (this.shortcutsEl) this.shortcutsEl.dataset.open = "false";
+      }
+      if (this.drawerEl) {
+        this.drawerEl.dataset.open = this.drawerOpen ? "true" : "false";
+      }
+      if (this.stageEl) {
+        this.stageEl.dataset.drawerOpen = this.drawerOpen ? "true" : "false";
+      }
+      if (this.transcriptBtn) {
+        this.transcriptBtn.dataset.active = this.drawerOpen ? "true" : "false";
+      }
+      if (this.drawerOpen) {
+        this._renderTranscriptList();
+        this._highlightDrawerActiveCue(true);
+      }
+      this._renderToolbar();
+      return this.drawerOpen;
+    }
+    toggleShortcutsHelp(forceState) {
+      this.shortcutsOpen = typeof forceState === "boolean" ? forceState : !this.shortcutsOpen;
+      if (this.shortcutsOpen && this.drawerOpen) {
+        this.toggleTranscriptDrawer(false);
+      }
+      if (this.shortcutsEl) {
+        this.shortcutsEl.dataset.open = this.shortcutsOpen ? "true" : "false";
+      }
+      if (this.shortcutsBtn) {
+        this.shortcutsBtn.dataset.active = this.shortcutsOpen ? "true" : "false";
+      }
+      return this.shortcutsOpen;
     }
     _shiftedCues() {
       if (!this.offsetSec) return this.cues;
@@ -1856,15 +2289,20 @@ ${blocks.join("\n\n")}
         endSec: Math.max(0.25, Math.round((c.endSec + this.offsetSec) * 1e3) / 1e3)
       }));
     }
-    setSettings({ fontSize, subtitleOffsetSec } = {}) {
+    setSettings({ fontSize, captionStyle, subtitleOffsetSec } = {}) {
       if (fontSize && FONT_SIZES.includes(fontSize)) {
         this.fontSize = fontSize;
         this._applyFontSize();
+      }
+      if (captionStyle && CAPTION_STYLES.includes(captionStyle)) {
+        this.captionStyle = captionStyle;
+        this._applyCaptionStyle();
       }
       if (Number.isFinite(subtitleOffsetSec)) {
         this.offsetSec = subtitleOffsetSec;
         this._syncNativeTextTrack();
         this._renderToolbar();
+        this._renderTranscriptList();
         this._renderActiveCue();
       }
     }
@@ -1891,8 +2329,14 @@ ${blocks.join("\n\n")}
       this.language = language || "en";
       this.statusState = this.cues.length > 0 ? "ready" : "idle";
       this.statusLabel = "";
+      if (this.drawerTitleEl) {
+        this.drawerTitleEl.textContent = `Transcript (${this.cues.length})`;
+      }
       this._syncNativeTextTrack();
       this._renderToolbar();
+      if (this.drawerOpen) {
+        this._renderTranscriptList();
+      }
       this._renderActiveCue();
       this._scheduleIdleFade();
     }
@@ -1918,6 +2362,75 @@ ${blocks.join("\n\n")}
         this.shadow || openDialog
       );
       return true;
+    }
+    _renderTranscriptList() {
+      if (!this.drawerListEl) return;
+      while (this.drawerListEl.firstChild) {
+        this.drawerListEl.removeChild(this.drawerListEl.firstChild);
+      }
+      this.cueRowElements = [];
+      const shifted = this._shiftedCues();
+      const q = String(this.drawerQuery || "").trim().toLowerCase();
+      let matchCount = 0;
+      for (let i = 0; i < shifted.length; i++) {
+        const cue = shifted[i];
+        const singleLine = String(cue.text || "").replace(/\s*\n\s*/g, " ").trim();
+        const hay = `${cue.speaker || ""} ${singleLine}`.toLowerCase();
+        if (q && !hay.includes(q)) {
+          this.cueRowElements.push(null);
+          continue;
+        }
+        matchCount += 1;
+        const btn = this.doc.createElement("button");
+        btn.type = "button";
+        btn.className = "cue-row";
+        btn.dataset.cueIndex = String(i);
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          try {
+            this.video.currentTime = Math.max(0, cue.startSec + 0.01);
+            if (this.video.paused && typeof this.video.play === "function") {
+              this.video.play().catch(() => {
+              });
+            }
+          } catch {
+          }
+        });
+        const stamp = this.doc.createElement("span");
+        stamp.className = "cue-stamp";
+        stamp.textContent = formatBriefStamp(cue.startSec);
+        const textSpan = this.doc.createElement("span");
+        textSpan.className = "cue-text";
+        textSpan.textContent = cue.speaker ? `[${cue.speaker}] ${singleLine}` : singleLine;
+        btn.append(stamp, textSpan);
+        this.drawerListEl.appendChild(btn);
+        this.cueRowElements.push(btn);
+      }
+      if (this.drawerCountEl) {
+        this.drawerCountEl.textContent = q ? `${matchCount}/${shifted.length}` : `${shifted.length}`;
+      }
+      if (matchCount === 0) {
+        const empty = this.doc.createElement("div");
+        empty.className = "drawer-empty";
+        empty.textContent = q ? "No spoken lines match your filter." : "No transcript cues loaded yet.";
+        this.drawerListEl.appendChild(empty);
+      }
+      this._highlightDrawerActiveCue(false);
+    }
+    _highlightDrawerActiveCue(forceScroll = false) {
+      if (!this.drawerOpen || !this.cueRowElements.length) return;
+      for (let i = 0; i < this.cueRowElements.length; i++) {
+        const el = this.cueRowElements[i];
+        if (!el) continue;
+        const isCurrent = i === this.activeCueIndex;
+        el.dataset.current = isCurrent ? "true" : "false";
+        if (isCurrent && (forceScroll || this.drawerAutoScroll) && !this.drawerQuery && typeof el.scrollIntoView === "function") {
+          try {
+            el.scrollIntoView({ block: "nearest" });
+          } catch {
+          }
+        }
+      }
     }
     _syncNativeTextTrack() {
       if (typeof this.video.addTextTrack !== "function" || typeof VTTCue === "undefined") {
@@ -1976,6 +2489,9 @@ ${blocks.join("\n\n")}
         this.statusEl.style.display = "none";
       }
       this.controlsGroup.style.display = hasCues ? "inline-flex" : "none";
+      if (this.transcriptBtn) {
+        this.transcriptBtn.dataset.active = this.drawerOpen ? "true" : "false";
+      }
       this.regenBtn.style.display = hasCues || this.statusState === "error" ? "inline-flex" : "none";
       this.regenBtn.textContent = hasCues ? "Regen" : "Retry";
       this.regenBtn.disabled = isWorking;
@@ -1984,13 +2500,14 @@ ${blocks.join("\n\n")}
     }
     _renderActiveCue() {
       if (!this.captionBox) return;
-      if (!this.ccEnabled || this.inPiP || this.cues.length === 0) {
-        this.captionBox.dataset.visible = "false";
-        return;
-      }
       const effectiveTime = (this.video.currentTime || 0) - this.offsetSec;
       const active = findActiveCue(this.cues, effectiveTime);
-      if (!active) {
+      const nextIdx = active ? this.cues.indexOf(active) : -1;
+      if (nextIdx !== this.activeCueIndex) {
+        this.activeCueIndex = nextIdx;
+        this._highlightDrawerActiveCue(false);
+      }
+      if (!this.ccEnabled || this.inPiP || !active) {
         this.captionBox.dataset.visible = "false";
         return;
       }
@@ -2027,8 +2544,8 @@ ${blocks.join("\n\n")}
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    max-width: 380px;
-    padding: 10px 14px;
+    max-width: 420px;
+    padding: 10px 12px 10px 14px;
     border-radius: 8px;
     background: #111315;
     color: #f6f7f8;
@@ -2038,11 +2555,12 @@ ${blocks.join("\n\n")}
     opacity: 0;
     transform: translateY(4px);
     transition: opacity 120ms ease, transform 120ms ease;
-    pointer-events: auto;
+    pointer-events: none;
   }
   .toast[data-visible="true"] {
     opacity: 1;
     transform: translateY(0);
+    pointer-events: auto;
   }
   @media (prefers-reduced-motion: reduce) {
     .toast {
@@ -2071,6 +2589,7 @@ ${blocks.join("\n\n")}
     flex-direction: column;
     gap: 1px;
     min-width: 0;
+    flex: 1;
   }
   .title {
     font-weight: 600;
@@ -2085,13 +2604,60 @@ ${blocks.join("\n\n")}
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .action-btn {
+    all: unset;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 5px;
+    background: #0055d4;
+    color: #fdfdfe;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .action-btn:hover {
+    background: #0044aa;
+  }
+  .action-btn:focus-visible,
+  .close-btn:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 1px;
+  }
+  .close-btn {
+    all: unset;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: #9ca3af;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .close-btn:hover {
+    color: #fdfdfe;
+    background: rgba(255, 255, 255, 0.1);
+  }
 `;
   function createToastManager(doc = globalThis.document) {
     let host = null;
     let toastEl = null;
     let titleEl = null;
     let detailEl = null;
+    let actionBtn = null;
+    let closeBtn = null;
+    let currentAction = null;
     let hideTimer = null;
+    function hide() {
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+      currentAction = null;
+      if (toastEl) {
+        toastEl.dataset.visible = "false";
+      }
+    }
     function ensureMounted() {
       if (!doc || !doc.body) return false;
       if (host && doc.body.contains(host)) return true;
@@ -2114,13 +2680,39 @@ ${blocks.join("\n\n")}
       titleEl.className = "title";
       detailEl = doc.createElement("div");
       detailEl.className = "detail";
+      actionBtn = doc.createElement("button");
+      actionBtn.type = "button";
+      actionBtn.className = "action-btn";
+      actionBtn.style.display = "none";
+      actionBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fn = currentAction;
+        hide();
+        if (typeof fn === "function") fn();
+      });
+      closeBtn = doc.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "close-btn";
+      closeBtn.setAttribute("aria-label", "Dismiss notification");
+      closeBtn.textContent = "\xD7";
+      closeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hide();
+      });
       body.append(titleEl, detailEl);
-      toastEl.append(dot, body);
+      toastEl.append(dot, body, actionBtn, closeBtn);
       shadow.append(style, toastEl);
       doc.body.appendChild(host);
       return true;
     }
-    function show({ title, detail = "", kind = "info", durationMs = 4200 } = {}) {
+    function show({
+      title,
+      detail = "",
+      kind = "info",
+      durationMs = 4200,
+      actionLabel = "",
+      onAction = null
+    } = {}) {
       if (!ensureMounted()) return;
       if (hideTimer) {
         clearTimeout(hideTimer);
@@ -2130,20 +2722,19 @@ ${blocks.join("\n\n")}
       titleEl.textContent = String(title || "LM Subs");
       detailEl.textContent = String(detail || "");
       detailEl.style.display = detail ? "block" : "none";
+      if (actionLabel && typeof onAction === "function") {
+        currentAction = onAction;
+        actionBtn.textContent = String(actionLabel);
+        actionBtn.style.display = "inline-flex";
+      } else {
+        currentAction = null;
+        actionBtn.style.display = "none";
+      }
       toastEl.dataset.visible = "true";
       if (durationMs > 0) {
         hideTimer = setTimeout(() => {
           if (toastEl) toastEl.dataset.visible = "false";
         }, durationMs);
-      }
-    }
-    function hide() {
-      if (hideTimer) {
-        clearTimeout(hideTimer);
-        hideTimer = null;
-      }
-      if (toastEl) {
-        toastEl.dataset.visible = "false";
       }
     }
     return { show, hide };
@@ -2374,11 +2965,59 @@ ${blocks.join("\n\n")}
       }
       return toast;
     }
-    function showToast(title, detail = "", kind = "info", durationMs = 3800) {
+    function showToast(title, detail = "", kind = "info", durationMs = 3800, extra = {}) {
       if (!settings.showToast || !settings.enabled) return;
       waitForBody(doc, () => {
-        ensureToast()?.show({ title, detail, kind, durationMs });
+        ensureToast()?.show({
+          title,
+          detail,
+          kind,
+          durationMs,
+          actionLabel: extra?.actionLabel || "",
+          onAction: extra?.onAction || null
+        });
       });
+    }
+    function playCompletionChime() {
+      if (!settings.soundAlerts || !settings.enabled) return;
+      try {
+        const AudioCtx = win.AudioContext || win.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        const notes = [523.25, 659.25];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+          gain.gain.setValueAtTime(1e-4, now + idx * 0.09);
+          gain.gain.exponentialRampToValueAtTime(0.055, now + idx * 0.09 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(1e-4, now + idx * 0.09 + 0.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + idx * 0.09);
+          osc.stop(now + idx * 0.09 + 0.21);
+        });
+        setTimeout(() => {
+          ctx.close?.().catch?.(() => {
+          });
+        }, 600);
+      } catch {
+      }
+    }
+    function fireTabDesktopNotification(title, body) {
+      if (!settings.desktopNotifications || !settings.enabled) return;
+      if (!doc.hidden) return;
+      try {
+        const Notif = win.Notification;
+        if (Notif && Notif.permission === "granted") {
+          new Notif(String(title || "LM Subs"), {
+            body: String(body || "")
+          });
+        }
+      } catch {
+      }
     }
     function hideToast() {
       toast?.hide?.();
@@ -2793,8 +3432,19 @@ ${blocks.join("\n\n")}
           res.cached ? `Loaded cached subtitles (${saved.cues.length} cues)` : `Subtitles ready (${saved.cues.length} cues)`,
           `${saved.provider || "AI"}${ratioDetail} \xB7 ${saved.title || title}`,
           "success",
-          4e3
+          5200,
+          {
+            actionLabel: "Transcript",
+            onAction: () => controller.toggleTranscriptDrawer(true)
+          }
         );
+        if (!res.cached) {
+          playCompletionChime();
+          fireTabDesktopNotification(
+            `Subtitles ready: ${saved.title || title}`,
+            `${saved.cues.length} cues generated via ${saved.provider || "AI"}.`
+          );
+        }
       } catch (err) {
         const msg = err?.message || String(err);
         controller.setStatus("error", "Subtitle error");
@@ -2822,6 +3472,7 @@ ${blocks.join("\n\n")}
       const controller = new VideoSubtitleController(video, {
         doc,
         initialFontSize: settings.fontSize,
+        initialCaptionStyle: settings.captionStyle,
         initialOffsetSec: settings.subtitleOffsetSec,
         onRequestGenerate: ({ force } = {}) => {
           ensureSubtitlesForEntry(entry, {
@@ -2832,6 +3483,11 @@ ${blocks.join("\n\n")}
         onFontSizeChange: (fontSize) => {
           settings.fontSize = fontSize;
           saveSettings({ fontSize }).catch(() => {
+          });
+        },
+        onCaptionStyleChange: (captionStyle) => {
+          settings.captionStyle = captionStyle;
+          saveSettings({ captionStyle }).catch(() => {
           });
         },
         onOffsetChange: (subtitleOffsetSec) => {
@@ -3114,19 +3770,47 @@ ${blocks.join("\n\n")}
     }
     doc.addEventListener?.("keydown", (e) => {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key !== "c" && e.key !== "C") return;
-      const tag = (e.target?.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable) {
-        return;
+      const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+      for (const node of path) {
+        const tag = (node?.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select" || node?.isContentEditable) {
+          return;
+        }
       }
       const active = pickTargetVideoEntry();
-      if (active) {
+      if (!active) return;
+      const key = e.key;
+      if (key === "c" || key === "C") {
         active.controller.toggleSubtitles();
+      } else if (key === "t" || key === "T") {
+        active.controller.toggleTranscriptDrawer();
+      } else if (key === "[") {
+        active.controller.adjustOffset(-0.25);
+      } else if (key === "]") {
+        active.controller.adjustOffset(0.25);
+      } else if (key === "\\") {
+        active.controller.resetOffset();
+      } else if (key === "-") {
+        active.controller.stepFontSize(-1);
+      } else if (key === "=" || key === "+") {
+        active.controller.stepFontSize(1);
+      } else if (key === "b" || key === "B") {
+        active.controller.cycleCaptionStyle();
+      } else if (key === "?") {
+        active.controller.toggleShortcutsHelp();
       }
     });
     runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
       if (!msg || typeof msg.type !== "string") return false;
       if (!msg.type.startsWith(MESSAGE_NAMESPACE)) return false;
+      if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY) {
+        playCompletionChime();
+        fireTabDesktopNotification(
+          `Subtitles ready: ${msg.title || "Video Overview"}`,
+          `${msg.cueCount || 0} cues generated via ${msg.provider || "AI"}.`
+        );
+        return false;
+      }
       if (msg.type === RUNTIME_MESSAGE.SUBTITLES_PROGRESS) {
         const active = pickTargetVideoEntry();
         if (active && active.inFlight) {
@@ -3275,6 +3959,7 @@ ${blocks.join("\n\n")}
         for (const entry of controllers.values()) {
           entry.controller.setSettings({
             fontSize: settings.fontSize,
+            captionStyle: settings.captionStyle,
             subtitleOffsetSec: settings.subtitleOffsetSec
           });
         }

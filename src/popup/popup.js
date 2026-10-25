@@ -16,6 +16,7 @@ import {
 import {
   getCloudSyncProfile,
   getLastStatus,
+  getNotifications,
   getSavedKeyPresenceMap,
   getSettings,
   getSubtitleCacheList,
@@ -116,8 +117,16 @@ async function initPopup() {
   const downloadLatestSrtBtn = document.getElementById("download-latest-srt-btn");
   const downloadLatestVttBtn = document.getElementById("download-latest-vtt-btn");
   const downloadLatestTxtBtn = document.getElementById("download-latest-txt-btn");
+  const downloadLatestMdBtn = document.getElementById("download-latest-md-btn");
   const downloadLatestJsonBtn = document.getElementById("download-latest-json-btn");
   const copyLatestTxtBtn = document.getElementById("copy-latest-txt-btn");
+
+  const popupNotifBadge = document.getElementById("popup-notif-badge");
+  const popupNotifSummary = document.getElementById("popup-notif-summary");
+  const popupEnableOsNotifBtn = document.getElementById("popup-enable-os-notif-btn");
+  const popupMarkReadBtn = document.getElementById("popup-mark-read-btn");
+  const popupClearNotifBtn = document.getElementById("popup-clear-notif-btn");
+  const popupNotifList = document.getElementById("popup-notif-list");
   const lastStatusCard = document.getElementById("last-status-card");
   const lastStatusBadge = document.getElementById("last-status-badge");
   const lastStatusTitle = document.getElementById("last-status-title");
@@ -135,13 +144,14 @@ async function initPopup() {
     providerSelect.appendChild(opt);
   }
 
-  let [settings, presenceMap, lastStatus, cacheList, syncProfile] =
+  let [settings, presenceMap, lastStatus, cacheList, syncProfile, notifications] =
     await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getLastStatus(),
       getSubtitleCacheList(),
       getCloudSyncProfile(),
+      getNotifications(),
     ]);
 
   let activeTabId = null;
@@ -372,6 +382,85 @@ async function initPopup() {
     );
   }
 
+  async function inspectOsNotificationPermission() {
+    if (!popupEnableOsNotifBtn || !chrome.permissions?.contains) return;
+    try {
+      const granted = await chrome.permissions.contains({
+        permissions: ["notifications"],
+      });
+      popupEnableOsNotifBtn.textContent = granted
+        ? "Test desktop alert"
+        : "Enable desktop alerts";
+    } catch {
+      // Ignore
+    }
+  }
+
+  function renderNotifications() {
+    if (!popupNotifList) return;
+    const list = Array.isArray(notifications) ? notifications : [];
+    const unread = list.filter((n) => !n.read).length;
+
+    if (popupNotifBadge) {
+      popupNotifBadge.style.display = unread > 0 ? "inline-flex" : "none";
+      popupNotifBadge.textContent = unread > 99 ? "99+" : String(unread);
+    }
+    if (popupNotifSummary) {
+      popupNotifSummary.textContent =
+        unread > 0
+          ? `${unread} unread`
+          : list.length > 0
+            ? `${list.length} recent`
+            : "No unread alerts";
+    }
+
+    popupNotifList.textContent = "";
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.style.margin = "4px 0";
+      empty.textContent =
+        "Caption completions, failovers, and sync updates appear here.";
+      popupNotifList.appendChild(empty);
+      return;
+    }
+
+    for (const item of list.slice(0, 12)) {
+      const row = document.createElement("div");
+      row.className = "notif-row";
+      row.dataset.unread = item.read ? "false" : "true";
+
+      const head = document.createElement("div");
+      head.className = "notif-row-head";
+
+      const title = document.createElement("span");
+      title.className = "notif-row-title";
+      title.textContent = item.title || "LM Subs";
+
+      const time = document.createElement("span");
+      time.className = "hint";
+      time.style.margin = "0";
+      time.textContent = item.createdAt
+        ? new Date(item.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "";
+
+      head.append(title, time);
+      row.appendChild(head);
+
+      if (item.body) {
+        const body = document.createElement("div");
+        body.className = "notif-row-body";
+        body.textContent = item.body;
+        row.appendChild(body);
+      }
+
+      popupNotifList.appendChild(row);
+    }
+  }
+
   enabledToggle.checked = settings.enabled;
   if (debugModeToggle) debugModeToggle.checked = Boolean(settings.debugMode);
   providerSelect.value = settings.primaryProvider || "groq";
@@ -380,6 +469,8 @@ async function initPopup() {
   renderSyncStatus();
   renderLastStatus();
   renderExportBar();
+  renderNotifications();
+  inspectOsNotificationPermission();
   inspectGoogleHostPermissions();
   inspectActiveTab();
 
@@ -637,7 +728,37 @@ async function initPopup() {
   bindExportButton(downloadLatestSrtBtn, "srt");
   bindExportButton(downloadLatestVttBtn, "vtt");
   bindExportButton(downloadLatestTxtBtn, "txt");
+  bindExportButton(downloadLatestMdBtn, "md");
   bindExportButton(downloadLatestJsonBtn, "json");
+
+  popupEnableOsNotifBtn?.addEventListener("click", async () => {
+    if (chrome.permissions?.request) {
+      try {
+        await chrome.permissions.request({ permissions: ["notifications"] });
+      } catch {
+        // Ignore
+      }
+    }
+    settings = await saveSettings({ desktopNotifications: true });
+    await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
+    notifications = await getNotifications();
+    renderNotifications();
+    await inspectOsNotificationPermission();
+  });
+
+  popupMarkReadBtn?.addEventListener("click", async () => {
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.MARK_NOTIFICATIONS_READ,
+    });
+    notifications = res?.notifications || (await getNotifications());
+    renderNotifications();
+  });
+
+  popupClearNotifBtn?.addEventListener("click", async () => {
+    await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_NOTIFICATIONS });
+    notifications = [];
+    renderNotifications();
+  });
 
   copyLatestTxtBtn?.addEventListener("click", async () => {
     const target = resolveExportTarget();
@@ -668,6 +789,10 @@ async function initPopup() {
         ]);
         renderLastStatus();
         renderExportBar();
+      }
+      if (changes.notifications) {
+        notifications = await getNotifications();
+        renderNotifications();
       }
     });
   } catch {
