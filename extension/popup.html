@@ -12,37 +12,37 @@
         <span id="brand-icon-slot"></span>
         <div>
           <h1 class="brand-title">LM Subs</h1>
-          <p class="brand-sub">NOTEBOOKLM CAPTIONS · V0.2.0</p>
+          <p class="brand-sub">NotebookLM captions and transcripts</p>
         </div>
       </div>
-      <label class="switch" title="Enable automatic subtitles on NotebookLM">
-        <span style="font-family: var(--mono); font-size: 10.5px; color: var(--text-muted)">AUTO</span>
+      <label class="switch" title="Enable automatic captions on NotebookLM">
+        <span style="font-size: 11.5px; color: var(--text-muted)">Auto</span>
         <input id="enabled-toggle" type="checkbox" checked />
       </label>
     </header>
 
     <section id="permission-warning-card" class="card" style="display: none; border-color: var(--red)">
       <div class="section-head" style="margin-bottom: 4px">
-        <h2 class="section-title" style="color: var(--red)">Media Access Required</h2>
+        <h2 class="section-title" style="color: var(--red)">Media access required</h2>
         <span class="badge badge-err">Withheld</span>
       </div>
       <div class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Chrome withheld Google CDN redirect permissions. Grant access so LM Subs can read Video Overview audio streams.
+        Grant Google media access so LM Subs can read Video Overview audio streams.
       </div>
       <button id="grant-google-perms-btn" type="button" class="btn btn-primary" style="width: 100%">
-        Grant Google Media Access
+        Grant Google media access
       </button>
     </section>
 
     <div id="queue-summary" class="queue-pill">
-      <span>QUEUE: <strong id="queue-summary-text">None configured</strong></span>
+      <span>Queue: <strong id="queue-summary-text">None configured</strong></span>
       <button id="open-queue-btn" type="button" class="btn btn-sm">Order</button>
     </div>
 
     <section class="card">
       <div class="field">
         <label class="field-label" for="provider-select">
-          <span>01 · STT Provider</span>
+          <span>Speech-to-text provider</span>
           <span id="key-presence-badge" class="badge">Not set</span>
         </label>
         <select id="provider-select"></select>
@@ -50,19 +50,20 @@
       </div>
 
       <div id="custom-url-field" class="field" style="display: none">
-        <label class="field-label" for="custom-url-input">Local / Custom Endpoint</label>
+        <label class="field-label" for="custom-url-input">Local or custom endpoint</label>
         <input
           id="custom-url-input"
           type="url"
           placeholder="http://localhost:8000/v1"
           autocomplete="off"
+          spellcheck="false"
         />
       </div>
 
       <div class="field">
         <label class="field-label" for="api-key-input">
-          <span id="key-label-text">API Key</span>
-          <a id="get-key-link" class="link" href="#" target="_blank" rel="noopener noreferrer">Get free key ↗</a>
+          <span id="key-label-text">API key</span>
+          <a id="get-key-link" class="link" href="#" target="_blank" rel="noopener noreferrer">Get free key</a>
         </label>
         <div class="row">
           <input
@@ -75,51 +76,51 @@
           <button id="save-key-btn" type="button" class="btn btn-primary">Save</button>
           <button id="test-key-btn" type="button" class="btn">Test</button>
         </div>
-        <div id="key-feedback" class="status-line"></div>
+        <div id="key-feedback" class="status-line" aria-live="polite"></div>
       </div>
     </section>
 
     <section class="card">
       <div class="section-head" style="margin-bottom: 6px">
-        <h2 class="section-title">02 · Neon Cloud Sync</h2>
-        <span id="popup-sync-badge" class="badge">Offline</span>
+        <h2 class="section-title">Account and cloud sync</h2>
+        <span id="popup-sync-badge" class="badge">Signed out</span>
       </div>
       <div id="popup-sync-summary" class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Sync encrypted API keys &amp; transcripts across devices via Neon Postgres.
+        Sign in with Google, GitHub, or email to sync encrypted keys and transcripts.
       </div>
       <div class="row">
         <button id="popup-sync-now-btn" type="button" class="btn btn-sm btn-primary" style="display: none">
-          Sync Now
+          Sync now
         </button>
         <button id="popup-open-sync-btn" type="button" class="btn btn-sm" style="flex: 1">
-          Account &amp; Sync Settings
+          Account and sync options
         </button>
       </div>
     </section>
 
     <section class="card">
       <div class="section-head" style="margin-bottom: 6px">
-        <h2 class="section-title">03 · Active Tab</h2>
+        <h2 class="section-title">Active tab</h2>
         <span id="tab-badge" class="badge">Checking</span>
       </div>
       <div id="tab-description" class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Open a NotebookLM notebook to generate or export Video Overview subtitles.
+        Open a NotebookLM notebook to generate or export Video Overview captions.
       </div>
       <div class="row">
         <button id="generate-now-btn" type="button" class="btn btn-ink" style="flex: 1" disabled>
-          Generate Subtitles
+          Generate captions
         </button>
       </div>
       <div id="popup-export-bar" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border)">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 5px">
-          <span style="font-family: var(--mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted)">Export Subtitles</span>
-          <span id="popup-export-source" style="font-family: var(--mono); font-size: 10px; color: var(--text-muted); max-width: 195px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"></span>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px">
+          <span style="font-size: 11.5px; font-weight: 500; color: var(--text-muted)">Export captions</span>
+          <span id="popup-export-source" style="font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); max-width: 195px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"></span>
         </div>
         <div class="row" style="gap: 4px; flex-wrap: wrap">
-          <button id="download-latest-srt-btn" type="button" class="btn btn-sm" style="flex: 1">.SRT</button>
-          <button id="download-latest-vtt-btn" type="button" class="btn btn-sm" style="flex: 1">.VTT</button>
-          <button id="download-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">.TXT</button>
-          <button id="download-latest-json-btn" type="button" class="btn btn-sm" style="flex: 1">.JSON</button>
+          <button id="download-latest-srt-btn" type="button" class="btn btn-sm" style="flex: 1">.srt</button>
+          <button id="download-latest-vtt-btn" type="button" class="btn btn-sm" style="flex: 1">.vtt</button>
+          <button id="download-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">.txt</button>
+          <button id="download-latest-json-btn" type="button" class="btn btn-sm" style="flex: 1">.json</button>
           <button id="copy-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">Copy</button>
         </div>
       </div>
@@ -127,21 +128,21 @@
 
     <section id="last-status-card" class="card" style="display: none">
       <div class="section-head" style="margin-bottom: 4px">
-        <h2 class="section-title">Latest Output</h2>
+        <h2 class="section-title">Latest run</h2>
         <span id="last-status-badge" class="badge">Idle</span>
       </div>
-      <div id="last-status-title" style="font-weight: 600; font-size: 12px"></div>
+      <div id="last-status-title" style="font-weight: 600; font-size: 12.5px"></div>
       <div id="last-status-meta" class="hint"></div>
     </section>
 
     <footer class="footer-bar">
       <label class="switch" title="Show live diagnostic monitor on NotebookLM">
         <input id="debug-mode-toggle" type="checkbox" />
-        <span>DEBUG</span>
+        <span>Diagnostics</span>
       </label>
       <div class="row">
         <button id="copy-debug-btn" type="button" class="btn btn-sm" title="Copy redacted pipeline report">
-          Report
+          Copy report
         </button>
         <button id="open-options-btn" type="button" class="btn btn-sm">Settings</button>
       </div>

@@ -113,7 +113,7 @@ async function initPopup() {
   for (const spec of specs) {
     const opt = document.createElement("option");
     opt.value = spec.id;
-    opt.textContent = `${spec.name} — ${spec.badge}`;
+    opt.textContent = `${spec.name} (${spec.badge})`;
     providerSelect.appendChild(opt);
   }
 
@@ -198,7 +198,7 @@ async function initPopup() {
     apiKeyInput.placeholder = spec.keyPlaceholder;
     getKeyLink.href = spec.keyUrl;
     getKeyLink.textContent =
-      spec.id === "custom" ? "Local server docs ↗" : "Get free key ↗";
+      spec.id === "custom" ? "Local server docs" : "Get free key";
 
     customUrlField.style.display = spec.id === "custom" ? "block" : "none";
     customUrlInput.value = settings.customBaseUrl || "";
@@ -222,18 +222,18 @@ async function initPopup() {
       popupSyncBadge.textContent = "Synced";
       popupSyncBadge.className = "badge badge-saved";
       const keyCount = Object.keys(syncProfile.keyHints || {}).length;
-      popupSyncSummary.textContent = `${syncProfile.user.email} · ${keyCount} key(s) · ${
+      popupSyncSummary.textContent = `${syncProfile.user.email}, ${keyCount} key(s), ${
         syncProfile.subtitleCount || 0
       } transcript(s)`;
       if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
-      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Manage Account";
+      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Account and sync";
     } else {
-      popupSyncBadge.textContent = "Offline";
+      popupSyncBadge.textContent = "Signed out";
       popupSyncBadge.className = "badge";
       popupSyncSummary.textContent =
-        "Create a Neon account to sync encrypted API keys & captions across browsers.";
+        "Sign in with Google, GitHub, or email to sync encrypted keys and transcripts.";
       if (popupSyncNowBtn) popupSyncNowBtn.style.display = "none";
-      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign In / Create Account";
+      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign in";
     }
   }
 
@@ -251,11 +251,11 @@ async function initPopup() {
         : lastStatus.provider || "Ready";
       lastStatusBadge.className = "badge badge-saved";
       const speedPart = lastStatus.latencyMs
-        ? ` · ${(lastStatus.latencyMs / 1000).toFixed(1)}s`
+        ? `, ${(lastStatus.latencyMs / 1000).toFixed(1)}s`
         : "";
       const ratioPart =
         lastStatus.originalBytes && lastStatus.extractedBytes
-          ? ` · ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio`
+          ? `, ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio`
           : "";
       lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${speedPart}${ratioPart}`;
     } else if (lastStatus.state === "working") {

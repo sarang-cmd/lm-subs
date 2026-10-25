@@ -8,6 +8,7 @@
  *   `getSavedKeyPresenceMap()`, plus `setApiKey()` and `clearApiKey()`.
  */
 
+import { HOSTED_CLOUD_URL } from "../config/selectors.js";
 import { DEFAULT_QUEUE_ORDER, getProviderSpec } from "./providers/registry.js";
 
 export const STORAGE_KEYS = Object.freeze({
@@ -419,10 +420,37 @@ export function sanitizeDebugMessage(text) {
     .slice(0, 600);
 }
 
+export const DEFAULT_SYNC_PREFERENCES = Object.freeze({
+  syncApiKeys: true,
+  syncTranscripts: true,
+  syncSettings: true,
+});
+
+export function normalizeSyncPreferences(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_SYNC_PREFERENCES };
+  }
+  return {
+    syncApiKeys:
+      typeof raw.syncApiKeys === "boolean"
+        ? raw.syncApiKeys
+        : DEFAULT_SYNC_PREFERENCES.syncApiKeys,
+    syncTranscripts:
+      typeof raw.syncTranscripts === "boolean"
+        ? raw.syncTranscripts
+        : DEFAULT_SYNC_PREFERENCES.syncTranscripts,
+    syncSettings:
+      typeof raw.syncSettings === "boolean"
+        ? raw.syncSettings
+        : DEFAULT_SYNC_PREFERENCES.syncSettings,
+  };
+}
+
 export const DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
-  serverUrl: "http://localhost:4173",
+  serverUrl: HOSTED_CLOUD_URL,
   connected: false,
   autoSync: true,
+  syncPreferences: DEFAULT_SYNC_PREFERENCES,
   user: null,
   keyHints: {},
   subtitleCount: 0,
@@ -450,18 +478,23 @@ export async function getCloudSyncProfile(storageArea) {
   const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
   const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
   if (!saved || typeof saved !== "object") {
-    return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+    return {
+      ...DEFAULT_CLOUD_SYNC_PROFILE,
+      syncPreferences: { ...DEFAULT_SYNC_PREFERENCES },
+    };
   }
   return {
     serverUrl: normalizeSyncServerUrl(saved.serverUrl),
     connected: Boolean(saved.connected && saved.user?.email),
     autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+    syncPreferences: normalizeSyncPreferences(saved.syncPreferences),
     user:
       saved.user && typeof saved.user === "object"
         ? {
             id: String(saved.user.id || ""),
             email: String(saved.user.email || ""),
             name: String(saved.user.name || ""),
+            authProvider: String(saved.user.authProvider || "email"),
           }
         : null,
     keyHints:
@@ -480,6 +513,14 @@ export async function saveCloudSyncProfile(partial, storageArea) {
     ...current,
     ...partial,
   };
+  if (partial?.syncPreferences) {
+    next.syncPreferences = normalizeSyncPreferences({
+      ...current.syncPreferences,
+      ...partial.syncPreferences,
+    });
+  } else {
+    next.syncPreferences = normalizeSyncPreferences(next.syncPreferences);
+  }
   next.serverUrl = normalizeSyncServerUrl(next.serverUrl);
   next.connected = Boolean(next.connected && next.user?.email);
   await store.set({ [STORAGE_KEYS.CLOUD_SYNC_PROFILE]: next });

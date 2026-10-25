@@ -1,5 +1,6 @@
 (() => {
   // src/config/selectors.js
+  var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
     "notebook.google.com",
@@ -121,6 +122,10 @@
     CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
     SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
     SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+    SYNC_EMAIL_SEND_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_SEND_CODE",
+    SYNC_EMAIL_VERIFY_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_VERIFY_CODE",
+    SYNC_SAVE_PREFERENCES: "NOTEBOOKLM_SUBTITLES_SYNC_SAVE_PREFERENCES",
+    SYNC_GET_STATS: "NOTEBOOKLM_SUBTITLES_SYNC_GET_STATS",
     SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
     SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
     SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
@@ -516,10 +521,26 @@
     const raw = await store.get(STORAGE_KEYS.LAST_STATUS);
     return raw?.[STORAGE_KEYS.LAST_STATUS] || null;
   }
+  var DEFAULT_SYNC_PREFERENCES = Object.freeze({
+    syncApiKeys: true,
+    syncTranscripts: true,
+    syncSettings: true
+  });
+  function normalizeSyncPreferences(raw) {
+    if (!raw || typeof raw !== "object") {
+      return { ...DEFAULT_SYNC_PREFERENCES };
+    }
+    return {
+      syncApiKeys: typeof raw.syncApiKeys === "boolean" ? raw.syncApiKeys : DEFAULT_SYNC_PREFERENCES.syncApiKeys,
+      syncTranscripts: typeof raw.syncTranscripts === "boolean" ? raw.syncTranscripts : DEFAULT_SYNC_PREFERENCES.syncTranscripts,
+      syncSettings: typeof raw.syncSettings === "boolean" ? raw.syncSettings : DEFAULT_SYNC_PREFERENCES.syncSettings
+    };
+  }
   var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
-    serverUrl: "http://localhost:4173",
+    serverUrl: HOSTED_CLOUD_URL,
     connected: false,
     autoSync: true,
+    syncPreferences: DEFAULT_SYNC_PREFERENCES,
     user: null,
     keyHints: {},
     subtitleCount: 0,
@@ -545,16 +566,21 @@
     const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
     const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
     if (!saved || typeof saved !== "object") {
-      return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+      return {
+        ...DEFAULT_CLOUD_SYNC_PROFILE,
+        syncPreferences: { ...DEFAULT_SYNC_PREFERENCES }
+      };
     }
     return {
       serverUrl: normalizeSyncServerUrl(saved.serverUrl),
       connected: Boolean(saved.connected && saved.user?.email),
       autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+      syncPreferences: normalizeSyncPreferences(saved.syncPreferences),
       user: saved.user && typeof saved.user === "object" ? {
         id: String(saved.user.id || ""),
         email: String(saved.user.email || ""),
-        name: String(saved.user.name || "")
+        name: String(saved.user.name || ""),
+        authProvider: String(saved.user.authProvider || "email")
       } : null,
       keyHints: saved.keyHints && typeof saved.keyHints === "object" ? { ...saved.keyHints } : {},
       subtitleCount: Number(saved.subtitleCount) || 0,
@@ -788,39 +814,39 @@ ${blocks.join("\n\n")}
     const bg = doc.createElementNS(SVG_NS, "rect");
     bg.setAttribute("width", "32");
     bg.setAttribute("height", "32");
-    bg.setAttribute("rx", "4");
-    bg.setAttribute("fill", "#161615");
+    bg.setAttribute("rx", "7");
+    bg.setAttribute("fill", "#111315");
     const border = doc.createElementNS(SVG_NS, "rect");
     border.setAttribute("x", "0.5");
     border.setAttribute("y", "0.5");
     border.setAttribute("width", "31");
     border.setAttribute("height", "31");
-    border.setAttribute("rx", "3.5");
-    border.setAttribute("stroke", "#2E2D2A");
+    border.setAttribute("rx", "6.5");
+    border.setAttribute("stroke", "#2A2E35");
     const play = doc.createElementNS(SVG_NS, "path");
-    play.setAttribute("d", "M12.5 8L20.5 12.75L12.5 17.5V8Z");
-    play.setAttribute("fill", "#F4F2ED");
+    play.setAttribute("d", "M12.5 8.2L20.5 12.8L12.5 17.4V8.2Z");
+    play.setAttribute("fill", "#F6F7F8");
     const bar1 = doc.createElementNS(SVG_NS, "rect");
-    bar1.setAttribute("x", "5.5");
+    bar1.setAttribute("x", "6");
     bar1.setAttribute("y", "21.5");
-    bar1.setAttribute("width", "12.5");
-    bar1.setAttribute("height", "2.5");
-    bar1.setAttribute("rx", "0.75");
-    bar1.setAttribute("fill", "#E96A26");
+    bar1.setAttribute("width", "12");
+    bar1.setAttribute("height", "2.4");
+    bar1.setAttribute("rx", "1.2");
+    bar1.setAttribute("fill", "#3B82F6");
     const bar2 = doc.createElementNS(SVG_NS, "rect");
     bar2.setAttribute("x", "20");
     bar2.setAttribute("y", "21.5");
-    bar2.setAttribute("width", "6.5");
-    bar2.setAttribute("height", "2.5");
-    bar2.setAttribute("rx", "0.75");
-    bar2.setAttribute("fill", "#F4F2ED");
+    bar2.setAttribute("width", "6");
+    bar2.setAttribute("height", "2.4");
+    bar2.setAttribute("rx", "1.2");
+    bar2.setAttribute("fill", "#F6F7F8");
     const bar3 = doc.createElementNS(SVG_NS, "rect");
-    bar3.setAttribute("x", "5.5");
-    bar3.setAttribute("y", "25.5");
-    bar3.setAttribute("width", "16");
+    bar3.setAttribute("x", "6");
+    bar3.setAttribute("y", "25.4");
+    bar3.setAttribute("width", "15");
     bar3.setAttribute("height", "2");
-    bar3.setAttribute("rx", "0.75");
-    bar3.setAttribute("fill", "#8C8980");
+    bar3.setAttribute("rx", "1");
+    bar3.setAttribute("fill", "#767D89");
     svg.append(bg, border, play, bar1, bar2, bar3);
     return svg;
   }
@@ -908,7 +934,7 @@ ${blocks.join("\n\n")}
     for (const spec of specs) {
       const opt = document.createElement("option");
       opt.value = spec.id;
-      opt.textContent = `${spec.name} \u2014 ${spec.badge}`;
+      opt.textContent = `${spec.name} (${spec.badge})`;
       providerSelect.appendChild(opt);
     }
     let [settings, presenceMap, lastStatus, cacheList, syncProfile] = await Promise.all([
@@ -980,7 +1006,7 @@ ${blocks.join("\n\n")}
       providerTierHint.textContent = spec.freeTierSummary;
       apiKeyInput.placeholder = spec.keyPlaceholder;
       getKeyLink.href = spec.keyUrl;
-      getKeyLink.textContent = spec.id === "custom" ? "Local server docs \u2197" : "Get free key \u2197";
+      getKeyLink.textContent = spec.id === "custom" ? "Local server docs" : "Get free key";
       customUrlField.style.display = spec.id === "custom" ? "block" : "none";
       customUrlInput.value = settings.customBaseUrl || "";
       const isConfigured = spec.id === "custom" ? settings.customEnabled : Boolean(presenceMap[spec.id]);
@@ -1000,15 +1026,15 @@ ${blocks.join("\n\n")}
         popupSyncBadge.textContent = "Synced";
         popupSyncBadge.className = "badge badge-saved";
         const keyCount = Object.keys(syncProfile.keyHints || {}).length;
-        popupSyncSummary.textContent = `${syncProfile.user.email} \xB7 ${keyCount} key(s) \xB7 ${syncProfile.subtitleCount || 0} transcript(s)`;
+        popupSyncSummary.textContent = `${syncProfile.user.email}, ${keyCount} key(s), ${syncProfile.subtitleCount || 0} transcript(s)`;
         if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
-        if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Manage Account";
+        if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Account and sync";
       } else {
-        popupSyncBadge.textContent = "Offline";
+        popupSyncBadge.textContent = "Signed out";
         popupSyncBadge.className = "badge";
-        popupSyncSummary.textContent = "Create a Neon account to sync encrypted API keys & captions across browsers.";
+        popupSyncSummary.textContent = "Sign in with Google, GitHub, or email to sync encrypted keys and transcripts.";
         if (popupSyncNowBtn) popupSyncNowBtn.style.display = "none";
-        if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign In / Create Account";
+        if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign in";
       }
     }
     function renderLastStatus() {
@@ -1021,8 +1047,8 @@ ${blocks.join("\n\n")}
       if (lastStatus.state === "success") {
         lastStatusBadge.textContent = lastStatus.failoverUsed ? `${lastStatus.provider} (failover)` : lastStatus.provider || "Ready";
         lastStatusBadge.className = "badge badge-saved";
-        const speedPart = lastStatus.latencyMs ? ` \xB7 ${(lastStatus.latencyMs / 1e3).toFixed(1)}s` : "";
-        const ratioPart = lastStatus.originalBytes && lastStatus.extractedBytes ? ` \xB7 ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio` : "";
+        const speedPart = lastStatus.latencyMs ? `, ${(lastStatus.latencyMs / 1e3).toFixed(1)}s` : "";
+        const ratioPart = lastStatus.originalBytes && lastStatus.extractedBytes ? `, ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio` : "";
         lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${speedPart}${ratioPart}`;
       } else if (lastStatus.state === "working") {
         lastStatusBadge.textContent = "Working";

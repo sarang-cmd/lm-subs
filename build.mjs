@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
- * Bundles `src/` modules into standalone zero-dependency MV3 scripts in `extension/`.
+ * Bundles `src/` modules into:
+ * 1. Standalone zero-dependency MV3 scripts in `extension/`
+ * 2. Production React + Radix Primitives + Motion web bundle in `docs/app.js`
  */
 
+import fs from "node:fs";
 import * as esbuild from "esbuild";
 
 const watch = process.argv.includes("--watch");
 
 const shared = {
   bundle: true,
-  target: ["chrome116"],
+  target: ["chrome116", "safari17", "firefox118"],
   logLevel: "info",
   legalComments: "none",
 };
@@ -46,6 +49,20 @@ const targets = [
     format: "iife",
   },
 ];
+
+if (fs.existsSync("src/web/main.jsx")) {
+  targets.push({
+    ...shared,
+    entryPoints: ["src/web/main.jsx"],
+    outfile: "docs/app.js",
+    format: "esm",
+    jsx: "automatic",
+    minify: !watch,
+    define: {
+      "process.env.NODE_ENV": JSON.stringify(watch ? "development" : "production"),
+    },
+  });
+}
 
 if (watch) {
   const contexts = await Promise.all(targets.map((t) => esbuild.context(t)));

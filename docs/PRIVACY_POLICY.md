@@ -1,29 +1,29 @@
-# Privacy Policy — Subtitles for NotebookLM
+# Privacy Policy — LM Subs
 
-**Effective Date:** October 24, 2026
+**Effective Date:** October 25, 2026
 
-**Subtitles for NotebookLM** is an open-source, Bring-Your-Own-Key (BYOK) Chrome Manifest V3 extension. We do not operate any backend server, proxy, analytics tracker, or telemetry endpoint.
+**LM Subs** is an open-source, Bring-Your-Own-Key (BYOK) Chrome Manifest V3 extension with optional self-hostable Neon Lakebase Postgres cloud sync. We include zero analytics, tracking pixels, or telemetry SDKs.
 
-## 1. Information Stored Locally
+## 1. Local Browser Storage (`chrome.storage.local`)
 
-All extension state is stored exclusively on your device inside `chrome.storage.local`:
+By default, all extension data stays locally on your machine:
 
-- **API Keys (`apiKeys`)**: Stored locally and accessed strictly inside the isolated MV3 Background Service Worker (`src/background/service-worker.js`). Neither NotebookLM's page context nor UI pages read raw key strings.
-- **Preferences (`settings`)**: Queue priority order, model selections, caption font size, timing offset, language hints, and regex exclusion patterns.
-- **Subtitle LRU Cache (`subtitleCache` & `subtitleHistory`)**: Up to 35 generated or imported subtitle tracks so re-opening a Video Overview displays captions instantaneously without re-calling any API.
+- **API Keys & Sync Tokens (`secretApiKeys`, `cloudSyncSecret`)**: Accessed strictly inside the isolated MV3 Background Service Worker (`src/background/service-worker.js`). UI bundles (`popup.js`, `options.js`, `content.js`) never read raw secret values.
+- **Preferences (`settings`)**: Provider priority queue, model selections, caption font size, timing offset, language hints, and regex exclusion patterns.
+- **Subtitle Vault (`subtitleCache`)**: Up to 35 cached Video Overview subtitle tracks for instant replay and `.SRT`/`.VTT`/`.TXT`/`.JSON` export.
 
-## 2. How Media & Audio Data Flow
+## 2. Optional Neon Lakebase Postgres Sync
 
-1. When you generate or play a NotebookLM Studio **Video Overview**, the extension fetches the media stream from Google's CDN (`*.googleusercontent.com` / `*.googlevideo.com`) using your authenticated browser session.
-2. Inside the local Service Worker, `extractAudioTrackFromMp4()` strips out all video tracks so only the compact audio track (`.m4a` or 16 kHz mono `.wav`) is retained in memory.
-3. That extracted audio buffer is sent **directly from your browser over HTTPS** (or `localhost` if configured) to the Speech-to-Text provider(s) you explicitly configured and granted optional host permission for.
+Only when you explicitly sign in to a configured Sync Server URL:
 
-## 3. Zero Third-Party Sharing by the Developer
+- **Encrypted API Keys (`lmsubs_user_api_keys`)**: Encrypted per user via `HKDF-SHA256` + `AES-256-GCM` with `${userId}:${providerId}` as authenticated AAD. Web UI pulls (`includeSecrets=0`) return masked hints (`gsk_••••9xQ2`) only.
+- **Settings & Subtitles (`lmsubs_user_settings`, `lmsubs_subtitles`)**: Stored per `user_id` so captions and settings sync across your browsers without re-transcribing media.
 
-- Zero analytics or crash-reporting SDKs.
-- Zero remote scripts (`script-src 'self'`).
-- Error messages pass through `redactSecrets()` so API keys are never written to status logs.
+## 3. Media & Audio Flow
 
-## 4. User Control & Deletion
+1. When you open or generate a NotebookLM Studio **Video Overview**, LM Subs fetches the compact `=m140` audio stream (or `HTTP 206` audio byte ranges) from Google's CDN using your authenticated browser session.
+2. Only the extracted audio payload is sent over HTTPS (or `localhost`) directly to the Speech-to-Text provider(s) you configured.
 
-You can clear any saved API key or delete cached subtitle transcripts at any time via the extension's **Settings** page (`options.html`), or erase all local storage by uninstalling the extension.
+## 4. User Control, Export & Deletion
+
+You can export transcripts in `.SRT`, `.VTT`, `.TXT`, or `.JSON`, clear saved API keys, delete cached transcripts, revoke sync tokens via **Sign Out**, or uninstall the extension at any time.
