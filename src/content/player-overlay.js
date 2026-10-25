@@ -32,7 +32,7 @@ const OVERLAY_CSS = `
     pointer-events: none;
     z-index: 2147483640;
     container-type: size;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .toolbar {
     position: absolute;
@@ -41,14 +41,14 @@ const OVERLAY_CSS = `
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    padding: 4px 5px;
-    border-radius: 4px;
-    background: rgba(20, 20, 19, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    padding: 4px 6px;
+    border-radius: 7px;
+    background: rgba(17, 19, 21, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     pointer-events: auto;
-    opacity: 0.95;
+    opacity: 0.96;
     font-variant-numeric: tabular-nums;
-    transition: opacity 100ms linear;
+    transition: opacity 120ms ease;
   }
   .toolbar[data-idle="true"] {
     opacity: 0.24;
@@ -65,34 +65,34 @@ const OVERLAY_CSS = `
     justify-content: center;
     gap: 4px;
     padding: 4px 7px;
-    border-radius: 3px;
+    border-radius: 5px;
     font-size: 11px;
     font-weight: 600;
     line-height: 1;
-    color: #e6e4de;
+    color: #e5e7eb;
     background: transparent;
-    transition: background-color 90ms linear, color 90ms linear;
+    transition: background-color 100ms ease, color 100ms ease;
     user-select: none;
     white-space: nowrap;
   }
   button:hover {
     background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    color: #fdfdfe;
   }
   button:focus-visible {
-    outline: 1.5px solid #e96a26;
+    outline: 2px solid #3b82f6;
     outline-offset: 1px;
   }
   button[data-active="true"] {
-    background: #e96a26;
-    color: #ffffff;
+    background: #2563eb;
+    color: #fdfdfe;
   }
   button[data-primary="true"] {
-    background: #e96a26;
-    color: #ffffff;
+    background: #2563eb;
+    color: #fdfdfe;
   }
   button[data-primary="true"]:hover {
-    background: #d9531e;
+    background: #1d4ed8;
   }
   button:disabled {
     opacity: 0.55;
@@ -107,12 +107,12 @@ const OVERLAY_CSS = `
   .status-pill {
     font-size: 11px;
     font-weight: 500;
-    color: #d6d3cb;
+    color: #d1d5db;
     padding: 2px 6px;
     white-space: nowrap;
   }
   .status-pill[data-state="working"] {
-    color: #e96a26;
+    color: #93c5fd;
   }
   .status-pill[data-state="error"] {
     color: #f87171;
@@ -130,16 +130,16 @@ const OVERLAY_CSS = `
   .caption-box {
     display: none;
     max-width: min(92%, 780px);
-    padding: 6px 14px 7px;
-    border-radius: 4px;
-    background: rgba(16, 16, 15, 0.86);
-    color: #f7f6f2;
+    padding: 7px 15px 8px;
+    border-radius: 7px;
+    background: rgba(11, 13, 16, 0.88);
+    color: #fdfdfe;
     text-align: center;
     font-weight: 500;
-    line-height: 1.38;
+    line-height: 1.4;
     letter-spacing: 0.005em;
     white-space: pre-line;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   .caption-box[data-visible="true"] {
     display: inline-block;

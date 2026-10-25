@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="153" height="20" role="img" aria-label="CHROME: MANIFEST V3">
-  <rect width="153" height="20" rx="2" fill="#161615"/>
-  <rect x="59" width="94" height="20" rx="2" fill="#2E2D2A"/>
-  <rect x="59" width="2" height="20" fill="#2E2D2A"/>
-  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
-    <text x="29.5" y="14">CHROME</text>
-    <text x="106.0" y="14">MANIFEST V3</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="153" height="22" role="img" aria-label="Chrome: Manifest V3">
+  <rect width="153" height="22" rx="4" fill="#111315"/>
+  <rect x="59" width="94" height="22" rx="4" fill="#343B48"/>
+  <rect x="59" width="4" height="22" fill="#343B48"/>
+  <g fill="#FDFDFE" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="700">
+    <text x="29.5" y="14.5">Chrome</text>
+    <text x="106.0" y="14.5">Manifest V3</text>
   </g>
 </svg>

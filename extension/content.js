@@ -1391,7 +1391,7 @@ ${blocks.join("\n\n")}
     pointer-events: none;
     z-index: 2147483640;
     container-type: size;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .toolbar {
     position: absolute;
@@ -1400,14 +1400,14 @@ ${blocks.join("\n\n")}
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    padding: 4px 5px;
-    border-radius: 4px;
-    background: rgba(20, 20, 19, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    padding: 4px 6px;
+    border-radius: 7px;
+    background: rgba(17, 19, 21, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     pointer-events: auto;
-    opacity: 0.95;
+    opacity: 0.96;
     font-variant-numeric: tabular-nums;
-    transition: opacity 100ms linear;
+    transition: opacity 120ms ease;
   }
   .toolbar[data-idle="true"] {
     opacity: 0.24;
@@ -1424,34 +1424,34 @@ ${blocks.join("\n\n")}
     justify-content: center;
     gap: 4px;
     padding: 4px 7px;
-    border-radius: 3px;
+    border-radius: 5px;
     font-size: 11px;
     font-weight: 600;
     line-height: 1;
-    color: #e6e4de;
+    color: #e5e7eb;
     background: transparent;
-    transition: background-color 90ms linear, color 90ms linear;
+    transition: background-color 100ms ease, color 100ms ease;
     user-select: none;
     white-space: nowrap;
   }
   button:hover {
     background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    color: #fdfdfe;
   }
   button:focus-visible {
-    outline: 1.5px solid #e96a26;
+    outline: 2px solid #3b82f6;
     outline-offset: 1px;
   }
   button[data-active="true"] {
-    background: #e96a26;
-    color: #ffffff;
+    background: #2563eb;
+    color: #fdfdfe;
   }
   button[data-primary="true"] {
-    background: #e96a26;
-    color: #ffffff;
+    background: #2563eb;
+    color: #fdfdfe;
   }
   button[data-primary="true"]:hover {
-    background: #d9531e;
+    background: #1d4ed8;
   }
   button:disabled {
     opacity: 0.55;
@@ -1466,12 +1466,12 @@ ${blocks.join("\n\n")}
   .status-pill {
     font-size: 11px;
     font-weight: 500;
-    color: #d6d3cb;
+    color: #d1d5db;
     padding: 2px 6px;
     white-space: nowrap;
   }
   .status-pill[data-state="working"] {
-    color: #e96a26;
+    color: #93c5fd;
   }
   .status-pill[data-state="error"] {
     color: #f87171;
@@ -1489,16 +1489,16 @@ ${blocks.join("\n\n")}
   .caption-box {
     display: none;
     max-width: min(92%, 780px);
-    padding: 6px 14px 7px;
-    border-radius: 4px;
-    background: rgba(16, 16, 15, 0.86);
-    color: #f7f6f2;
+    padding: 7px 15px 8px;
+    border-radius: 7px;
+    background: rgba(11, 13, 16, 0.88);
+    color: #fdfdfe;
     text-align: center;
     font-weight: 500;
-    line-height: 1.38;
+    line-height: 1.4;
     letter-spacing: 0.005em;
     white-space: pre-line;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   .caption-box[data-visible="true"] {
     display: inline-block;
@@ -2020,23 +2020,23 @@ ${blocks.join("\n\n")}
     bottom: 20px;
     z-index: 2147483646;
     pointer-events: none;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .toast {
     display: inline-flex;
     align-items: center;
     gap: 10px;
     max-width: 380px;
-    padding: 9px 13px;
-    border-radius: 4px;
-    background: #161615;
-    color: #f4f2ed;
-    border: 1px solid #2e2d2a;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #111315;
+    color: #f6f7f8;
+    border: 1px solid #272b33;
     font-size: 12px;
     line-height: 1.4;
     opacity: 0;
     transform: translateY(4px);
-    transition: opacity 100ms linear, transform 100ms linear;
+    transition: opacity 120ms ease, transform 120ms ease;
     pointer-events: auto;
   }
   .toast[data-visible="true"] {
@@ -2050,14 +2050,14 @@ ${blocks.join("\n\n")}
     }
   }
   .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 1.5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
     flex-shrink: 0;
-    background: #8c8980;
+    background: #9ca3af;
   }
   .toast[data-kind="working"] .dot {
-    background: #e96a26;
+    background: #3b82f6;
   }
   .toast[data-kind="success"] .dot {
     background: #22c55e;
@@ -2073,7 +2073,7 @@ ${blocks.join("\n\n")}
   }
   .title {
     font-weight: 600;
-    color: #f9fafb;
+    color: #fdfdfe;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2126,7 +2126,7 @@ ${blocks.join("\n\n")}
         hideTimer = null;
       }
       toastEl.dataset.kind = kind;
-      titleEl.textContent = String(title || "Subtitles for NotebookLM");
+      titleEl.textContent = String(title || "LM Subs");
       detailEl.textContent = String(detail || "");
       detailEl.style.display = detail ? "block" : "none";
       toastEl.dataset.visible = "true";

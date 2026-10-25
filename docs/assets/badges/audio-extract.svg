@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="236" height="20" role="img" aria-label="LATENCY: ~3.2S =M140 / HTTP 206">
-  <rect width="236" height="20" rx="2" fill="#161615"/>
-  <rect x="66" width="170" height="20" rx="2" fill="#1B6E38"/>
-  <rect x="66" width="2" height="20" fill="#1B6E38"/>
-  <g fill="#FCFBF8" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700">
-    <text x="33.0" y="14">LATENCY</text>
-    <text x="151.0" y="14">~3.2S =M140 / HTTP 206</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="208" height="22" role="img" aria-label="Fast Path: ~3.2s m140 Audio">
+  <rect width="208" height="22" rx="4" fill="#111315"/>
+  <rect x="80" width="128" height="22" rx="4" fill="#0055D4"/>
+  <rect x="80" width="4" height="22" fill="#0055D4"/>
+  <g fill="#FDFDFE" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="700">
+    <text x="40.0" y="14.5">Fast Path</text>
+    <text x="144.0" y="14.5">~3.2s m140 Audio</text>
   </g>
 </svg>

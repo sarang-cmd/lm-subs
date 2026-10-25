@@ -9,6 +9,18 @@
       "destination": "/api/[...route]"
     },
     {
+      "source": "/guide",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/install",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/about",
+      "destination": "/index.html"
+    },
+    {
       "source": "/library",
       "destination": "/index.html"
     },
