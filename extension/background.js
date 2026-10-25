@@ -1,6 +1,7 @@
 // src/config/selectors.js
 var MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
 var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
+var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
 var NOTEBOOKLM_HOSTS = Object.freeze([
   "notebooklm.google.com",
   "notebook.google.com",
@@ -122,6 +123,10 @@ var RUNTIME_MESSAGE = Object.freeze({
   CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
   SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
   SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+  SYNC_EMAIL_SEND_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_SEND_CODE",
+  SYNC_EMAIL_VERIFY_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_VERIFY_CODE",
+  SYNC_SAVE_PREFERENCES: "NOTEBOOKLM_SUBTITLES_SYNC_SAVE_PREFERENCES",
+  SYNC_GET_STATS: "NOTEBOOKLM_SUBTITLES_SYNC_GET_STATS",
   SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
   SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
   SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
@@ -2814,10 +2819,26 @@ function sanitizeDebugMessage(text) {
   if (typeof text !== "string") return String(text ?? "");
   return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-|lms_)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
 }
+var DEFAULT_SYNC_PREFERENCES = Object.freeze({
+  syncApiKeys: true,
+  syncTranscripts: true,
+  syncSettings: true
+});
+function normalizeSyncPreferences(raw) {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_SYNC_PREFERENCES };
+  }
+  return {
+    syncApiKeys: typeof raw.syncApiKeys === "boolean" ? raw.syncApiKeys : DEFAULT_SYNC_PREFERENCES.syncApiKeys,
+    syncTranscripts: typeof raw.syncTranscripts === "boolean" ? raw.syncTranscripts : DEFAULT_SYNC_PREFERENCES.syncTranscripts,
+    syncSettings: typeof raw.syncSettings === "boolean" ? raw.syncSettings : DEFAULT_SYNC_PREFERENCES.syncSettings
+  };
+}
 var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
-  serverUrl: "http://localhost:4173",
+  serverUrl: HOSTED_CLOUD_URL,
   connected: false,
   autoSync: true,
+  syncPreferences: DEFAULT_SYNC_PREFERENCES,
   user: null,
   keyHints: {},
   subtitleCount: 0,
@@ -2843,16 +2864,21 @@ async function getCloudSyncProfile(storageArea) {
   const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
   const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
   if (!saved || typeof saved !== "object") {
-    return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+    return {
+      ...DEFAULT_CLOUD_SYNC_PROFILE,
+      syncPreferences: { ...DEFAULT_SYNC_PREFERENCES }
+    };
   }
   return {
     serverUrl: normalizeSyncServerUrl(saved.serverUrl),
     connected: Boolean(saved.connected && saved.user?.email),
     autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+    syncPreferences: normalizeSyncPreferences(saved.syncPreferences),
     user: saved.user && typeof saved.user === "object" ? {
       id: String(saved.user.id || ""),
       email: String(saved.user.email || ""),
-      name: String(saved.user.name || "")
+      name: String(saved.user.name || ""),
+      authProvider: String(saved.user.authProvider || "email")
     } : null,
     keyHints: saved.keyHints && typeof saved.keyHints === "object" ? { ...saved.keyHints } : {},
     subtitleCount: Number(saved.subtitleCount) || 0,
@@ -2866,6 +2892,14 @@ async function saveCloudSyncProfile(partial, storageArea) {
     ...current,
     ...partial
   };
+  if (partial?.syncPreferences) {
+    next.syncPreferences = normalizeSyncPreferences({
+      ...current.syncPreferences,
+      ...partial.syncPreferences
+    });
+  } else {
+    next.syncPreferences = normalizeSyncPreferences(next.syncPreferences);
+  }
   next.serverUrl = normalizeSyncServerUrl(next.serverUrl);
   next.connected = Boolean(next.connected && next.user?.email);
   await store.set({ [STORAGE_KEYS.CLOUD_SYNC_PROFILE]: next });
@@ -3168,30 +3202,45 @@ function createRuntimeDispatcher({
     }
   }
   async function callSyncApi(serverUrl, path, { method = "GET", token = "", body = null, timeoutMs = 1e4 } = {}) {
-    const base = normalizeSyncServerUrl(serverUrl);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const headers = {};
-    if (body !== null) headers["Content-Type"] = "application/json";
-    if (token) headers.Authorization = `Bearer ${token}`;
-    try {
-      const res = await fetchImpl(`${base}${path}`, {
-        method,
-        headers,
-        body: body !== null ? JSON.stringify(body) : void 0,
-        signal: controller.signal
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok) {
-        const errMsg = json?.error || `Sync server returned HTTP ${res.status}`;
-        const err = new Error(errMsg);
-        err.status = res.status;
-        throw err;
-      }
-      return json;
-    } finally {
-      clearTimeout(timer);
+    const primaryBase = normalizeSyncServerUrl(serverUrl);
+    const basesToTry = [primaryBase];
+    if (primaryBase === "https://notebooklm-subtitles.vercel.app") {
+      basesToTry.push("http://localhost:4173");
     }
+    let lastErr = null;
+    for (const base of basesToTry) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const headers = {};
+      if (body !== null) headers["Content-Type"] = "application/json";
+      if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const res = await fetchImpl(`${base}${path}`, {
+          method,
+          headers,
+          body: body !== null ? JSON.stringify(body) : void 0,
+          signal: controller.signal
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) {
+          const errMsg = json?.error || `Cloud service returned HTTP ${res.status}`;
+          const err = new Error(errMsg);
+          err.status = res.status;
+          err.resolvedBase = base;
+          throw err;
+        }
+        json._resolvedBase = base;
+        return json;
+      } catch (err) {
+        lastErr = err;
+        if (err?.status && err.status !== 404 && err.status < 500) {
+          break;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastErr || new Error("Could not reach LM Subs cloud service.");
   }
   async function fetchCloudSubtitleIfAvailable({ cacheKey, artifactId, mediaToken }) {
     try {
@@ -3199,7 +3248,9 @@ function createRuntimeDispatcher({
         getCloudSyncProfile(storageArea),
         getSecretCloudSyncToken(storageArea)
       ]);
-      if (!profile.connected || !token) return null;
+      if (!profile.connected || !token || !profile.syncPreferences?.syncTranscripts) {
+        return null;
+      }
       const qs = new URLSearchParams();
       if (cacheKey) qs.set("cacheKey", cacheKey);
       if (artifactId) qs.set("artifactId", artifactId);
@@ -3227,8 +3278,13 @@ function createRuntimeDispatcher({
       getSecretCloudSyncToken(storageArea)
     ]);
     if (!token) {
-      throw new Error("Sign in to your LM Subs Neon account first.");
+      throw new Error("Sign in to your LM Subs account first.");
     }
+    const syncPrefs = profile.syncPreferences || {
+      syncApiKeys: true,
+      syncTranscripts: true,
+      syncSettings: true
+    };
     const [localSettings, localKeys, localSubtitles] = await Promise.all([
       getSettings(storageArea),
       getSecretApiKeysMap(storageArea),
@@ -3238,18 +3294,22 @@ function createRuntimeDispatcher({
       method: "POST",
       token,
       body: {
-        settings: localSettings,
-        apiKeys: localKeys,
+        syncPreferences: syncPrefs,
+        ...syncPrefs.syncSettings ? { settings: localSettings } : {},
+        ...syncPrefs.syncApiKeys ? { apiKeys: localKeys } : {},
         deletedProviders,
         deletedCacheKeys,
-        subtitles: localSubtitles.slice(0, 35)
+        ...syncPrefs.syncTranscripts ? { subtitles: localSubtitles.slice(0, 35) } : {}
       },
       timeoutMs: 12e3
     });
+    const activeServerUrl = pushRes._resolvedBase || profile.serverUrl;
     if (pushOnly) {
       const updated = await saveCloudSyncProfile(
         {
+          serverUrl: activeServerUrl,
           connected: true,
+          syncPreferences: pushRes.summary?.syncPreferences || syncPrefs,
           keyHints: pushRes.summary?.keyHints || profile.keyHints,
           subtitleCount: pushRes.summary?.subtitleCount ?? profile.subtitleCount,
           lastSyncedAt: pushRes.syncedAt || (/* @__PURE__ */ new Date()).toISOString()
@@ -3259,26 +3319,29 @@ function createRuntimeDispatcher({
       return { ok: true, profile: updated };
     }
     const pullRes = await callSyncApi(
-      profile.serverUrl,
-      "/api/sync/pull?includeSecrets=1",
+      activeServerUrl,
+      `/api/sync/pull?includeSecrets=${syncPrefs.syncApiKeys ? "1" : "0"}`,
       {
         method: "GET",
         token,
         timeoutMs: 12e3
       }
     );
-    if (pullRes.settings && typeof pullRes.settings === "object") {
+    const mergedPrefs = pullRes.syncPreferences || syncPrefs;
+    if (mergedPrefs.syncSettings && pullRes.settings && typeof pullRes.settings === "object") {
       await saveSettings(pullRes.settings, storageArea);
     }
-    if (pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
+    if (mergedPrefs.syncApiKeys && pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
       await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
     }
-    if (Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
+    if (mergedPrefs.syncTranscripts && Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
       await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
     }
     const updatedProfile = await saveCloudSyncProfile(
       {
+        serverUrl: activeServerUrl,
         connected: true,
+        syncPreferences: mergedPrefs,
         user: pullRes.user || profile.user,
         keyHints: pullRes.keyHints || {},
         subtitleCount: Array.isArray(pullRes.subtitles) ? pullRes.subtitles.length : 0,
@@ -3290,7 +3353,7 @@ function createRuntimeDispatcher({
       {
         layer: "SYNC",
         event: "neon.sync_ok",
-        detail: `Synced ${Object.keys(pullRes.keyHints || {}).length} encrypted key(s) & ${pullRes.subtitles?.length || 0} subtitle(s) with Neon Postgres`,
+        detail: `Synced ${Object.keys(pullRes.keyHints || {}).length} encrypted key(s) & ${pullRes.subtitles?.length || 0} subtitle(s) with hosted Postgres`,
         level: "ok"
       },
       [token, ...Object.values(pullRes.apiKeys || {})]
@@ -3384,6 +3447,114 @@ function createRuntimeDispatcher({
       await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
     }
     return runBidirectionalCloudSync();
+  }
+  async function handleSyncEmailSendCode(msg) {
+    const profile = await getCloudSyncProfile(storageArea);
+    const serverUrl = normalizeSyncServerUrl(msg?.serverUrl || profile.serverUrl);
+    const email = String(msg?.email || "").trim().toLowerCase();
+    const res = await callSyncApi(serverUrl, "/api/auth/email/send-code", {
+      method: "POST",
+      body: { email }
+    });
+    if (res._resolvedBase) {
+      await saveCloudSyncProfile({ serverUrl: res._resolvedBase }, storageArea);
+    }
+    return {
+      ok: true,
+      delivery: res.delivery || "email",
+      previewCode: res.previewCode || null,
+      expiresInSec: res.expiresInSec || 600
+    };
+  }
+  async function handleSyncEmailVerifyCode(msg) {
+    const profile = await getCloudSyncProfile(storageArea);
+    const serverUrl = normalizeSyncServerUrl(msg?.serverUrl || profile.serverUrl);
+    const email = String(msg?.email || "").trim().toLowerCase();
+    const code = String(msg?.code || "").trim();
+    const res = await callSyncApi(serverUrl, "/api/auth/email/verify-code", {
+      method: "POST",
+      body: {
+        email,
+        code,
+        deviceLabel: "chrome-extension"
+      }
+    });
+    const activeBase = res._resolvedBase || serverUrl;
+    await setSecretCloudSyncToken(res.token, storageArea);
+    await saveCloudSyncProfile(
+      {
+        serverUrl: activeBase,
+        connected: true,
+        syncPreferences: res.summary?.syncPreferences || profile.syncPreferences,
+        user: res.user,
+        keyHints: res.summary?.keyHints || {},
+        subtitleCount: res.summary?.subtitleCount || 0,
+        lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      storageArea
+    );
+    const pullRes = await callSyncApi(
+      activeBase,
+      `/api/sync/pull?includeSecrets=${res.summary?.syncPreferences?.syncApiKeys ?? true ? "1" : "0"}`,
+      { method: "GET", token: res.token, timeoutMs: 12e3 }
+    );
+    if (pullRes.settings && typeof pullRes.settings === "object") {
+      await saveSettings(pullRes.settings, storageArea);
+    }
+    if (pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
+      await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
+    }
+    if (Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
+      await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
+    }
+    return runBidirectionalCloudSync();
+  }
+  async function handleSyncSavePreferences(msg) {
+    const profile = await saveCloudSyncProfile(
+      {
+        ...typeof msg?.autoSync === "boolean" ? { autoSync: msg.autoSync } : {},
+        ...msg?.syncPreferences ? { syncPreferences: msg.syncPreferences } : {}
+      },
+      storageArea
+    );
+    const token = await getSecretCloudSyncToken(storageArea);
+    if (profile.connected && token) {
+      const res = await callSyncApi(profile.serverUrl, "/api/sync/preferences", {
+        method: "PUT",
+        token,
+        body: {
+          syncPreferences: profile.syncPreferences,
+          purgeDisabled: Boolean(msg?.purgeDisabled)
+        }
+      });
+      const updated = await saveCloudSyncProfile(
+        {
+          syncPreferences: res.syncPreferences || profile.syncPreferences,
+          keyHints: res.summary?.keyHints || {},
+          subtitleCount: res.summary?.subtitleCount ?? profile.subtitleCount
+        },
+        storageArea
+      );
+      if (profile.autoSync) {
+        return runBidirectionalCloudSync({ pushOnly: true });
+      }
+      return { ok: true, profile: updated };
+    }
+    return { ok: true, profile };
+  }
+  async function handleSyncGetStats() {
+    const [profile, token] = await Promise.all([
+      getCloudSyncProfile(storageArea),
+      getSecretCloudSyncToken(storageArea)
+    ]);
+    if (!profile.connected || !token) {
+      return { ok: false, error: "Sign in to view cloud statistics." };
+    }
+    return callSyncApi(profile.serverUrl, "/api/stats", {
+      method: "GET",
+      token,
+      timeoutMs: 8e3
+    });
   }
   async function handleSyncSignout() {
     const [profile, token] = await Promise.all([
@@ -4047,6 +4218,30 @@ function createRuntimeDispatcher({
     }
     if (msg.type === RUNTIME_MESSAGE.SYNC_SIGNIN) {
       handleSyncSignin(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_EMAIL_SEND_CODE) {
+      handleSyncEmailSendCode(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_EMAIL_VERIFY_CODE) {
+      handleSyncEmailVerifyCode(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_SAVE_PREFERENCES) {
+      handleSyncSavePreferences(msg).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.SYNC_GET_STATS) {
+      handleSyncGetStats().then((res) => sendResponse(res)).catch(
         (err) => sendResponse({ ok: false, error: err?.message || String(err) })
       );
       return true;

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>Privacy Policy | LM Subs</title>
+    <meta
+      name="description"
+      content="Privacy Policy for LM Subs Chrome extension and hosted Neon Postgres sync service."
+    />
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="root">
+      <div class="page-wrap">
+        <article class="legal-article">
+          <h1>Privacy policy</h1>
+          <p>Last updated: October 25, 2026</p>
+          <div class="draft-callout">
+            <strong>Draft notice for operator review:</strong> Before commercial or Chrome Web Store publication, replace the bracketed operator entity name, postal address, and dedicated privacy contact address below with your final legal details.
+          </div>
+          <h2>1. Scope and operator</h2>
+          <p>
+            This Privacy Policy describes how LM Subs (operated by <code>[Draft: Operator Legal Name / Maintainer]</code>, <code>[Draft: Registered Address]</code>, contact: <code>[Draft: privacy@yourdomain.example]</code>) handles data across the LM Subs Chrome extension and hosted web service.
+          </p>
+          <h2>2. Local-only mode vs optional cloud account</h2>
+          <p>
+            You can use the LM Subs Chrome extension without signing in. In local mode, API keys, captions, and preferences remain inside Chrome local storage (<code>chrome.storage.local</code>), and extracted audio is sent directly from your browser to your selected speech-to-text provider.
+          </p>
+          <h2>3. Account sign-in and granular sync opt-in</h2>
+          <p>
+            When you sign in via Google, GitHub, or a 6-digit email verification code, you choose independently whether to sync AES-256-GCM encrypted API keys, transcriptions, and display preferences. Turning off any category lets you purge stored cloud copies immediately.
+          </p>
+        </article>
+      </div>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

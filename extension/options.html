@@ -3,126 +3,200 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Settings · LM Subs</title>
+    <title>Settings | LM Subs</title>
     <link rel="stylesheet" href="ui.css" />
   </head>
   <body class="options-body">
     <main class="container">
-      <header class="header" style="margin-bottom: 18px; padding-bottom: 14px">
+      <header class="header" style="margin-bottom: 22px; padding-bottom: 16px">
         <div class="brand">
           <span id="brand-icon-slot"></span>
           <div>
-            <h1 class="brand-title" style="font-size: 18px">LM Subs</h1>
+            <h1 class="brand-title" style="font-size: 18px">LM Subs settings</h1>
             <p class="brand-sub">
-              FAST AUDIO EXTRACTION · 12 BYOK STT PROVIDERS · NEON POSTGRES ENCRYPTED SYNC
+              Account sync, provider queue, caption display, and transcript library
             </p>
           </div>
         </div>
         <label class="switch">
-          <span>ENABLED</span>
+          <span>Enabled</span>
           <input id="opt-enabled" type="checkbox" checked />
         </label>
       </header>
 
-      <!-- 01 · Neon Account & Postgres Sync -->
+      <!-- Account & Cloud Sync -->
       <section id="sync-section" class="card">
         <div class="section-head">
-          <h2 class="section-title">
-            <span class="section-num">01</span>
-            <span>Neon Account &amp; Encrypted Postgres Sync</span>
-          </h2>
-          <span id="opt-sync-badge" class="badge">Offline</span>
+          <h2 class="section-title">Account and cloud sync</h2>
+          <span id="opt-sync-badge" class="badge">Signed out</span>
         </div>
 
-        <div class="hint" style="margin-top: 0; margin-bottom: 12px">
-          Create an account or sign in to synchronize your provider queue, preferences, generated subtitle transcripts, and <strong>AES-256-GCM encrypted API keys</strong> across browsers via Neon Lakebase Postgres.
-        </div>
+        <p class="hint" style="margin-top: 0; margin-bottom: 14px">
+          Sign in to back up your transcriptions and AES-256-GCM encrypted API keys to your LM Subs cloud library. You choose which categories sync below.
+        </p>
 
-        <div class="field">
-          <label class="field-label" for="sync-server-url">
-            <span>Sync Server Origin (Neon Function / Vercel / Local)</span>
-          </label>
-          <input
-            id="sync-server-url"
-            type="url"
-            value="http://localhost:4173"
-            placeholder="https://your-lm-subs.vercel.app or http://localhost:4173"
-            autocomplete="off"
-          />
-        </div>
-
-        <!-- Logged-out panel -->
+        <!-- Signed-out panel: Google, GitHub, or Passwordless 6-digit Email -->
         <div id="sync-logged-out-panel">
-          <div class="sync-grid" style="margin-top: 10px">
-            <div class="field" style="margin: 0">
-              <label class="field-label" for="sync-email-input">Email</label>
-              <input id="sync-email-input" type="email" placeholder="you@domain.com" autocomplete="email" />
+          <div class="row" style="flex-wrap: wrap; gap: 8px; margin-bottom: 14px">
+            <button id="sync-google-btn" type="button" class="btn">
+              Continue with Google
+            </button>
+            <button id="sync-github-btn" type="button" class="btn">
+              Continue with GitHub
+            </button>
+          </div>
+
+          <div style="padding-top: 12px; border-top: 1px solid var(--border)">
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; max-width: 480px">
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="sync-email-input">Sign in with email code</label>
+                <input
+                  id="sync-email-input"
+                  type="email"
+                  placeholder="alex@university.edu"
+                  autocomplete="email"
+                  spellcheck="false"
+                />
+              </div>
+              <button id="sync-send-code-btn" type="button" class="btn btn-primary">
+                Send 6-digit code
+              </button>
             </div>
-            <div class="field" style="margin: 0">
-              <label class="field-label" for="sync-password-input">Password (min 8 chars)</label>
-              <input id="sync-password-input" type="password" placeholder="••••••••" autocomplete="current-password" />
-            </div>
-            <div class="field" style="margin: 0">
-              <label class="field-label" for="sync-name-input">Display Name (optional)</label>
-              <input id="sync-name-input" type="text" placeholder="Alex" autocomplete="name" />
+
+            <div id="sync-code-step" style="display: none; margin-top: 10px; max-width: 480px">
+              <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end">
+                <div class="field" style="margin: 0">
+                  <label class="field-label" for="sync-code-input">6-digit verification code</label>
+                  <input
+                    id="sync-code-input"
+                    class="mono-input"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="6"
+                    placeholder="123456"
+                    autocomplete="one-time-code"
+                    spellcheck="false"
+                  />
+                </div>
+                <button id="sync-verify-code-btn" type="button" class="btn btn-ink">
+                  Verify and sign in
+                </button>
+              </div>
             </div>
           </div>
 
-          <div class="row" style="margin-top: 10px; flex-wrap: wrap">
-            <button id="sync-signin-btn" type="button" class="btn btn-primary">Sign In &amp; Pull Keys</button>
-            <button id="sync-signup-btn" type="button" class="btn btn-ink">Create Neon Account</button>
-          </div>
-
-          <div class="field" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border)">
-            <label class="field-label" for="sync-token-input">
-              <span>Or Connect with Web App Sync Token / Neon Auth JWT</span>
-            </label>
-            <div class="row">
-              <input id="sync-token-input" type="password" placeholder="lms_..." autocomplete="off" />
-              <button id="sync-token-btn" type="button" class="btn">Connect Token</button>
+          <details style="margin-top: 12px">
+            <summary class="hint" style="cursor: pointer; user-select: none">
+              Have a web session token from Google or GitHub sign-in? Paste it here
+            </summary>
+            <div class="row" style="margin-top: 8px; max-width: 480px">
+              <input
+                id="sync-token-input"
+                type="password"
+                placeholder="lms_..."
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="Session token"
+              />
+              <button id="sync-token-btn" type="button" class="btn">Connect</button>
             </div>
-          </div>
+          </details>
         </div>
 
-        <!-- Logged-in panel -->
-        <div id="sync-logged-in-panel" style="display: none; margin-top: 10px">
-          <div class="row-between" style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); flex-wrap: wrap">
+        <!-- Signed-in panel -->
+        <div id="sync-logged-in-panel" style="display: none">
+          <div class="row-between" style="padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); flex-wrap: wrap">
             <div>
-              <div id="sync-account-label" style="font-weight: 600; font-size: 13px"></div>
+              <div id="sync-account-label" style="font-weight: 600; font-size: 13.5px"></div>
               <div id="sync-meta-label" class="hint" style="margin-top: 2px"></div>
             </div>
             <div class="row">
-              <button id="sync-now-btn" type="button" class="btn btn-primary">Sync Now</button>
-              <button id="sync-signout-btn" type="button" class="btn btn-danger">Sign Out</button>
+              <button id="sync-open-web-stats-btn" type="button" class="btn btn-sm">
+                Open web library
+              </button>
+              <button id="sync-now-btn" type="button" class="btn btn-sm btn-primary">
+                Sync now
+              </button>
+              <button id="sync-signout-btn" type="button" class="btn btn-sm btn-danger">
+                Sign out
+              </button>
             </div>
           </div>
           <div id="sync-key-hints" class="key-chip-list"></div>
         </div>
 
-        <div id="sync-status-line" class="status-line"></div>
+        <!-- Granular Opt-In Sync Controls -->
+        <div class="sync-optin-grid" aria-label="Sync category preferences">
+          <div class="sync-optin-item">
+            <label class="switch">
+              <input id="sync-pref-keys" type="checkbox" checked />
+              <span>Sync API keys</span>
+            </label>
+            <div class="hint">Encrypts keys with AES-256-GCM before storing in your account.</div>
+          </div>
+          <div class="sync-optin-item">
+            <label class="switch">
+              <input id="sync-pref-transcripts" type="checkbox" checked />
+              <span>Sync transcriptions</span>
+            </label>
+            <div class="hint">Backs up generated captions so other browsers load them immediately.</div>
+          </div>
+          <div class="sync-optin-item">
+            <label class="switch">
+              <input id="sync-pref-settings" type="checkbox" checked />
+              <span>Sync preferences</span>
+            </label>
+            <div class="hint">Keeps your provider order, language, and caption size aligned.</div>
+          </div>
+        </div>
+
+        <div id="sync-status-line" class="status-line" aria-live="polite"></div>
       </section>
 
-      <!-- 02 · BYOK Provider Priority Queue -->
+      <!-- Usage Statistics -->
+      <section id="stats-section" class="card">
+        <div class="section-head">
+          <h2 class="section-title">Transcription statistics</h2>
+          <button id="refresh-stats-btn" type="button" class="btn btn-sm">Refresh</button>
+        </div>
+        <div id="stats-summary-note" class="hint" style="margin-top: 0">
+          Metrics computed from your local and synced Video Overview transcripts.
+        </div>
+        <div class="stats-strip">
+          <div class="stats-cell">
+            <div id="stat-videos" class="stats-num">0</div>
+            <div class="stats-lbl">Videos captioned</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-cues" class="stats-num">0</div>
+            <div class="stats-lbl">Caption cues</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-saved" class="stats-num">0 MB</div>
+            <div class="stats-lbl">Video upload avoided</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-latency" class="stats-num">n/a</div>
+            <div class="stats-lbl">Median speed</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BYOK Provider Priority Queue -->
       <section class="card">
         <div class="section-head">
-          <h2 class="section-title">
-            <span class="section-num">02</span>
-            <span>BYOK Provider Priority Queue &amp; API Keys</span>
-          </h2>
+          <h2 class="section-title">Speech-to-text providers and API keys</h2>
           <span class="hint" style="margin: 0">
-            Runs top-to-bottom; HTTP 429 rate limits fail over automatically.
+            Ordered top to bottom with automatic rate-limit failover
           </span>
         </div>
         <div id="provider-queue-list" class="provider-list"></div>
       </section>
 
-      <!-- 03 · Automation & Captions -->
+      <!-- Automation & Captions -->
       <section class="card">
         <div class="section-head">
-          <h2 class="section-title">
-            <span class="section-num">03</span>
-            <span>Automation, Language &amp; Player Captions</span>
-          </h2>
+          <h2 class="section-title">Automation, language, and player display</h2>
           <span id="settings-saved-pill" class="badge badge-saved" style="display: none">Saved</span>
         </div>
 
@@ -130,15 +204,15 @@
           <div class="field">
             <label class="switch">
               <input id="opt-auto-generate" type="checkbox" checked />
-              <span>Auto-subtitle newly generated Video Overviews</span>
+              <span>Caption new Video Overviews automatically</span>
             </label>
-            <div class="hint">Starts transcription automatically when Studio finishes rendering.</div>
+            <div class="hint">Starts transcription when NotebookLM Studio finishes rendering.</div>
           </div>
 
           <div class="field">
             <label class="switch">
               <input id="opt-auto-existing" type="checkbox" checked />
-              <span>Auto-subtitle existing videos when opened</span>
+              <span>Caption existing videos when opened</span>
             </label>
             <div class="hint">Generates captions when you open an uncached Video Overview player.</div>
           </div>
@@ -146,19 +220,19 @@
           <div class="field">
             <label class="switch">
               <input id="opt-show-toast" type="checkbox" checked />
-              <span>Show in-page status notifications</span>
+              <span>Show in-page progress notifications</span>
             </label>
-            <div class="hint">Displays non-intrusive bottom-right progress toasts in NotebookLM.</div>
+            <div class="hint">Displays calm status notices in the corner of NotebookLM.</div>
           </div>
         </div>
 
-        <hr style="border: 0; border-top: 1px solid var(--border); margin: 14px 0" />
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0" />
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px">
           <div class="field">
-            <label class="field-label" for="opt-language-hint">Spoken Language Hint</label>
+            <label class="field-label" for="opt-language-hint">Spoken language</label>
             <select id="opt-language-hint">
-              <option value="auto">Auto (use NotebookLM artifact language)</option>
+              <option value="auto">Auto (detect from NotebookLM)</option>
               <option value="en">English (en)</option>
               <option value="de">German (de)</option>
               <option value="es">Spanish (es)</option>
@@ -174,7 +248,7 @@
           </div>
 
           <div class="field">
-            <label class="field-label" for="opt-translate-to">Gemini Subtitle Translation</label>
+            <label class="field-label" for="opt-translate-to">Gemini translation</label>
             <select id="opt-translate-to">
               <option value="original">Keep original spoken language</option>
               <option value="English">Translate to English</option>
@@ -190,24 +264,24 @@
           </div>
 
           <div class="field">
-            <label class="field-label" for="opt-font-size">Default Caption Size</label>
+            <label class="field-label" for="opt-font-size">Default caption size</label>
             <select id="opt-font-size">
               <option value="small">Small</option>
-              <option value="medium">Medium (Default)</option>
+              <option value="medium">Medium</option>
               <option value="large">Large</option>
-              <option value="xlarge">Extra Large</option>
+              <option value="xlarge">Extra large</option>
             </select>
           </div>
 
           <div class="field">
-            <label class="field-label" for="opt-offset-sec">Default Sync Offset (sec)</label>
+            <label class="field-label" for="opt-offset-sec">Default timing offset (sec)</label>
             <input id="opt-offset-sec" type="number" step="0.25" min="-10" max="10" value="0" />
           </div>
         </div>
 
         <div class="field" style="margin-top: 12px">
           <label class="field-label" for="opt-exclude-patterns">
-            <span>Exclude Video Titles Matching Regex (one per line)</span>
+            <span>Skip video titles matching regular expressions (one per line)</span>
           </label>
           <textarea
             id="opt-exclude-patterns"
@@ -216,31 +290,28 @@
           ></textarea>
         </div>
 
-        <div class="row" style="margin-top: 10px">
+        <div class="row" style="margin-top: 12px">
           <button id="save-behavior-btn" type="button" class="btn btn-primary">
-            Save Preferences
+            Save preferences
           </button>
         </div>
       </section>
 
-      <!-- 04 · Cached Subtitles & Export Vault -->
+      <!-- Cached Subtitles & Export Vault -->
       <section class="card">
         <div class="section-head">
-          <h2 class="section-title">
-            <span class="section-num">04</span>
-            <span>Subtitle Vault &amp; Export (Local + Neon Synced)</span>
-          </h2>
+          <h2 class="section-title">Transcript library and exports</h2>
           <div class="row">
             <button id="export-all-vault-btn" type="button" class="btn btn-sm" style="display: none">
-              Export All (.JSON)
+              Export all (.json)
             </button>
             <button id="clear-cache-btn" type="button" class="btn btn-sm btn-danger">
-              Clear Local Vault
+              Clear local cache
             </button>
           </div>
         </div>
         <div id="cache-empty" class="hint">
-          No cached Video Overview subtitles yet. Open a Video Overview on NotebookLM or sign in to Neon Sync above.
+          No transcripts cached yet. Open a Video Overview in NotebookLM or sign in above to pull synced transcripts.
         </div>
         <div id="cache-table-wrap" style="overflow-x: auto; display: none">
           <table class="cache-table">
@@ -248,7 +319,7 @@
               <tr>
                 <th>Video Overview</th>
                 <th>Provider</th>
-                <th>Audio Stream</th>
+                <th>Audio stream</th>
                 <th>Cues</th>
                 <th>Export</th>
               </tr>
@@ -258,24 +329,21 @@
         </div>
       </section>
 
-      <!-- 05 · Diagnostics & RPC Overrides -->
+      <!-- Diagnostics & RPC Overrides -->
       <section class="card">
         <div class="section-head">
-          <h2 class="section-title">
-            <span class="section-num">05</span>
-            <span>Diagnostics, RPC Overrides &amp; Debug Monitor</span>
-          </h2>
-          <span id="opt-perm-badge" class="badge badge-saved">Google CDN: OK</span>
+          <h2 class="section-title">Diagnostics and RPC overrides</h2>
+          <span id="opt-perm-badge" class="badge badge-saved">Google media: OK</span>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border)">
           <div class="field" style="margin: 0">
-            <label class="field-label" for="rpc-create-input">CREATE_STUDIO RPC (Default: R7cb6c)</label>
-            <input id="rpc-create-input" class="mono-input" type="text" placeholder="R7cb6c" />
+            <label class="field-label" for="rpc-create-input">CREATE_STUDIO RPC (default R7cb6c)</label>
+            <input id="rpc-create-input" class="mono-input" type="text" placeholder="R7cb6c" spellcheck="false" />
           </div>
           <div class="field" style="margin: 0">
-            <label class="field-label" for="rpc-poll-input">POLL_STUDIO RPC (Default: gArtLc)</label>
-            <input id="rpc-poll-input" class="mono-input" type="text" placeholder="gArtLc" />
+            <label class="field-label" for="rpc-poll-input">POLL_STUDIO RPC (default gArtLc)</label>
+            <input id="rpc-poll-input" class="mono-input" type="text" placeholder="gArtLc" spellcheck="false" />
           </div>
           <button id="save-rpc-btn" type="button" class="btn">Save RPCs</button>
         </div>
@@ -283,15 +351,15 @@
         <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px">
           <label class="switch">
             <input id="opt-debug-mode" type="checkbox" />
-            <span>Mount Live Pipeline Monitor on notebook.google.com</span>
+            <span>Show live pipeline monitor inside NotebookLM</span>
           </label>
           <div class="row">
             <button id="opt-grant-perms-btn" type="button" class="btn btn-sm btn-primary" style="display: none">
-              Grant Missing Permissions
+              Grant missing permissions
             </button>
             <button id="opt-refresh-debug-btn" type="button" class="btn btn-sm">Refresh</button>
             <button id="opt-copy-debug-btn" type="button" class="btn btn-sm btn-ink">
-              Copy Redacted Report
+              Copy redacted report
             </button>
             <button id="opt-clear-debug-btn" type="button" class="btn btn-sm btn-danger">
               Clear
@@ -305,13 +373,13 @@
             padding: 10px 12px;
             max-height: 220px;
             overflow-y: auto;
-            border-radius: 3px;
+            border-radius: 6px;
             border: 1px solid var(--border);
-            background: #141413;
-            color: #dfddd6;
+            background: #111315;
+            color: #e5e7eb;
             font-family: var(--mono);
             font-size: 11px;
-            line-height: 1.45;
+            line-height: 1.5;
             white-space: pre-wrap;
             word-break: break-word;
           "

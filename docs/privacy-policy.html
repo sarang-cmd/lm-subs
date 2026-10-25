@@ -3,70 +3,45 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Privacy Policy · Subtitles for NotebookLM</title>
-    <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
-    <link rel="stylesheet" href="styles.css" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>Privacy Policy | LM Subs</title>
+    <meta
+      name="description"
+      content="Privacy Policy for LM Subs Chrome extension and hosted Neon Postgres sync service."
+    />
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="wrap topbar-inner">
-        <a class="brand-link" href="index.html">
-          <img src="assets/logo.svg" alt="Subtitles for NotebookLM mark" />
-          <span>Subtitles for NotebookLM</span>
-        </a>
-        <nav class="nav-links">
-          <a href="index.html">← Back to Overview</a>
-        </nav>
+    <div id="root">
+      <div class="page-wrap">
+        <article class="legal-article">
+          <h1>Privacy policy</h1>
+          <p>Last updated: October 25, 2026</p>
+          <div class="draft-callout">
+            <strong>Draft notice for operator review:</strong> Before commercial or Chrome Web Store publication, replace the bracketed operator entity name, postal address, and dedicated privacy contact address below with your final legal details.
+          </div>
+          <h2>1. Scope and operator</h2>
+          <p>
+            This Privacy Policy describes how LM Subs (operated by <code>[Draft: Operator Legal Name / Maintainer]</code>, <code>[Draft: Registered Address]</code>, contact: <code>[Draft: privacy@yourdomain.example]</code>) handles data across the LM Subs Chrome extension and hosted web service.
+          </p>
+          <h2>2. Local-only mode vs optional cloud account</h2>
+          <p>
+            You can use the LM Subs Chrome extension without signing in. In local mode, API keys, captions, and preferences remain inside Chrome local storage (<code>chrome.storage.local</code>), and extracted audio is sent directly from your browser to your selected speech-to-text provider.
+          </p>
+          <h2>3. Account sign-in and granular sync opt-in</h2>
+          <p>
+            When you sign in via Google, GitHub, or a 6-digit email verification code, you choose independently whether to sync AES-256-GCM encrypted API keys, transcriptions, and display preferences. Turning off any category lets you purge stored cloud copies immediately.
+          </p>
+        </article>
       </div>
-    </header>
-
-    <main class="wrap" style="max-width: 760px; padding: 48px 24px 72px">
-      <div class="section-kicker">Last Updated: October 24, 2026</div>
-      <h1 style="margin: 0 0 18px; font-size: 32px; letter-spacing: -0.02em">Privacy Policy</h1>
-      <p style="color: var(--ink-muted)">
-        <strong>Subtitles for NotebookLM</strong> is an open-source, Bring-Your-Own-Key (BYOK) browser extension.
-        We operate <strong>zero backend servers</strong>, collect <strong>zero analytics or telemetry</strong>, and
-        never see your NotebookLM notebooks, audio, subtitles, or API keys.
-      </p>
-
-      <div class="info-card" style="margin-top: 24px">
-        <h3>1. Data Stored Locally on Your Device</h3>
-        <p>
-          All configuration — including your chosen Speech-to-Text API keys, provider queue order, caption styling
-          preferences, and up to 35 cached Video Overview subtitle tracks — is stored exclusively in your browser's
-          local <code>chrome.storage.local</code> database on your machine. API keys are read strictly inside the
-          isolated Manifest V3 background Service Worker and are never exposed to web page scripts.
-        </p>
-      </div>
-
-      <div class="info-card" style="margin-top: 14px">
-        <h3>2. How Video Overview Audio Is Processed</h3>
-        <p>
-          When you generate or open a NotebookLM Video Overview (and automatic captioning or manual generation is active),
-          the extension downloads the Video Overview media stream from Google's CDN using your existing browser session,
-          strips the video track locally in JavaScript so only the compact audio track (<code>.m4a</code> or 16 kHz mono
-          <code>.wav</code>) remains, and sends that audio directly from your browser to the Speech-to-Text provider(s)
-          you explicitly configured (such as Groq, Mistral, Google Gemini, Deepgram, AssemblyAI, Gladia, Cloudflare,
-          ElevenLabs, Hugging Face, OpenRouter, OpenAI, or your own <code>localhost</code> server).
-        </p>
-      </div>
-
-      <div class="info-card" style="margin-top: 14px">
-        <h3>3. Third-Party Speech-to-Text Providers</h3>
-        <p>
-          Network requests to any third-party AI/STT provider occur only after you enter an API key (or local URL) and
-          grant Chrome's optional host permission for that specific domain. Audio sent to your chosen provider is
-          governed by that provider's own API terms and data-retention policy.
-        </p>
-      </div>
-
-      <div class="info-card" style="margin-top: 14px">
-        <h3>4. Deleting Your Data</h3>
-        <p>
-          You can delete individual cached subtitle tracks, clear the entire cache, or remove saved API keys at any time
-          from the extension's Settings page, or remove all stored data immediately by uninstalling the extension.
-        </p>
-      </div>
-    </main>
+    </div>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

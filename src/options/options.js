@@ -89,24 +89,39 @@ async function initOptions() {
   const saveBehaviorBtn = document.getElementById("save-behavior-btn");
   const savedPill = document.getElementById("settings-saved-pill");
 
-  // Neon Sync elements
+  // Account & Cloud Sync elements
   const optSyncBadge = document.getElementById("opt-sync-badge");
-  const syncServerUrlInput = document.getElementById("sync-server-url");
   const syncLoggedOutPanel = document.getElementById("sync-logged-out-panel");
   const syncLoggedInPanel = document.getElementById("sync-logged-in-panel");
+  const syncGoogleBtn = document.getElementById("sync-google-btn");
+  const syncGithubBtn = document.getElementById("sync-github-btn");
   const syncEmailInput = document.getElementById("sync-email-input");
-  const syncPasswordInput = document.getElementById("sync-password-input");
-  const syncNameInput = document.getElementById("sync-name-input");
-  const syncSigninBtn = document.getElementById("sync-signin-btn");
-  const syncSignupBtn = document.getElementById("sync-signup-btn");
+  const syncSendCodeBtn = document.getElementById("sync-send-code-btn");
+  const syncCodeStep = document.getElementById("sync-code-step");
+  const syncCodeInput = document.getElementById("sync-code-input");
+  const syncVerifyCodeBtn = document.getElementById("sync-verify-code-btn");
   const syncTokenInput = document.getElementById("sync-token-input");
   const syncTokenBtn = document.getElementById("sync-token-btn");
   const syncAccountLabel = document.getElementById("sync-account-label");
   const syncMetaLabel = document.getElementById("sync-meta-label");
+  const syncOpenWebStatsBtn = document.getElementById("sync-open-web-stats-btn");
   const syncNowBtn = document.getElementById("sync-now-btn");
   const syncSignoutBtn = document.getElementById("sync-signout-btn");
   const syncKeyHints = document.getElementById("sync-key-hints");
   const syncStatusLine = document.getElementById("sync-status-line");
+
+  // Granular Sync Opt-In Switches
+  const syncPrefKeys = document.getElementById("sync-pref-keys");
+  const syncPrefTranscripts = document.getElementById("sync-pref-transcripts");
+  const syncPrefSettings = document.getElementById("sync-pref-settings");
+
+  // Statistics elements
+  const refreshStatsBtn = document.getElementById("refresh-stats-btn");
+  const statsSummaryNote = document.getElementById("stats-summary-note");
+  const statVideos = document.getElementById("stat-videos");
+  const statCues = document.getElementById("stat-cues");
+  const statSaved = document.getElementById("stat-saved");
+  const statLatency = document.getElementById("stat-latency");
 
   const cacheEmpty = document.getElementById("cache-empty");
   const cacheTableWrap = document.getElementById("cache-table-wrap");
@@ -148,12 +163,18 @@ async function initOptions() {
   }
 
   function renderSyncPanel() {
-    if (syncServerUrlInput && syncProfile?.serverUrl) {
-      syncServerUrlInput.value = syncProfile.serverUrl;
-    }
+    const prefs = syncProfile?.syncPreferences || {
+      syncApiKeys: true,
+      syncTranscripts: true,
+      syncSettings: true,
+    };
+    if (syncPrefKeys) syncPrefKeys.checked = Boolean(prefs.syncApiKeys);
+    if (syncPrefTranscripts)
+      syncPrefTranscripts.checked = Boolean(prefs.syncTranscripts);
+    if (syncPrefSettings) syncPrefSettings.checked = Boolean(prefs.syncSettings);
 
     if (syncProfile?.connected && syncProfile.user?.email) {
-      optSyncBadge.textContent = "Synced · Postgres";
+      optSyncBadge.textContent = "Synced";
       optSyncBadge.className = "badge badge-saved";
       syncLoggedOutPanel.style.display = "none";
       syncLoggedInPanel.style.display = "block";
@@ -165,10 +186,10 @@ async function initOptions() {
       const hintEntries = Object.entries(syncProfile.keyHints || {});
       const lastStr = syncProfile.lastSyncedAt
         ? new Date(syncProfile.lastSyncedAt).toLocaleTimeString()
-        : "just now";
-      syncMetaLabel.textContent = `${hintEntries.length} encrypted API key(s) · ${
+        : "moments ago";
+      syncMetaLabel.textContent = `${hintEntries.length} encrypted key(s), ${
         syncProfile.subtitleCount || 0
-      } synced transcript(s) · Last sync ${lastStr}`;
+      } synced transcript(s), last sync ${lastStr}`;
 
       syncKeyHints.textContent = "";
       for (const [provId, hint] of hintEntries) {
@@ -178,10 +199,53 @@ async function initOptions() {
         syncKeyHints.appendChild(chip);
       }
     } else {
-      optSyncBadge.textContent = "Offline";
+      optSyncBadge.textContent = "Signed out";
       optSyncBadge.className = "badge";
       syncLoggedOutPanel.style.display = "block";
       syncLoggedInPanel.style.display = "none";
+    }
+  }
+
+  async function renderStatisticsPanel() {
+    if (!statVideos) return;
+    if (syncProfile?.connected) {
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
+      if (res?.ok && res.totals) {
+        const t = res.totals;
+        statVideos.textContent = String(t.videosCaptioned || 0);
+        statCues.textContent = String(t.totalCues || 0);
+        const savedMb = ((t.bandwidthSavedBytes || 0) / 1048576).toFixed(1);
+        statSaved.textContent = `${savedMb} MB`;
+        statLatency.textContent = t.medianLatencyMs
+          ? `${(t.medianLatencyMs / 1000).toFixed(1)}s`
+          : "n/a";
+        if (statsSummaryNote) {
+          statsSummaryNote.textContent = `Live account metrics (${t.spokenMinutes || 0} spoken minutes across ${t.videosCaptioned || 0} videos).`;
+        }
+        return;
+      }
+    }
+
+    // Fallback to local cache metrics when signed out
+    let cues = 0;
+    let savedBytes = 0;
+    const lats = [];
+    for (const item of cacheList) {
+      cues += Number(item.cueCount || item.cues?.length || 0);
+      const orig = Number(item.originalBytes || 0);
+      const ext = Number(item.extractedBytes || 0);
+      if (orig > ext) savedBytes += orig - ext;
+      if (Number(item.latencyMs) > 0) lats.push(Number(item.latencyMs));
+    }
+    lats.sort((a, b) => a - b);
+    const med = lats.length > 0 ? lats[Math.floor(lats.length / 2)] : null;
+    statVideos.textContent = String(cacheList.length);
+    statCues.textContent = String(cues);
+    statSaved.textContent = `${(savedBytes / 1048576).toFixed(1)} MB`;
+    statLatency.textContent = med ? `${(med / 1000).toFixed(1)}s` : "n/a";
+    if (statsSummaryNote) {
+      statsSummaryNote.textContent =
+        "Computed from transcripts cached in this browser. Sign in above to include cross-device statistics.";
     }
   }
 
@@ -196,6 +260,7 @@ async function initOptions() {
     renderSyncPanel();
     renderProviderQueue();
     renderCacheTable();
+    await renderStatisticsPanel();
   }
 
   async function triggerAutoSyncIfConnected(extra = {}) {
@@ -592,87 +657,115 @@ async function initOptions() {
   renderSyncPanel();
   renderProviderQueue();
   renderCacheTable();
+  renderStatisticsPanel();
 
-  // Neon Account & Cloud Sync event handlers
-  syncSignupBtn?.addEventListener("click", async () => {
-    const serverUrl = syncServerUrlInput.value.trim();
-    const email = syncEmailInput.value.trim();
-    const password = syncPasswordInput.value;
-    const name = syncNameInput.value.trim();
+  function openHostedOAuth(provider) {
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const url = `${base}/api/auth/oauth/${provider}?device=chrome-extension&next=${encodeURIComponent(
+      "/?view=library&ext_connect=1"
+    )}`;
+    if (chrome.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    setSyncFeedback(
+      `Complete ${provider === "google" ? "Google" : "GitHub"} sign-in in the opened tab, then paste your session token if prompted.`,
+      ""
+    );
+  }
 
-    if (!email || password.length < 8) {
-      setSyncFeedback("Enter a valid email and at least 8-character password.", "err");
+  syncGoogleBtn?.addEventListener("click", async () => {
+    await requestSyncServerOrigin(syncProfile?.serverUrl);
+    openHostedOAuth("google");
+  });
+
+  syncGithubBtn?.addEventListener("click", async () => {
+    await requestSyncServerOrigin(syncProfile?.serverUrl);
+    openHostedOAuth("github");
+  });
+
+  syncSendCodeBtn?.addEventListener("click", async () => {
+    const email = syncEmailInput?.value.trim() || "";
+    if (!email || !email.includes("@")) {
+      setSyncFeedback("Enter a valid email address.", "err");
+      syncEmailInput?.focus();
       return;
     }
 
-    await requestSyncServerOrigin(serverUrl);
-    syncSignupBtn.disabled = true;
-    setSyncFeedback("Creating Neon account & encrypting keys…", "");
+    await requestSyncServerOrigin(syncProfile?.serverUrl);
+    syncSendCodeBtn.disabled = true;
+    setSyncFeedback("Sending 6-digit verification code…", "");
 
     const res = await sendRuntime({
-      type: RUNTIME_MESSAGE.SYNC_SIGNUP,
-      serverUrl,
+      type: RUNTIME_MESSAGE.SYNC_EMAIL_SEND_CODE,
       email,
-      password,
-      name,
     });
+    syncSendCodeBtn.disabled = false;
 
-    syncSignupBtn.disabled = false;
     if (res?.ok) {
-      syncPasswordInput.value = "";
-      await reloadAllLocalState();
-      setSyncFeedback("Account created & synced with Neon Lakebase Postgres.", "ok");
+      if (syncCodeStep) syncCodeStep.style.display = "block";
+      if (res.delivery === "preview" && res.previewCode) {
+        if (syncCodeInput) syncCodeInput.value = res.previewCode;
+        setSyncFeedback(
+          `Preview mode code generated: ${res.previewCode}. Click Verify and sign in.`,
+          "ok"
+        );
+      } else {
+        setSyncFeedback(
+          `Sent a 6-digit code to ${email}. Check your inbox.`,
+          "ok"
+        );
+      }
+      syncCodeInput?.focus();
     } else {
-      setSyncFeedback(res?.error || "Account creation failed.", "err");
+      setSyncFeedback(res?.error || "Could not send verification code.", "err");
     }
   });
 
-  syncSigninBtn?.addEventListener("click", async () => {
-    const serverUrl = syncServerUrlInput.value.trim();
-    const email = syncEmailInput.value.trim();
-    const password = syncPasswordInput.value;
-
-    if (!email || !password) {
-      setSyncFeedback("Enter your email and password.", "err");
+  syncVerifyCodeBtn?.addEventListener("click", async () => {
+    const email = syncEmailInput?.value.trim() || "";
+    const code = syncCodeInput?.value.trim() || "";
+    if (!email || code.length !== 6) {
+      setSyncFeedback("Enter the 6-digit verification code.", "err");
+      syncCodeInput?.focus();
       return;
     }
 
-    await requestSyncServerOrigin(serverUrl);
-    syncSigninBtn.disabled = true;
-    setSyncFeedback("Signing in & pulling encrypted API keys from Neon…", "");
+    syncVerifyCodeBtn.disabled = true;
+    setSyncFeedback("Verifying code and syncing your account…", "");
 
     const res = await sendRuntime({
-      type: RUNTIME_MESSAGE.SYNC_SIGNIN,
-      serverUrl,
+      type: RUNTIME_MESSAGE.SYNC_EMAIL_VERIFY_CODE,
       email,
-      password,
+      code,
     });
+    syncVerifyCodeBtn.disabled = false;
 
-    syncSigninBtn.disabled = false;
     if (res?.ok) {
-      syncPasswordInput.value = "";
+      if (syncCodeInput) syncCodeInput.value = "";
+      if (syncCodeStep) syncCodeStep.style.display = "none";
       await reloadAllLocalState();
-      setSyncFeedback("Signed in & synchronized all settings, API keys, and transcripts.", "ok");
+      setSyncFeedback("Signed in and synchronized your opted-in categories.", "ok");
     } else {
-      setSyncFeedback(res?.error || "Sign-in failed.", "err");
+      setSyncFeedback(res?.error || "Verification failed.", "err");
     }
   });
 
   syncTokenBtn?.addEventListener("click", async () => {
-    const serverUrl = syncServerUrlInput.value.trim();
-    const token = syncTokenInput.value.trim();
+    const token = syncTokenInput?.value.trim() || "";
     if (!token) {
-      setSyncFeedback("Paste an Extension Sync Token (lms_...) or Neon Auth JWT.", "err");
+      setSyncFeedback("Paste a session token (lms_...) from the web app.", "err");
       return;
     }
 
-    await requestSyncServerOrigin(serverUrl);
+    await requestSyncServerOrigin(syncProfile?.serverUrl);
     syncTokenBtn.disabled = true;
-    setSyncFeedback("Verifying token & pulling cloud vault…", "");
+    setSyncFeedback("Connecting session token…", "");
 
     const res = await sendRuntime({
       type: RUNTIME_MESSAGE.SYNC_SIGNIN,
-      serverUrl,
+      serverUrl: syncProfile?.serverUrl,
       token,
     });
 
@@ -680,24 +773,62 @@ async function initOptions() {
     if (res?.ok) {
       syncTokenInput.value = "";
       await reloadAllLocalState();
-      setSyncFeedback("Token verified & synced with Neon Postgres.", "ok");
+      setSyncFeedback("Connected and synchronized.", "ok");
     } else {
       setSyncFeedback(res?.error || "Token verification failed.", "err");
     }
   });
 
+  async function saveSyncOptInPreferences() {
+    const nextPrefs = {
+      syncApiKeys: Boolean(syncPrefKeys?.checked),
+      syncTranscripts: Boolean(syncPrefTranscripts?.checked),
+      syncSettings: Boolean(syncPrefSettings?.checked),
+    };
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.SYNC_SAVE_PREFERENCES,
+      syncPreferences: nextPrefs,
+      purgeDisabled: true,
+    });
+    if (res?.ok) {
+      syncProfile = res.profile || syncProfile;
+      renderSyncPanel();
+      setSyncFeedback("Updated sync preferences.", "ok");
+    } else {
+      setSyncFeedback(res?.error || "Could not update sync preferences.", "err");
+    }
+  }
+
+  syncPrefKeys?.addEventListener("change", saveSyncOptInPreferences);
+  syncPrefTranscripts?.addEventListener("change", saveSyncOptInPreferences);
+  syncPrefSettings?.addEventListener("change", saveSyncOptInPreferences);
+
+  syncOpenWebStatsBtn?.addEventListener("click", () => {
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const url = `${base}/?view=stats`;
+    if (chrome.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  });
+
+  refreshStatsBtn?.addEventListener("click", () => {
+    renderStatisticsPanel();
+  });
+
   syncNowBtn?.addEventListener("click", async () => {
     syncNowBtn.disabled = true;
     syncNowBtn.textContent = "Syncing…";
-    setSyncFeedback("Running bidirectional Postgres sync…", "");
+    setSyncFeedback("Synchronizing opted-in data…", "");
 
     const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
     syncNowBtn.disabled = false;
-    syncNowBtn.textContent = "Sync Now";
+    syncNowBtn.textContent = "Sync now";
 
     if (res?.ok) {
       await reloadAllLocalState();
-      setSyncFeedback("All API keys, preferences, and subtitles synced.", "ok");
+      setSyncFeedback("Synchronized opted-in categories.", "ok");
     } else {
       setSyncFeedback(res?.error || "Sync failed.", "err");
     }
@@ -706,7 +837,7 @@ async function initOptions() {
   syncSignoutBtn?.addEventListener("click", async () => {
     await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_SIGNOUT });
     await reloadAllLocalState();
-    setSyncFeedback("Signed out of Neon Cloud Sync. Local keys remain intact.", "");
+    setSyncFeedback("Signed out. Local keys and cached transcripts remain in this browser.", "");
   });
 
   optEnabled.addEventListener("change", async () => {

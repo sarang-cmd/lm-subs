@@ -7,6 +7,18 @@
     {
       "source": "/api/(.*)",
       "destination": "/api/[...route]"
+    },
+    {
+      "source": "/library",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/workspace",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/stats",
+      "destination": "/index.html"
     }
   ],
   "headers": [

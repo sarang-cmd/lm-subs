@@ -1,93 +1,134 @@
 #!/usr/bin/env node
 /**
- * Unified LM Subs Web App + Neon Cloud Sync Server (`serve-docs.mjs`).
+ * Unified local HTTP server for the LM Subs web application (`docs/`)
+ * AND the Hono + Neon Lakebase Postgres Cloud Sync & Metrics API (`/api/*`).
  *
- * - Serves `/api/*` via the Hono + Lakebase Postgres sync application (`server/app.js`).
- * - Serves `docs/` static assets (`index.html`, simulator, `.zip` releases) at `/`.
- * - Binds to `0.0.0.0:4173` so live browser previews and local extension sync work out of the box.
+ * Binds to `0.0.0.0:4173` (or `PORT`) so Live Preview works cleanly.
  */
 
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { getRequestListener } from "@hono/node-server";
 import { createSyncApp } from "./server/app.js";
-import { getSharedDatabase } from "./server/db.js";
 
-const PORT = Number(process.env.PORT) || 4173;
-const DOCS_ROOT = path.resolve("docs");
-
-const MIME_MAP = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".json": "application/json; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".zip": "application/zip",
-  ".woff2": "font/woff2",
-};
+const PORT = Number(process.env.PORT || 4173);
+const HOST = process.env.HOST || "0.0.0.0";
+const DOCS_DIR = path.resolve("docs");
 
 const syncApp = createSyncApp();
-const apiListener = getRequestListener(syncApp.fetch);
 
-// Warm up database schema on boot
-getSharedDatabase()
-  .then((db) => {
-    console.log(
-      `[LM Subs] Postgres ready (${db.mode}, project=${db.projectId})`
-    );
-  })
-  .catch((err) => {
-    console.error("[LM Subs] Database init error:", err?.message || err);
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".zip": "application/zip",
+  ".ico": "image/x-icon",
+};
+
+const SPA_ROUTES = new Set([
+  "/",
+  "/library",
+  "/workspace",
+  "/stats",
+  "/privacy",
+  "/terms",
+]);
+
+async function forwardToHono(req, res) {
+  const proto = req.headers["x-forwarded-proto"] || "http";
+  const host = req.headers.host || `localhost:${PORT}`;
+  const fullUrl = `${proto}://${host}${req.url || "/"}`;
+
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  const bodyBuf = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
+
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (Array.isArray(v)) headers.set(k, v.join(", "));
+    else if (typeof v === "string") headers.set(k, v);
+  }
+
+  const webReq = new Request(fullUrl, {
+    method: req.method || "GET",
+    headers,
+    body:
+      req.method === "GET" || req.method === "HEAD" ? undefined : bodyBuf,
   });
 
-const server = http.createServer((req, res) => {
-  const reqUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  let pathname = decodeURIComponent(reqUrl.pathname);
+  const webRes = await syncApp.fetch(webReq);
+  const resHeaders = {};
+  webRes.headers.forEach((value, key) => {
+    resHeaders[key] = value;
+  });
+  const arrayBuf = await webRes.arrayBuffer();
+  res.writeHead(webRes.status, resHeaders);
+  res.end(Buffer.from(arrayBuf));
+}
 
-  if (pathname === "/api" || pathname.startsWith("/api/")) {
-    apiListener(req, res);
-    return;
+const server = http.createServer(async (req, res) => {
+  try {
+    const rawUrl = (req.url || "/").split("?")[0].split("#")[0];
+
+    if (rawUrl === "/api" || rawUrl.startsWith("/api/")) {
+      await forwardToHono(req, res);
+      return;
+    }
+
+    const normalized = rawUrl.replace(/\/+$/, "") || "/";
+    let relPath = normalized === "/" ? "/index.html" : normalized;
+
+    // Support clean URLs (/privacy -> /privacy.html) and SPA routes (/stats, /library)
+    let candidate = path.resolve(DOCS_DIR, `.${relPath}`);
+    if (
+      !path.extname(candidate) &&
+      fs.existsSync(`${candidate}.html`) &&
+      fs.statSync(`${candidate}.html`).isFile()
+    ) {
+      candidate = `${candidate}.html`;
+    } else if (
+      SPA_ROUTES.has(normalized) &&
+      (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile())
+    ) {
+      candidate = path.resolve(DOCS_DIR, "index.html");
+    }
+
+    if (!candidate.startsWith(DOCS_DIR)) {
+      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Forbidden");
+      return;
+    }
+
+    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
+
+    const ext = path.extname(candidate).toLowerCase();
+    res.writeHead(200, {
+      "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+      "Cache-Control": "no-cache",
+    });
+    fs.createReadStream(candidate).pipe(res);
+  } catch (err) {
+    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({ ok: false, error: err?.message || "Server error" })
+    );
   }
-
-  if (pathname === "/") pathname = "/index.html";
-
-  const resolved = path.resolve(DOCS_ROOT, `.${pathname}`);
-  if (!resolved.startsWith(DOCS_ROOT)) {
-    res.writeHead(403, { "Content-Type": "text/plain" });
-    res.end("Forbidden");
-    return;
-  }
-
-  let target = resolved;
-  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-    target = path.join(target, "index.html");
-  } else if (!fs.existsSync(target) && fs.existsSync(`${target}.html`)) {
-    target = `${target}.html`;
-  }
-
-  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
-    return;
-  }
-
-  const ext = path.extname(target).toLowerCase();
-  const headers = {
-    "Content-Type": MIME_MAP[ext] || "application/octet-stream",
-    "Cache-Control": "no-cache",
-  };
-  if (ext === ".zip") {
-    headers["Content-Disposition"] = `attachment; filename="${path.basename(target)}"`;
-  }
-
-  res.writeHead(200, headers);
-  fs.createReadStream(target).pipe(res);
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Serving LM Subs Web + Neon Sync API at http://0.0.0.0:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(
+    `LM Subs Web App + Cloud API listening on http://${HOST}:${PORT}`
+  );
 });

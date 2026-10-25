@@ -1,5 +1,6 @@
 (() => {
   // src/config/selectors.js
+  var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
     "notebook.google.com",
@@ -121,6 +122,10 @@
     CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
     SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
     SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+    SYNC_EMAIL_SEND_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_SEND_CODE",
+    SYNC_EMAIL_VERIFY_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_VERIFY_CODE",
+    SYNC_SAVE_PREFERENCES: "NOTEBOOKLM_SUBTITLES_SYNC_SAVE_PREFERENCES",
+    SYNC_GET_STATS: "NOTEBOOKLM_SUBTITLES_SYNC_GET_STATS",
     SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
     SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
     SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
@@ -540,10 +545,26 @@
     const list = raw?.[STORAGE_KEYS.HISTORY];
     return Array.isArray(list) ? list : [];
   }
+  var DEFAULT_SYNC_PREFERENCES = Object.freeze({
+    syncApiKeys: true,
+    syncTranscripts: true,
+    syncSettings: true
+  });
+  function normalizeSyncPreferences(raw) {
+    if (!raw || typeof raw !== "object") {
+      return { ...DEFAULT_SYNC_PREFERENCES };
+    }
+    return {
+      syncApiKeys: typeof raw.syncApiKeys === "boolean" ? raw.syncApiKeys : DEFAULT_SYNC_PREFERENCES.syncApiKeys,
+      syncTranscripts: typeof raw.syncTranscripts === "boolean" ? raw.syncTranscripts : DEFAULT_SYNC_PREFERENCES.syncTranscripts,
+      syncSettings: typeof raw.syncSettings === "boolean" ? raw.syncSettings : DEFAULT_SYNC_PREFERENCES.syncSettings
+    };
+  }
   var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
-    serverUrl: "http://localhost:4173",
+    serverUrl: HOSTED_CLOUD_URL,
     connected: false,
     autoSync: true,
+    syncPreferences: DEFAULT_SYNC_PREFERENCES,
     user: null,
     keyHints: {},
     subtitleCount: 0,
@@ -569,16 +590,21 @@
     const raw = await store.get(STORAGE_KEYS.CLOUD_SYNC_PROFILE);
     const saved = raw?.[STORAGE_KEYS.CLOUD_SYNC_PROFILE];
     if (!saved || typeof saved !== "object") {
-      return { ...DEFAULT_CLOUD_SYNC_PROFILE };
+      return {
+        ...DEFAULT_CLOUD_SYNC_PROFILE,
+        syncPreferences: { ...DEFAULT_SYNC_PREFERENCES }
+      };
     }
     return {
       serverUrl: normalizeSyncServerUrl(saved.serverUrl),
       connected: Boolean(saved.connected && saved.user?.email),
       autoSync: typeof saved.autoSync === "boolean" ? saved.autoSync : true,
+      syncPreferences: normalizeSyncPreferences(saved.syncPreferences),
       user: saved.user && typeof saved.user === "object" ? {
         id: String(saved.user.id || ""),
         email: String(saved.user.email || ""),
-        name: String(saved.user.name || "")
+        name: String(saved.user.name || ""),
+        authProvider: String(saved.user.authProvider || "email")
       } : null,
       keyHints: saved.keyHints && typeof saved.keyHints === "object" ? { ...saved.keyHints } : {},
       subtitleCount: Number(saved.subtitleCount) || 0,
@@ -812,39 +838,39 @@ ${blocks.join("\n\n")}
     const bg = doc.createElementNS(SVG_NS, "rect");
     bg.setAttribute("width", "32");
     bg.setAttribute("height", "32");
-    bg.setAttribute("rx", "4");
-    bg.setAttribute("fill", "#161615");
+    bg.setAttribute("rx", "7");
+    bg.setAttribute("fill", "#111315");
     const border = doc.createElementNS(SVG_NS, "rect");
     border.setAttribute("x", "0.5");
     border.setAttribute("y", "0.5");
     border.setAttribute("width", "31");
     border.setAttribute("height", "31");
-    border.setAttribute("rx", "3.5");
-    border.setAttribute("stroke", "#2E2D2A");
+    border.setAttribute("rx", "6.5");
+    border.setAttribute("stroke", "#2A2E35");
     const play = doc.createElementNS(SVG_NS, "path");
-    play.setAttribute("d", "M12.5 8L20.5 12.75L12.5 17.5V8Z");
-    play.setAttribute("fill", "#F4F2ED");
+    play.setAttribute("d", "M12.5 8.2L20.5 12.8L12.5 17.4V8.2Z");
+    play.setAttribute("fill", "#F6F7F8");
     const bar1 = doc.createElementNS(SVG_NS, "rect");
-    bar1.setAttribute("x", "5.5");
+    bar1.setAttribute("x", "6");
     bar1.setAttribute("y", "21.5");
-    bar1.setAttribute("width", "12.5");
-    bar1.setAttribute("height", "2.5");
-    bar1.setAttribute("rx", "0.75");
-    bar1.setAttribute("fill", "#E96A26");
+    bar1.setAttribute("width", "12");
+    bar1.setAttribute("height", "2.4");
+    bar1.setAttribute("rx", "1.2");
+    bar1.setAttribute("fill", "#3B82F6");
     const bar2 = doc.createElementNS(SVG_NS, "rect");
     bar2.setAttribute("x", "20");
     bar2.setAttribute("y", "21.5");
-    bar2.setAttribute("width", "6.5");
-    bar2.setAttribute("height", "2.5");
-    bar2.setAttribute("rx", "0.75");
-    bar2.setAttribute("fill", "#F4F2ED");
+    bar2.setAttribute("width", "6");
+    bar2.setAttribute("height", "2.4");
+    bar2.setAttribute("rx", "1.2");
+    bar2.setAttribute("fill", "#F6F7F8");
     const bar3 = doc.createElementNS(SVG_NS, "rect");
-    bar3.setAttribute("x", "5.5");
-    bar3.setAttribute("y", "25.5");
-    bar3.setAttribute("width", "16");
+    bar3.setAttribute("x", "6");
+    bar3.setAttribute("y", "25.4");
+    bar3.setAttribute("width", "15");
     bar3.setAttribute("height", "2");
-    bar3.setAttribute("rx", "0.75");
-    bar3.setAttribute("fill", "#8C8980");
+    bar3.setAttribute("rx", "1");
+    bar3.setAttribute("fill", "#767D89");
     svg.append(bg, border, play, bar1, bar2, bar3);
     return svg;
   }
@@ -905,22 +931,33 @@ ${blocks.join("\n\n")}
     const saveBehaviorBtn = document.getElementById("save-behavior-btn");
     const savedPill = document.getElementById("settings-saved-pill");
     const optSyncBadge = document.getElementById("opt-sync-badge");
-    const syncServerUrlInput = document.getElementById("sync-server-url");
     const syncLoggedOutPanel = document.getElementById("sync-logged-out-panel");
     const syncLoggedInPanel = document.getElementById("sync-logged-in-panel");
+    const syncGoogleBtn = document.getElementById("sync-google-btn");
+    const syncGithubBtn = document.getElementById("sync-github-btn");
     const syncEmailInput = document.getElementById("sync-email-input");
-    const syncPasswordInput = document.getElementById("sync-password-input");
-    const syncNameInput = document.getElementById("sync-name-input");
-    const syncSigninBtn = document.getElementById("sync-signin-btn");
-    const syncSignupBtn = document.getElementById("sync-signup-btn");
+    const syncSendCodeBtn = document.getElementById("sync-send-code-btn");
+    const syncCodeStep = document.getElementById("sync-code-step");
+    const syncCodeInput = document.getElementById("sync-code-input");
+    const syncVerifyCodeBtn = document.getElementById("sync-verify-code-btn");
     const syncTokenInput = document.getElementById("sync-token-input");
     const syncTokenBtn = document.getElementById("sync-token-btn");
     const syncAccountLabel = document.getElementById("sync-account-label");
     const syncMetaLabel = document.getElementById("sync-meta-label");
+    const syncOpenWebStatsBtn = document.getElementById("sync-open-web-stats-btn");
     const syncNowBtn = document.getElementById("sync-now-btn");
     const syncSignoutBtn = document.getElementById("sync-signout-btn");
     const syncKeyHints = document.getElementById("sync-key-hints");
     const syncStatusLine = document.getElementById("sync-status-line");
+    const syncPrefKeys = document.getElementById("sync-pref-keys");
+    const syncPrefTranscripts = document.getElementById("sync-pref-transcripts");
+    const syncPrefSettings = document.getElementById("sync-pref-settings");
+    const refreshStatsBtn = document.getElementById("refresh-stats-btn");
+    const statsSummaryNote = document.getElementById("stats-summary-note");
+    const statVideos = document.getElementById("stat-videos");
+    const statCues = document.getElementById("stat-cues");
+    const statSaved = document.getElementById("stat-saved");
+    const statLatency = document.getElementById("stat-latency");
     const cacheEmpty = document.getElementById("cache-empty");
     const cacheTableWrap = document.getElementById("cache-table-wrap");
     const cacheTbody = document.getElementById("cache-tbody");
@@ -955,18 +992,24 @@ ${blocks.join("\n\n")}
       syncStatusLine.textContent = message;
     }
     function renderSyncPanel() {
-      if (syncServerUrlInput && syncProfile?.serverUrl) {
-        syncServerUrlInput.value = syncProfile.serverUrl;
-      }
+      const prefs = syncProfile?.syncPreferences || {
+        syncApiKeys: true,
+        syncTranscripts: true,
+        syncSettings: true
+      };
+      if (syncPrefKeys) syncPrefKeys.checked = Boolean(prefs.syncApiKeys);
+      if (syncPrefTranscripts)
+        syncPrefTranscripts.checked = Boolean(prefs.syncTranscripts);
+      if (syncPrefSettings) syncPrefSettings.checked = Boolean(prefs.syncSettings);
       if (syncProfile?.connected && syncProfile.user?.email) {
-        optSyncBadge.textContent = "Synced \xB7 Postgres";
+        optSyncBadge.textContent = "Synced";
         optSyncBadge.className = "badge badge-saved";
         syncLoggedOutPanel.style.display = "none";
         syncLoggedInPanel.style.display = "block";
         syncAccountLabel.textContent = syncProfile.user.name ? `${syncProfile.user.name} (${syncProfile.user.email})` : syncProfile.user.email;
         const hintEntries = Object.entries(syncProfile.keyHints || {});
-        const lastStr = syncProfile.lastSyncedAt ? new Date(syncProfile.lastSyncedAt).toLocaleTimeString() : "just now";
-        syncMetaLabel.textContent = `${hintEntries.length} encrypted API key(s) \xB7 ${syncProfile.subtitleCount || 0} synced transcript(s) \xB7 Last sync ${lastStr}`;
+        const lastStr = syncProfile.lastSyncedAt ? new Date(syncProfile.lastSyncedAt).toLocaleTimeString() : "moments ago";
+        syncMetaLabel.textContent = `${hintEntries.length} encrypted key(s), ${syncProfile.subtitleCount || 0} synced transcript(s), last sync ${lastStr}`;
         syncKeyHints.textContent = "";
         for (const [provId, hint] of hintEntries) {
           const chip = document.createElement("span");
@@ -975,10 +1018,47 @@ ${blocks.join("\n\n")}
           syncKeyHints.appendChild(chip);
         }
       } else {
-        optSyncBadge.textContent = "Offline";
+        optSyncBadge.textContent = "Signed out";
         optSyncBadge.className = "badge";
         syncLoggedOutPanel.style.display = "block";
         syncLoggedInPanel.style.display = "none";
+      }
+    }
+    async function renderStatisticsPanel() {
+      if (!statVideos) return;
+      if (syncProfile?.connected) {
+        const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
+        if (res?.ok && res.totals) {
+          const t = res.totals;
+          statVideos.textContent = String(t.videosCaptioned || 0);
+          statCues.textContent = String(t.totalCues || 0);
+          const savedMb = ((t.bandwidthSavedBytes || 0) / 1048576).toFixed(1);
+          statSaved.textContent = `${savedMb} MB`;
+          statLatency.textContent = t.medianLatencyMs ? `${(t.medianLatencyMs / 1e3).toFixed(1)}s` : "n/a";
+          if (statsSummaryNote) {
+            statsSummaryNote.textContent = `Live account metrics (${t.spokenMinutes || 0} spoken minutes across ${t.videosCaptioned || 0} videos).`;
+          }
+          return;
+        }
+      }
+      let cues = 0;
+      let savedBytes = 0;
+      const lats = [];
+      for (const item of cacheList) {
+        cues += Number(item.cueCount || item.cues?.length || 0);
+        const orig = Number(item.originalBytes || 0);
+        const ext = Number(item.extractedBytes || 0);
+        if (orig > ext) savedBytes += orig - ext;
+        if (Number(item.latencyMs) > 0) lats.push(Number(item.latencyMs));
+      }
+      lats.sort((a, b) => a - b);
+      const med = lats.length > 0 ? lats[Math.floor(lats.length / 2)] : null;
+      statVideos.textContent = String(cacheList.length);
+      statCues.textContent = String(cues);
+      statSaved.textContent = `${(savedBytes / 1048576).toFixed(1)} MB`;
+      statLatency.textContent = med ? `${(med / 1e3).toFixed(1)}s` : "n/a";
+      if (statsSummaryNote) {
+        statsSummaryNote.textContent = "Computed from transcripts cached in this browser. Sign in above to include cross-device statistics.";
       }
     }
     async function reloadAllLocalState() {
@@ -992,6 +1072,7 @@ ${blocks.join("\n\n")}
       renderSyncPanel();
       renderProviderQueue();
       renderCacheTable();
+      await renderStatisticsPanel();
     }
     async function triggerAutoSyncIfConnected(extra = {}) {
       if (!syncProfile?.connected) return;
@@ -1324,94 +1405,156 @@ ${blocks.join("\n\n")}
     renderSyncPanel();
     renderProviderQueue();
     renderCacheTable();
-    syncSignupBtn?.addEventListener("click", async () => {
-      const serverUrl = syncServerUrlInput.value.trim();
-      const email = syncEmailInput.value.trim();
-      const password = syncPasswordInput.value;
-      const name = syncNameInput.value.trim();
-      if (!email || password.length < 8) {
-        setSyncFeedback("Enter a valid email and at least 8-character password.", "err");
+    renderStatisticsPanel();
+    function openHostedOAuth(provider) {
+      const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+      const url = `${base}/api/auth/oauth/${provider}?device=chrome-extension&next=${encodeURIComponent(
+        "/?view=library&ext_connect=1"
+      )}`;
+      if (chrome.tabs?.create) {
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      setSyncFeedback(
+        `Complete ${provider === "google" ? "Google" : "GitHub"} sign-in in the opened tab, then paste your session token if prompted.`,
+        ""
+      );
+    }
+    syncGoogleBtn?.addEventListener("click", async () => {
+      await requestSyncServerOrigin(syncProfile?.serverUrl);
+      openHostedOAuth("google");
+    });
+    syncGithubBtn?.addEventListener("click", async () => {
+      await requestSyncServerOrigin(syncProfile?.serverUrl);
+      openHostedOAuth("github");
+    });
+    syncSendCodeBtn?.addEventListener("click", async () => {
+      const email = syncEmailInput?.value.trim() || "";
+      if (!email || !email.includes("@")) {
+        setSyncFeedback("Enter a valid email address.", "err");
+        syncEmailInput?.focus();
         return;
       }
-      await requestSyncServerOrigin(serverUrl);
-      syncSignupBtn.disabled = true;
-      setSyncFeedback("Creating Neon account & encrypting keys\u2026", "");
+      await requestSyncServerOrigin(syncProfile?.serverUrl);
+      syncSendCodeBtn.disabled = true;
+      setSyncFeedback("Sending 6-digit verification code\u2026", "");
       const res = await sendRuntime({
-        type: RUNTIME_MESSAGE.SYNC_SIGNUP,
-        serverUrl,
-        email,
-        password,
-        name
+        type: RUNTIME_MESSAGE.SYNC_EMAIL_SEND_CODE,
+        email
       });
-      syncSignupBtn.disabled = false;
+      syncSendCodeBtn.disabled = false;
       if (res?.ok) {
-        syncPasswordInput.value = "";
-        await reloadAllLocalState();
-        setSyncFeedback("Account created & synced with Neon Lakebase Postgres.", "ok");
+        if (syncCodeStep) syncCodeStep.style.display = "block";
+        if (res.delivery === "preview" && res.previewCode) {
+          if (syncCodeInput) syncCodeInput.value = res.previewCode;
+          setSyncFeedback(
+            `Preview mode code generated: ${res.previewCode}. Click Verify and sign in.`,
+            "ok"
+          );
+        } else {
+          setSyncFeedback(
+            `Sent a 6-digit code to ${email}. Check your inbox.`,
+            "ok"
+          );
+        }
+        syncCodeInput?.focus();
       } else {
-        setSyncFeedback(res?.error || "Account creation failed.", "err");
+        setSyncFeedback(res?.error || "Could not send verification code.", "err");
       }
     });
-    syncSigninBtn?.addEventListener("click", async () => {
-      const serverUrl = syncServerUrlInput.value.trim();
-      const email = syncEmailInput.value.trim();
-      const password = syncPasswordInput.value;
-      if (!email || !password) {
-        setSyncFeedback("Enter your email and password.", "err");
+    syncVerifyCodeBtn?.addEventListener("click", async () => {
+      const email = syncEmailInput?.value.trim() || "";
+      const code = syncCodeInput?.value.trim() || "";
+      if (!email || code.length !== 6) {
+        setSyncFeedback("Enter the 6-digit verification code.", "err");
+        syncCodeInput?.focus();
         return;
       }
-      await requestSyncServerOrigin(serverUrl);
-      syncSigninBtn.disabled = true;
-      setSyncFeedback("Signing in & pulling encrypted API keys from Neon\u2026", "");
+      syncVerifyCodeBtn.disabled = true;
+      setSyncFeedback("Verifying code and syncing your account\u2026", "");
       const res = await sendRuntime({
-        type: RUNTIME_MESSAGE.SYNC_SIGNIN,
-        serverUrl,
+        type: RUNTIME_MESSAGE.SYNC_EMAIL_VERIFY_CODE,
         email,
-        password
+        code
       });
-      syncSigninBtn.disabled = false;
+      syncVerifyCodeBtn.disabled = false;
       if (res?.ok) {
-        syncPasswordInput.value = "";
+        if (syncCodeInput) syncCodeInput.value = "";
+        if (syncCodeStep) syncCodeStep.style.display = "none";
         await reloadAllLocalState();
-        setSyncFeedback("Signed in & synchronized all settings, API keys, and transcripts.", "ok");
+        setSyncFeedback("Signed in and synchronized your opted-in categories.", "ok");
       } else {
-        setSyncFeedback(res?.error || "Sign-in failed.", "err");
+        setSyncFeedback(res?.error || "Verification failed.", "err");
       }
     });
     syncTokenBtn?.addEventListener("click", async () => {
-      const serverUrl = syncServerUrlInput.value.trim();
-      const token = syncTokenInput.value.trim();
+      const token = syncTokenInput?.value.trim() || "";
       if (!token) {
-        setSyncFeedback("Paste an Extension Sync Token (lms_...) or Neon Auth JWT.", "err");
+        setSyncFeedback("Paste a session token (lms_...) from the web app.", "err");
         return;
       }
-      await requestSyncServerOrigin(serverUrl);
+      await requestSyncServerOrigin(syncProfile?.serverUrl);
       syncTokenBtn.disabled = true;
-      setSyncFeedback("Verifying token & pulling cloud vault\u2026", "");
+      setSyncFeedback("Connecting session token\u2026", "");
       const res = await sendRuntime({
         type: RUNTIME_MESSAGE.SYNC_SIGNIN,
-        serverUrl,
+        serverUrl: syncProfile?.serverUrl,
         token
       });
       syncTokenBtn.disabled = false;
       if (res?.ok) {
         syncTokenInput.value = "";
         await reloadAllLocalState();
-        setSyncFeedback("Token verified & synced with Neon Postgres.", "ok");
+        setSyncFeedback("Connected and synchronized.", "ok");
       } else {
         setSyncFeedback(res?.error || "Token verification failed.", "err");
       }
     });
+    async function saveSyncOptInPreferences() {
+      const nextPrefs = {
+        syncApiKeys: Boolean(syncPrefKeys?.checked),
+        syncTranscripts: Boolean(syncPrefTranscripts?.checked),
+        syncSettings: Boolean(syncPrefSettings?.checked)
+      };
+      const res = await sendRuntime({
+        type: RUNTIME_MESSAGE.SYNC_SAVE_PREFERENCES,
+        syncPreferences: nextPrefs,
+        purgeDisabled: true
+      });
+      if (res?.ok) {
+        syncProfile = res.profile || syncProfile;
+        renderSyncPanel();
+        setSyncFeedback("Updated sync preferences.", "ok");
+      } else {
+        setSyncFeedback(res?.error || "Could not update sync preferences.", "err");
+      }
+    }
+    syncPrefKeys?.addEventListener("change", saveSyncOptInPreferences);
+    syncPrefTranscripts?.addEventListener("change", saveSyncOptInPreferences);
+    syncPrefSettings?.addEventListener("change", saveSyncOptInPreferences);
+    syncOpenWebStatsBtn?.addEventListener("click", () => {
+      const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+      const url = `${base}/?view=stats`;
+      if (chrome.tabs?.create) {
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    });
+    refreshStatsBtn?.addEventListener("click", () => {
+      renderStatisticsPanel();
+    });
     syncNowBtn?.addEventListener("click", async () => {
       syncNowBtn.disabled = true;
       syncNowBtn.textContent = "Syncing\u2026";
-      setSyncFeedback("Running bidirectional Postgres sync\u2026", "");
+      setSyncFeedback("Synchronizing opted-in data\u2026", "");
       const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
       syncNowBtn.disabled = false;
-      syncNowBtn.textContent = "Sync Now";
+      syncNowBtn.textContent = "Sync now";
       if (res?.ok) {
         await reloadAllLocalState();
-        setSyncFeedback("All API keys, preferences, and subtitles synced.", "ok");
+        setSyncFeedback("Synchronized opted-in categories.", "ok");
       } else {
         setSyncFeedback(res?.error || "Sync failed.", "err");
       }
@@ -1419,7 +1562,7 @@ ${blocks.join("\n\n")}
     syncSignoutBtn?.addEventListener("click", async () => {
       await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_SIGNOUT });
       await reloadAllLocalState();
-      setSyncFeedback("Signed out of Neon Cloud Sync. Local keys remain intact.", "");
+      setSyncFeedback("Signed out. Local keys and cached transcripts remain in this browser.", "");
     });
     optEnabled.addEventListener("change", async () => {
       settings = await saveSettings({ enabled: optEnabled.checked });

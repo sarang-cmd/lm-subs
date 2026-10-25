@@ -2,6 +2,7 @@
   // src/config/selectors.js
   var MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
   var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
+  var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
   var NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
@@ -124,6 +125,10 @@
     CLEAR_DEBUG_LOGS: "NOTEBOOKLM_SUBTITLES_CLEAR_DEBUG_LOGS",
     SYNC_SIGNUP: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNUP",
     SYNC_SIGNIN: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNIN",
+    SYNC_EMAIL_SEND_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_SEND_CODE",
+    SYNC_EMAIL_VERIFY_CODE: "NOTEBOOKLM_SUBTITLES_SYNC_EMAIL_VERIFY_CODE",
+    SYNC_SAVE_PREFERENCES: "NOTEBOOKLM_SUBTITLES_SYNC_SAVE_PREFERENCES",
+    SYNC_GET_STATS: "NOTEBOOKLM_SUBTITLES_SYNC_GET_STATS",
     SYNC_SIGNOUT: "NOTEBOOKLM_SUBTITLES_SYNC_SIGNOUT",
     SYNC_NOW: "NOTEBOOKLM_SUBTITLES_SYNC_NOW",
     SYNC_STATUS: "NOTEBOOKLM_SUBTITLES_SYNC_STATUS"
@@ -699,10 +704,16 @@
     if (typeof text !== "string") return String(text ?? "");
     return text.replace(/\b(?:gsk_|sk-|AIza|hf_|xi-|lms_)[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_KEY]").replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]").replace(/Bearer\s+[A-Za-z0-9._:-]+/gi, "Bearer [REDACTED]").slice(0, 600);
   }
+  var DEFAULT_SYNC_PREFERENCES = Object.freeze({
+    syncApiKeys: true,
+    syncTranscripts: true,
+    syncSettings: true
+  });
   var DEFAULT_CLOUD_SYNC_PROFILE = Object.freeze({
-    serverUrl: "http://localhost:4173",
+    serverUrl: HOSTED_CLOUD_URL,
     connected: false,
     autoSync: true,
+    syncPreferences: DEFAULT_SYNC_PREFERENCES,
     user: null,
     keyHints: {},
     subtitleCount: 0,

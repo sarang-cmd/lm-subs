@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "description": "LM Subs — Sub-5s synchronized captions, .SRT/.VTT/.TXT/.JSON subtitle export, 12-provider BYOK speech-to-text, and encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
+  "description": "LM Subs: Synchronized captions, .SRT/.VTT/.TXT/.JSON export, 12-provider BYOK speech-to-text, and hosted encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
   "keywords": [
     "lm-subs",
     "notebooklm",
@@ -49,6 +49,10 @@
     "@neon/functions": "^0.11.0",
     "hono": "^4.13.13",
     "jose": "^6.2.13",
-    "pg": "^8.23.1"
+    "motion": "^14.6.0",
+    "pg": "^8.23.1",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }
