@@ -1176,7 +1176,16 @@ function normalizeAndSortCues(rawCues, offsetSec = 0) {
     if (!text.includes("\n") && text.length > DEFAULT_MAX_LINE_CHARS) {
       text = wrapSubtitleLines(text, DEFAULT_MAX_LINE_CHARS);
     }
-    cleaned.push({ startSec, endSec, text, ...speaker ? { speaker } : {} });
+    const secondaryText = typeof item.secondaryText === "string" && item.secondaryText.trim() ? item.secondaryText.trim() : null;
+    const bookmarked = Boolean(item.bookmarked);
+    cleaned.push({
+      startSec,
+      endSec,
+      text,
+      ...speaker ? { speaker } : {},
+      ...secondaryText ? { secondaryText } : {},
+      ...bookmarked ? { bookmarked: true } : {}
+    });
   }
   cleaned.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
   const out = [];
@@ -2682,6 +2691,37 @@ var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
 var MAX_DEBUG_LOGS = 120;
 var MAX_NOTIFICATIONS = 50;
+var CAPTION_FONT_SIZES = Object.freeze([
+  "small",
+  "medium",
+  "large",
+  "xlarge",
+  "xxlarge"
+]);
+var CAPTION_STYLES = Object.freeze([
+  "classic",
+  "contrast",
+  "minimal",
+  "cinema",
+  "paper",
+  "amber"
+]);
+var CAPTION_FONT_FAMILIES = Object.freeze([
+  "sans",
+  "serif",
+  "mono",
+  "dyslexic"
+]);
+var CAPTION_COLORS = Object.freeze([
+  "white",
+  "yellow",
+  "cyan",
+  "green",
+  "ink"
+]);
+var CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
+var CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
+var PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
 var DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   debugMode: false,
@@ -2695,16 +2735,31 @@ var DEFAULT_SETTINGS = Object.freeze({
   languageHint: "auto",
   translateTo: "original",
   fontSize: "medium",
-  // "small" | "medium" | "large" | "xlarge"
+  // "small" | "medium" | "large" | "xlarge" | "xxlarge"
   captionStyle: "classic",
-  // "classic" | "contrast" | "minimal"
+  // "classic" | "contrast" | "minimal" | "cinema" | "paper" | "amber"
+  captionFontFamily: "sans",
+  // "sans" | "serif" | "mono" | "dyslexic"
+  captionColor: "white",
+  // "white" | "yellow" | "cyan" | "green" | "ink"
+  captionBgOpacity: 88,
+  // 0..100
+  captionPosition: "bottom",
+  // "bottom" | "raised" | "top"
+  captionMaxWidth: "balanced",
+  // "compact" | "balanced" | "wide"
+  karaokeHighlight: false,
+  showSpeakerLabels: true,
+  pauseOnCaptionHover: false,
+  clickCaptionToCopy: true,
+  defaultPlaybackSpeed: 1,
   subtitleOffsetSec: 0,
   showToast: true,
   desktopNotifications: true,
   soundAlerts: false,
   badgeAlerts: true,
   notifyOnFailover: true,
-  notifyOnSync: true,
+  notifyOnSync: false,
   autoUpdateExtension: true,
   autoBackgroundSync: true,
   excludePatterns: [],
@@ -2774,8 +2829,18 @@ async function getSettings(storageArea) {
     customEnabled: Boolean(saved.customEnabled),
     languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
     translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
-    fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
-    captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
+    fontSize: CAPTION_FONT_SIZES.includes(saved.fontSize) ? saved.fontSize : "medium",
+    captionStyle: CAPTION_STYLES.includes(saved.captionStyle) ? saved.captionStyle : "classic",
+    captionFontFamily: CAPTION_FONT_FAMILIES.includes(saved.captionFontFamily) ? saved.captionFontFamily : "sans",
+    captionColor: CAPTION_COLORS.includes(saved.captionColor) ? saved.captionColor : "white",
+    captionBgOpacity: Number.isFinite(Number(saved.captionBgOpacity)) ? Math.max(0, Math.min(100, Math.round(Number(saved.captionBgOpacity)))) : DEFAULT_SETTINGS.captionBgOpacity,
+    captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition) ? saved.captionPosition : "bottom",
+    captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth) ? saved.captionMaxWidth : "balanced",
+    karaokeHighlight: typeof saved.karaokeHighlight === "boolean" ? saved.karaokeHighlight : DEFAULT_SETTINGS.karaokeHighlight,
+    showSpeakerLabels: typeof saved.showSpeakerLabels === "boolean" ? saved.showSpeakerLabels : DEFAULT_SETTINGS.showSpeakerLabels,
+    pauseOnCaptionHover: typeof saved.pauseOnCaptionHover === "boolean" ? saved.pauseOnCaptionHover : DEFAULT_SETTINGS.pauseOnCaptionHover,
+    clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
+    defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed)) ? Number(saved.defaultPlaybackSpeed) : DEFAULT_SETTINGS.defaultPlaybackSpeed,
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
     showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
     desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
@@ -3057,6 +3122,26 @@ async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
   }
   await store.set({ [STORAGE_KEYS.API_KEYS]: merged });
 }
+function hasTranscriptContentChanged(prev, incoming) {
+  if (!prev || !incoming) return true;
+  const prevTitle = String(prev.title || "Video Overview").trim();
+  const nextTitle = String(incoming.title || prev.title || "Video Overview").trim();
+  if (prevTitle !== nextTitle) return true;
+  const prevLang = String(prev.language || "en").trim();
+  const nextLang = String(incoming.language || prev.language || "en").trim();
+  if (prevLang !== nextLang) return true;
+  const prevCues = Array.isArray(prev.cues) ? prev.cues : [];
+  const nextCues = Array.isArray(incoming.cues) ? incoming.cues : [];
+  if (prevCues.length !== nextCues.length) return true;
+  for (let i = 0; i < prevCues.length; i += 1) {
+    const a = prevCues[i];
+    const b = nextCues[i];
+    if (Math.abs((Number(a?.startSec) || 0) - (Number(b?.startSec) || 0)) > 5e-3 || Math.abs((Number(a?.endSec) || 0) - (Number(b?.endSec) || 0)) > 5e-3 || String(a?.text || "") !== String(b?.text || "") || Boolean(a?.bookmarked) !== Boolean(b?.bookmarked) || String(a?.secondaryText || "") !== String(b?.secondaryText || "")) {
+      return true;
+    }
+  }
+  return false;
+}
 async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
   if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) {
     return { addedEntries: [], updatedEntries: [] };
@@ -3077,7 +3162,8 @@ async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
     const prev = byKey.get(sub.cacheKey);
     const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
     const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
-    if (!prev || incomingTime && prevTime && incomingTime > prevTime) {
+    const isGenuineUpdate = prev && incomingTime && prevTime && incomingTime > prevTime && hasTranscriptContentChanged(prev, sub);
+    if (!prev || isGenuineUpdate) {
       const mergedEntry = {
         cacheKey: sub.cacheKey,
         artifactId: sub.artifactId || prev?.artifactId || null,
@@ -3210,9 +3296,9 @@ async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.2",
+        currentVersion: "0.2.3",
         currentBuildId: "",
-        latestVersion: "0.2.2",
+        latestVersion: "0.2.3",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -3224,9 +3310,9 @@ async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.2"),
+      currentVersion: String(saved.currentVersion || "0.2.3"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -3238,9 +3324,9 @@ async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.2",
+      currentVersion: "0.2.3",
       currentBuildId: "",
-      latestVersion: "0.2.2",
+      latestVersion: "0.2.3",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -3672,7 +3758,8 @@ function createRuntimeDispatcher({
     body = "",
     cacheKey = null,
     provider = null,
-    fireDesktop = false
+    fireDesktop = false,
+    quiet = false
   } = {}) {
     const settings = await getSettings(storageArea);
     if (kind === "failover" && !settings.notifyOnFailover) {
@@ -3688,12 +3775,12 @@ function createRuntimeDispatcher({
         body,
         cacheKey,
         provider,
-        read: false
+        read: Boolean(quiet)
       },
       storageArea
     );
     await syncToolbarBadge();
-    if (fireDesktop && settings.desktopNotifications) {
+    if (!quiet && kind !== "sync" && fireDesktop && settings.desktopNotifications) {
       await fireDesktopAlertIfPermitted({
         id: notification.id,
         title: notification.title,
@@ -4045,14 +4132,15 @@ function createRuntimeDispatcher({
         kind: "sync",
         title: changedCount > 0 ? `Synced ${changedCount} updated transcript${changedCount === 1 ? "" : "s"}` : "Cloud sync completed",
         body: `${updatedProfile.subtitleCount} transcript(s) and ${Object.keys(updatedProfile.keyHints || {}).length} encrypted key(s) synced.`,
-        fireDesktop: silentNotification && changedCount > 0
+        fireDesktop: false,
+        quiet: Boolean(silentNotification)
       }).catch(() => {
       });
     }
     return { ok: true, profile: updatedProfile, mergeResult };
   }
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -4287,18 +4375,11 @@ function createRuntimeDispatcher({
               title: item.title || "LM Subs",
               body: item.body || "",
               cacheKey: item.cacheKey || null,
-              read: Boolean(item.read),
+              read: true,
               createdAt: item.createdAt
             },
             storageArea
           );
-          if (!item.read && settings.desktopNotifications) {
-            await fireDesktopAlertIfPermitted({
-              id: cloudKey,
-              title: item.title || "LM Subs",
-              body: item.body || ""
-            });
-          }
         }
         await syncToolbarBadge();
       }
@@ -5465,7 +5546,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,

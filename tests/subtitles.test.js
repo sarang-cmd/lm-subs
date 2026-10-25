@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildAutoChapters,
   cuesFromSegments,
   cuesFromWords,
   findActiveCue,
+  formatCsvSubtitles,
   formatJsonSubtitles,
   formatMarkdownNotes,
   formatSrt,
@@ -158,4 +160,30 @@ test("serializeSubtitles exports .srt, .vtt, .txt, and .json cleanly and parseSu
   const hits = searchCues(sample, "quorums");
   assert.equal(hits.length, 1);
   assert.equal(hits[0].index, 1);
+});
+
+test("buildAutoChapters, CSV Anki/spreadsheet export, and bookmarked Markdown study notes work cleanly", () => {
+  const lecture = [
+    { startSec: 0, endSec: 22, text: "Surface codes arrange physical qubits on a 2D lattice." },
+    { startSec: 23, endSec: 64, text: "Stabilizer measurements detect bit-flip and phase-flip syndromes.", bookmarked: true },
+    { startSec: 66, endSec: 110, text: "Logical error rates drop exponentially below the threshold." },
+    { startSec: 132, endSec: 165, text: "Magic state distillation enables universal fault-tolerant gates.", speaker: "Dr. Lin" },
+  ];
+
+  const chapters = buildAutoChapters(lecture, { targetSpanSec: 60 });
+  assert.ok(chapters.length >= 2, "Multi-minute lecture must segment into at least 2 smart chapters");
+  assert.equal(chapters[0].chapterNumber, 1);
+  assert.equal(chapters[0].timestamp, "00:00");
+  assert.ok(chapters[0].title.includes("Surface codes"));
+
+  const csvOut = serializeSubtitles(lecture, "csv", { title: "Surface Codes" });
+  assert.equal(csvOut.filename, "surface-codes.csv");
+  assert.equal(csvOut.mimeType, "text/csv;charset=utf-8");
+  assert.ok(csvOut.content.startsWith("index,start_sec,end_sec,timestamp,speaker,bookmarked,text\n"));
+  assert.ok(csvOut.content.includes(",true,Stabilizer measurements"));
+  assert.ok(formatCsvSubtitles(lecture).includes("Dr. Lin"));
+
+  const mdWithBookmarks = formatMarkdownNotes(lecture, { title: "Surface Codes" });
+  assert.ok(mdWithBookmarks.includes("## Saved study bookmarks"));
+  assert.ok(mdWithBookmarks.includes("Stabilizer measurements detect bit-flip"));
 });

@@ -542,6 +542,70 @@ textarea:focus-visible,
   align-items: start;
 }
 
+.split-section > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Proportional Codebase Telemetry Bar & Spec Matrix */
+.loc-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 130px;
+}
+
+.loc-bar-track {
+  flex: 1;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.loc-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.spec-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--border-hairline);
+}
+
+.spec-matrix-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 18px 13px 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.spec-matrix-row:nth-child(odd) {
+  border-right: 1px solid var(--border-hairline);
+  padding-right: 22px;
+}
+
+.spec-matrix-row:nth-child(even) {
+  padding-left: 22px;
+}
+
+@media (max-width: 760px) {
+  .spec-matrix {
+    grid-template-columns: 1fr;
+  }
+  .spec-matrix-row:nth-child(odd) {
+    border-right: 0;
+    padding-right: 0;
+  }
+  .spec-matrix-row:nth-child(even) {
+    padding-left: 0;
+  }
+}
+
 .section-heading {
   margin: 0 0 14px;
   font-size: clamp(1.55rem, 2.6vw, 2.15rem);

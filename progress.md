@@ -4,6 +4,21 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `v0.2.3` (2026-10-25)
+
+Adds the live Caption Customization Studio (6 backdrop themes, 4 typefaces, 5 text colors, 5 sizes, 3 vertical positions, continuous opacity, and progressive spoken-word highlight), NotebookLM study tools (smart topic chapters, cue bookmarks, chat citation insertion, sentence loop, cue jump, playback speed, Picture-in-Picture, and `.CSV` export), machine-counted codebase telemetry on `/about`, and fixes split-column button clipping in extension settings.
+
+### Added
+* **Live Caption Customization Studio (`src/content/player-overlay.js`, `src/lib/storage.js`, `extension/options.html`, `src/options/options.js`):** Customize caption size (`small` to `xxlarge`), backdrop theme (`Dark box`, `High contrast`, `Clean floating text`, `Cinema rounded pill`, `Light paper card`, `Warm night-study`), typeface (`Plus Jakarta Sans`, `Editorial serif`, `JetBrains Mono`, `Readable wide spacing`), text color (`White`, `Yellow`, `Cyan`, `Green`, `Ink`), vertical position (`Lower third`, `Raised above scrubber`, `Top lecture banner`), line width, continuous backdrop opacity (`20%` to `100%`), progressive spoken-word highlight, hover-to-pause, and click-caption-to-copy, complete with an in-player `Style` popover (`S`) and a live preview frame in Settings.
+* **NotebookLM study and playback enhancements (`src/content/player-overlay.js`, `src/content/content.js`, `src/lib/subtitles.js`):** Added auto-generated Smart Chapters (`Chapters` tab), timestamped cue bookmarks (`M` or `Save` button, synced via `UPDATE_CACHED_SUBTITLES`), one-click `Cite` insertion directly into NotebookLM's chat prompt textarea, single-sentence repeat loop (`L`), previous/next cue jump (`J` / `K`), playback speed stepper (`0.75x` to `2x`, `<` / `>`), Picture-in-Picture toggle (`P`), and `.CSV` spreadsheet/Anki export alongside `.SRT`, `.VTT`, `.TXT`, `.MD`, and `.JSON`.
+* **Machine-counted project and codebase telemetry on `/about` (`scripts/generate-project-stats.mjs`, `src/lib/project-stats.js`, `src/web/AboutView.jsx`):** Build-time source analyzer computes real lines of code, file counts, architectural subsystem shares, language breakdown, test counts, active build hours, commits, pull requests, and extension archive footprint.
+
+### Fixed
+* **Settings split-grid button overflow (`extension/ui.css`, `extension/options.html`):** Enforced `min-width: 0` on `.ext-split` and `.switch-row-item` children and wrapped left-column action rows (`.action-cluster`) so action buttons (`Test desktop alert`, `Mark all read`, `Clear feed`) never protrude beneath the right-hand `.sheet` card.
+* **Live tab hot-reload map reference (`src/content/content.js`):** Fixed `LM_SUBS_SUBTITLES_UPDATED` listener to iterate `controllers.entries()` so background-synced captions hot-reload active `<video>` cues reliably.
+
+---
+
 ## `v0.2.2` (2026-10-25)
 
 Adds automatic out-of-the-box extension notifications, scheduled background release checks, SHA-256 verified in-place unpacked folder auto-updates, and automatic background cloud sync with live player hot-reload.

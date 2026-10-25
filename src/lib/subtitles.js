@@ -174,7 +174,20 @@ export function normalizeAndSortCues(rawCues, offsetSec = 0) {
       text = wrapSubtitleLines(text, DEFAULT_MAX_LINE_CHARS);
     }
 
-    cleaned.push({ startSec, endSec, text, ...(speaker ? { speaker } : {}) });
+    const secondaryText =
+      typeof item.secondaryText === "string" && item.secondaryText.trim()
+        ? item.secondaryText.trim()
+        : null;
+    const bookmarked = Boolean(item.bookmarked);
+
+    cleaned.push({
+      startSec,
+      endSec,
+      text,
+      ...(speaker ? { speaker } : {}),
+      ...(secondaryText ? { secondaryText } : {}),
+      ...(bookmarked ? { bookmarked: true } : {}),
+    });
   }
 
   cleaned.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
@@ -431,6 +444,17 @@ export function formatMarkdownNotes(cues, meta = {}) {
     return lines.join("\n");
   }
 
+  const bookmarkedCues = normalized.filter((c) => c.bookmarked);
+  if (bookmarkedCues.length > 0) {
+    lines.push("## Saved study bookmarks", "");
+    for (const cue of bookmarkedCues) {
+      const stamp = formatTimestamp(cue.startSec, ".").slice(3, 8);
+      const clean = cue.text.replace(/\s*\n\s*/g, " ").trim();
+      lines.push(`- \`[${stamp}]\` ${clean}`);
+    }
+    lines.push("");
+  }
+
   // Group into ~90s sections so long lectures read cleanly as study notes
   const SECTION_SPAN_SEC = 90;
   const sections = [];
@@ -476,6 +500,99 @@ export function formatMarkdownNotes(cues, meta = {}) {
   lines.push("");
 
   return lines.join("\n");
+}
+
+/**
+ * Segments a normalized cue array into smart topic chapters at natural
+ * acoustic pauses and sentence boundaries (~60s windows by default).
+ */
+export function buildAutoChapters(cues, { targetSpanSec = 60 } = {}) {
+  const normalized = normalizeAndSortCues(cues);
+  if (normalized.length === 0) return [];
+
+  const chapters = [];
+  let startIdx = 0;
+
+  while (startIdx < normalized.length) {
+    const startCue = normalized[startIdx];
+    let endIdx = startIdx;
+
+    while (endIdx + 1 < normalized.length) {
+      const curr = normalized[endIdx];
+      const next = normalized[endIdx + 1];
+      const span = curr.endSec - startCue.startSec;
+      const gap = next.startSec - curr.endSec;
+      const endsSentence = /[.?!]["')]*$/.test(curr.text.trim());
+
+      if (span >= targetSpanSec && (endsSentence || gap >= 0.45)) {
+        break;
+      }
+      if (span >= targetSpanSec * 1.45) {
+        break;
+      }
+      endIdx += 1;
+    }
+
+    const slice = normalized.slice(startIdx, endIdx + 1);
+    const rawLead = slice[0].text.replace(/\s*\n\s*/g, " ").trim();
+    const firstClause = rawLead.split(/(?<=[.?!:;])\s+/)[0] || rawLead;
+    const cleanHeading =
+      firstClause.length > 62
+        ? `${firstClause.slice(0, 59).replace(/\s+\S*$/, "")}…`
+        : firstClause.replace(/[.]+$/, "");
+    const wordCount = slice.reduce(
+      (acc, c) => acc + String(c.text || "").trim().split(/\s+/).filter(Boolean).length,
+      0
+    );
+
+    chapters.push({
+      chapterNumber: chapters.length + 1,
+      cueIndex: startIdx,
+      startSec: startCue.startSec,
+      endSec: slice[slice.length - 1].endSec,
+      timestamp: formatShortTimestamp(startCue.startSec),
+      title: cleanHeading || `Section ${chapters.length + 1}`,
+      cueCount: slice.length,
+      wordCount,
+    });
+
+    startIdx = endIdx + 1;
+  }
+
+  return chapters;
+}
+
+function escapeCsvCell(val) {
+  const s = String(val ?? "");
+  if (/[",\r\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/**
+ * Formats normalized cues into UTF-8 CSV (`.csv`) suitable for spreadsheets,
+ * data analysis, or Anki flashcard import.
+ */
+export function formatCsvSubtitles(cues) {
+  const normalized = normalizeAndSortCues(cues);
+  const header = "index,start_sec,end_sec,timestamp,speaker,bookmarked,text";
+  if (normalized.length === 0) return `${header}\n`;
+  const rows = normalized.map((cue, idx) => {
+    const cleanText = String(cue.text || "")
+      .replace(/\s*\n\s*/g, " ")
+      .trim();
+    return [
+      idx + 1,
+      cue.startSec.toFixed(3),
+      cue.endSec.toFixed(3),
+      formatShortTimestamp(cue.startSec),
+      escapeCsvCell(cue.speaker || ""),
+      cue.bookmarked ? "true" : "false",
+      escapeCsvCell(cleanText),
+    ].join(",");
+  });
+  return `${header}\n${rows.join("\n")}\n`;
 }
 
 /**
@@ -546,6 +663,14 @@ export function serializeSubtitles(cues, format = "srt", meta = {}) {
       extension: "md",
       mimeType: "text/markdown;charset=utf-8",
       filename: `${base}-notes.md`,
+    };
+  }
+  if (fmt === "csv") {
+    return {
+      content: formatCsvSubtitles(cues),
+      extension: "csv",
+      mimeType: "text/csv;charset=utf-8",
+      filename: `${base}.csv`,
     };
   }
   if (fmt === "json") {

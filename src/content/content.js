@@ -737,6 +737,7 @@ export async function initContentCoordinator({
     const cacheKey = decision.cacheKey;
     entry.inFlight = true;
     entry.artifactId = artifactId;
+    entry.mediaToken = mediaToken;
     entry.cacheKey = cacheKey;
     inFlightKeys.add(cacheKey);
     startKeepalive();
@@ -914,6 +915,38 @@ export async function initContentCoordinator({
     }
   }
 
+  function insertCitationIntoNotebookChat(formattedText) {
+    try {
+      const selectors = [
+        'textarea[aria-label*="query" i]',
+        'textarea[placeholder*="typing" i]',
+        'textarea[placeholder*="Ask" i]',
+        "textarea.query-box-input",
+        "chat-panel textarea",
+      ];
+      let target = null;
+      for (const sel of selectors) {
+        const el = doc.querySelector?.(sel);
+        if (el && !el.disabled && !el.readOnly) {
+          target = el;
+          break;
+        }
+      }
+      if (!target) return false;
+      const existing = String(target.value || "").trim();
+      target.value = existing
+        ? `${existing}\n${formattedText} `
+        : `${formattedText} `;
+      if (typeof Event === "function") {
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      target.focus?.();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function bindVideoElement(video) {
     if (!video || controllers.has(video)) return controllers.get(video) || null;
     if (isLikelySilentCardPreviewVideo(video)) {
@@ -924,6 +957,7 @@ export async function initContentCoordinator({
       video,
       controller: null,
       artifactId: null,
+      mediaToken: null,
       cacheKey: null,
       inFlight: false,
     };
@@ -932,6 +966,16 @@ export async function initContentCoordinator({
       doc,
       initialFontSize: settings.fontSize,
       initialCaptionStyle: settings.captionStyle,
+      initialFontFamily: settings.captionFontFamily,
+      initialCaptionColor: settings.captionColor,
+      initialBgOpacity: settings.captionBgOpacity,
+      initialCaptionPosition: settings.captionPosition,
+      initialCaptionMaxWidth: settings.captionMaxWidth,
+      initialKaraokeHighlight: settings.karaokeHighlight,
+      initialShowSpeakerLabels: settings.showSpeakerLabels,
+      initialPauseOnCaptionHover: settings.pauseOnCaptionHover,
+      initialClickCaptionToCopy: settings.clickCaptionToCopy,
+      initialPlaybackSpeed: settings.defaultPlaybackSpeed,
       initialOffsetSec: settings.subtitleOffsetSec,
       onRequestGenerate: ({ force } = {}) => {
         ensureSubtitlesForEntry(entry, {
@@ -946,6 +990,31 @@ export async function initContentCoordinator({
       onCaptionStyleChange: (captionStyle) => {
         settings.captionStyle = captionStyle;
         saveSettings({ captionStyle }).catch(() => {});
+      },
+      onStylePatchChange: (patch) => {
+        settings = { ...settings, ...patch };
+        saveSettings(patch).catch(() => {});
+      },
+      onCuesMutated: (nextCues) => {
+        if (!entry.cacheKey) return;
+        sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.UPDATE_CACHED_SUBTITLES,
+          cacheKey: entry.cacheKey,
+          title: controller.title,
+          cues: nextCues,
+        }).catch(() => {});
+      },
+      onCiteCue: (formattedText) => {
+        const inserted = insertCitationIntoNotebookChat(formattedText);
+        if (inserted) {
+          showToast(
+            "Inserted timestamped quote into NotebookLM chat",
+            formattedText.slice(0, 68),
+            "success",
+            2800
+          );
+        }
+        return inserted;
       },
       onOffsetChange: (subtitleOffsetSec) => {
         settings.subtitleOffsetSec = subtitleOffsetSec;
@@ -1304,6 +1373,24 @@ export async function initContentCoordinator({
       active.controller.toggleSubtitles();
     } else if (key === "t" || key === "T") {
       active.controller.toggleTranscriptDrawer();
+    } else if (key === "s" || key === "S") {
+      active.controller.toggleStylePopover?.();
+    } else if (key === "v" || key === "V") {
+      active.controller.cycleCaptionPosition?.();
+    } else if (key === "j" || key === "J") {
+      active.controller.seekRelativeCue?.(-1);
+    } else if (key === "k" || key === "K") {
+      active.controller.seekRelativeCue?.(1);
+    } else if (key === "l" || key === "L") {
+      active.controller.toggleCueLoop?.();
+    } else if (key === "m" || key === "M") {
+      active.controller.toggleBookmarkActiveCue?.();
+    } else if (key === "p" || key === "P") {
+      active.controller.togglePictureInPicture?.();
+    } else if (key === "<") {
+      active.controller.cyclePlaybackSpeed?.(-1);
+    } else if (key === ">") {
+      active.controller.cyclePlaybackSpeed?.(1);
     } else if (key === "[") {
       active.controller.adjustOffset(-0.25);
     } else if (key === "]") {
@@ -1340,9 +1427,9 @@ export async function initContentCoordinator({
     if (msg.type === RUNTIME_MESSAGE.SUBTITLES_UPDATED && Array.isArray(msg.entries)) {
       for (const updated of msg.entries) {
         if (!updated?.cues?.length) continue;
-        for (const [, vEntry] of boundVideos.entries()) {
+        for (const [, vEntry] of controllers.entries()) {
           if (
-            (updated.cacheKey && vEntry.activeCacheKey === updated.cacheKey) ||
+            (updated.cacheKey && vEntry.cacheKey === updated.cacheKey) ||
             (updated.artifactId && vEntry.artifactId === updated.artifactId) ||
             (updated.mediaToken && vEntry.mediaToken === updated.mediaToken)
           ) {
@@ -1549,6 +1636,16 @@ export async function initContentCoordinator({
         entry.controller.setSettings({
           fontSize: settings.fontSize,
           captionStyle: settings.captionStyle,
+          captionFontFamily: settings.captionFontFamily,
+          captionColor: settings.captionColor,
+          captionBgOpacity: settings.captionBgOpacity,
+          captionPosition: settings.captionPosition,
+          captionMaxWidth: settings.captionMaxWidth,
+          karaokeHighlight: settings.karaokeHighlight,
+          showSpeakerLabels: settings.showSpeakerLabels,
+          pauseOnCaptionHover: settings.pauseOnCaptionHover,
+          clickCaptionToCopy: settings.clickCaptionToCopy,
+          defaultPlaybackSpeed: settings.defaultPlaybackSpeed,
           subtitleOffsetSec: settings.subtitleOffsetSec,
         });
       }

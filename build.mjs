@@ -7,6 +7,9 @@
 
 import fs from "node:fs";
 import * as esbuild from "esbuild";
+import { generateProjectStatsFile } from "./scripts/generate-project-stats.mjs";
+
+generateProjectStatsFile();
 
 const watch = process.argv.includes("--watch");
 

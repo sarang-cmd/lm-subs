@@ -403,7 +403,7 @@ export function App() {
             )}
             <a
               className="btn btn-sm btn-primary"
-              href="/releases/lm-subs-v0.2.2.zip"
+              href="/releases/lm-subs-v0.2.3.zip"
               download
             >
               Download extension
@@ -427,7 +427,7 @@ export function App() {
                 <div className="hero-cta-row">
                   <a
                     className="btn btn-primary"
-                    href="/releases/lm-subs-v0.2.2.zip"
+                    href="/releases/lm-subs-v0.2.3.zip"
                     download
                   >
                     Download Chrome extension (.zip)
@@ -450,7 +450,7 @@ export function App() {
                   </button>
                 </div>
                 <div className="hero-footnote">
-                  Open-source MIT Chrome extension (v0.2.2). Bring your own free-tier Groq, Mistral, or Gemini key.
+                  Open-source MIT Chrome extension (v0.2.3). Bring your own free-tier Groq, Mistral, or Gemini key.
                 </div>
               </div>
 
@@ -477,7 +477,7 @@ export function App() {
                     </button>
                     <a
                       className="btn"
-                      href="/releases/lm-subs-v0.2.2.zip"
+                      href="/releases/lm-subs-v0.2.3.zip"
                       download
                     >
                       Download .zip package
@@ -498,7 +498,7 @@ export function App() {
                   >
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Download and unzip:</strong>{" "}
-                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.2.zip</code> and extract it into a regular folder in your Documents folder.
+                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.3.zip</code> and extract it into a regular folder in your Documents folder.
                     </li>
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Load in Chrome:</strong>{" "}
@@ -775,7 +775,7 @@ export function App() {
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div>
-            <strong>LM Subs</strong> (v0.2.2, MIT License) by{" "}
+            <strong>LM Subs</strong> (v0.2.3, MIT License) by{" "}
             <a
               className="link"
               href="/about"

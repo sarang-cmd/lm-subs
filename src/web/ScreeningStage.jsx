@@ -16,6 +16,8 @@ export function ScreeningStage() {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(6.2);
   const [fontSize, setFontSize] = useState("medium");
+  const [captionTheme, setCaptionTheme] = useState("classic");
+  const [captionColor, setCaptionColor] = useState("white");
   const [offsetSec, setOffsetSec] = useState(0);
   const [panelTab, setPanelTab] = useState("cues");
   const [exportFormat, setExportFormat] = useState("srt");
@@ -131,6 +133,41 @@ export function ScreeningStage() {
           <div
             className="stage-caption-overlay"
             data-size={fontSize}
+            style={{
+              background:
+                captionTheme === "minimal"
+                  ? "transparent"
+                  : captionTheme === "paper"
+                    ? "rgba(253, 253, 254, 0.94)"
+                    : captionTheme === "amber"
+                      ? "rgba(28, 22, 12, 0.92)"
+                      : captionTheme === "contrast"
+                        ? "#050608"
+                        : "rgba(15, 17, 20, 0.92)",
+              borderColor:
+                captionTheme === "minimal"
+                  ? "transparent"
+                  : captionTheme === "contrast"
+                    ? "#3b82f6"
+                    : captionTheme === "amber"
+                      ? "rgba(251, 191, 36, 0.35)"
+                      : "rgba(255, 255, 255, 0.12)",
+              borderRadius: captionTheme === "cinema" ? "999px" : "6px",
+              textShadow:
+                captionTheme === "minimal"
+                  ? "0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.85)"
+                  : "none",
+              color:
+                captionTheme === "paper" && captionColor === "white"
+                  ? "#111315"
+                  : captionTheme === "amber" && captionColor === "white"
+                    ? "#fde68a"
+                    : captionColor === "yellow"
+                      ? "#fde047"
+                      : captionColor === "cyan"
+                        ? "#67e8f9"
+                        : "#fdfdfe",
+            }}
             aria-live="off"
           >
             {activeCue.text}
@@ -180,6 +217,37 @@ export function ScreeningStage() {
                   <option value="medium">Medium</option>
                   <option value="large">Large</option>
                   <option value="xlarge">Extra large</option>
+                </select>
+
+                <label htmlFor="stage-theme-select" className="stage-meta">
+                  Theme
+                </label>
+                <select
+                  id="stage-theme-select"
+                  className="stage-btn"
+                  value={captionTheme}
+                  onChange={(e) => setCaptionTheme(e.target.value)}
+                >
+                  <option value="classic">Dark box</option>
+                  <option value="contrast">High contrast</option>
+                  <option value="minimal">Clean text</option>
+                  <option value="cinema">Cinema pill</option>
+                  <option value="paper">Paper card</option>
+                  <option value="amber">Warm study</option>
+                </select>
+
+                <label htmlFor="stage-color-select" className="stage-meta">
+                  Color
+                </label>
+                <select
+                  id="stage-color-select"
+                  className="stage-btn"
+                  value={captionColor}
+                  onChange={(e) => setCaptionColor(e.target.value)}
+                >
+                  <option value="white">White</option>
+                  <option value="yellow">Yellow</option>
+                  <option value="cyan">Cyan</option>
                 </select>
 
                 <button
@@ -285,8 +353,8 @@ export function ScreeningStage() {
                 flexWrap: "wrap",
               }}
             >
-              <div style={{ display: "flex", gap: "4px" }}>
-                {["srt", "vtt", "txt", "json"].map((fmt) => (
+              <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                {["srt", "vtt", "txt", "md", "csv", "json"].map((fmt) => (
                   <button
                     key={fmt}
                     type="button"

@@ -438,6 +438,37 @@
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
+  var CAPTION_FONT_SIZES = Object.freeze([
+    "small",
+    "medium",
+    "large",
+    "xlarge",
+    "xxlarge"
+  ]);
+  var CAPTION_STYLES = Object.freeze([
+    "classic",
+    "contrast",
+    "minimal",
+    "cinema",
+    "paper",
+    "amber"
+  ]);
+  var CAPTION_FONT_FAMILIES = Object.freeze([
+    "sans",
+    "serif",
+    "mono",
+    "dyslexic"
+  ]);
+  var CAPTION_COLORS = Object.freeze([
+    "white",
+    "yellow",
+    "cyan",
+    "green",
+    "ink"
+  ]);
+  var CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
+  var CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
+  var PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     debugMode: false,
@@ -451,16 +482,31 @@
     languageHint: "auto",
     translateTo: "original",
     fontSize: "medium",
-    // "small" | "medium" | "large" | "xlarge"
+    // "small" | "medium" | "large" | "xlarge" | "xxlarge"
     captionStyle: "classic",
-    // "classic" | "contrast" | "minimal"
+    // "classic" | "contrast" | "minimal" | "cinema" | "paper" | "amber"
+    captionFontFamily: "sans",
+    // "sans" | "serif" | "mono" | "dyslexic"
+    captionColor: "white",
+    // "white" | "yellow" | "cyan" | "green" | "ink"
+    captionBgOpacity: 88,
+    // 0..100
+    captionPosition: "bottom",
+    // "bottom" | "raised" | "top"
+    captionMaxWidth: "balanced",
+    // "compact" | "balanced" | "wide"
+    karaokeHighlight: false,
+    showSpeakerLabels: true,
+    pauseOnCaptionHover: false,
+    clickCaptionToCopy: true,
+    defaultPlaybackSpeed: 1,
     subtitleOffsetSec: 0,
     showToast: true,
     desktopNotifications: true,
     soundAlerts: false,
     badgeAlerts: true,
     notifyOnFailover: true,
-    notifyOnSync: true,
+    notifyOnSync: false,
     autoUpdateExtension: true,
     autoBackgroundSync: true,
     excludePatterns: [],
@@ -530,8 +576,18 @@
       customEnabled: Boolean(saved.customEnabled),
       languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
       translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
-      fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
-      captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
+      fontSize: CAPTION_FONT_SIZES.includes(saved.fontSize) ? saved.fontSize : "medium",
+      captionStyle: CAPTION_STYLES.includes(saved.captionStyle) ? saved.captionStyle : "classic",
+      captionFontFamily: CAPTION_FONT_FAMILIES.includes(saved.captionFontFamily) ? saved.captionFontFamily : "sans",
+      captionColor: CAPTION_COLORS.includes(saved.captionColor) ? saved.captionColor : "white",
+      captionBgOpacity: Number.isFinite(Number(saved.captionBgOpacity)) ? Math.max(0, Math.min(100, Math.round(Number(saved.captionBgOpacity)))) : DEFAULT_SETTINGS.captionBgOpacity,
+      captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition) ? saved.captionPosition : "bottom",
+      captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth) ? saved.captionMaxWidth : "balanced",
+      karaokeHighlight: typeof saved.karaokeHighlight === "boolean" ? saved.karaokeHighlight : DEFAULT_SETTINGS.karaokeHighlight,
+      showSpeakerLabels: typeof saved.showSpeakerLabels === "boolean" ? saved.showSpeakerLabels : DEFAULT_SETTINGS.showSpeakerLabels,
+      pauseOnCaptionHover: typeof saved.pauseOnCaptionHover === "boolean" ? saved.pauseOnCaptionHover : DEFAULT_SETTINGS.pauseOnCaptionHover,
+      clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
+      defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed)) ? Number(saved.defaultPlaybackSpeed) : DEFAULT_SETTINGS.defaultPlaybackSpeed,
       subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
       showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
       desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
@@ -716,9 +772,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.2",
+          currentVersion: "0.2.3",
           currentBuildId: "",
-          latestVersion: "0.2.2",
+          latestVersion: "0.2.3",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -730,9 +786,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.2"),
+        currentVersion: String(saved.currentVersion || "0.2.3"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -744,9 +800,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.2",
+        currentVersion: "0.2.3",
         currentBuildId: "",
-        latestVersion: "0.2.2",
+        latestVersion: "0.2.3",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -855,7 +911,16 @@ ${line2}`;
       if (!text.includes("\n") && text.length > DEFAULT_MAX_LINE_CHARS) {
         text = wrapSubtitleLines(text, DEFAULT_MAX_LINE_CHARS);
       }
-      cleaned.push({ startSec, endSec, text, ...speaker ? { speaker } : {} });
+      const secondaryText = typeof item.secondaryText === "string" && item.secondaryText.trim() ? item.secondaryText.trim() : null;
+      const bookmarked = Boolean(item.bookmarked);
+      cleaned.push({
+        startSec,
+        endSec,
+        text,
+        ...speaker ? { speaker } : {},
+        ...secondaryText ? { secondaryText } : {},
+        ...bookmarked ? { bookmarked: true } : {}
+      });
     }
     cleaned.sort((a, b) => a.startSec - b.startSec || a.endSec - b.endSec);
     const out = [];
@@ -982,6 +1047,16 @@ ${blocks.join("\n\n")}
       lines.push("_No caption cues available._", "");
       return lines.join("\n");
     }
+    const bookmarkedCues = normalized.filter((c) => c.bookmarked);
+    if (bookmarkedCues.length > 0) {
+      lines.push("## Saved study bookmarks", "");
+      for (const cue of bookmarkedCues) {
+        const stamp = formatTimestamp(cue.startSec, ".").slice(3, 8);
+        const clean = cue.text.replace(/\s*\n\s*/g, " ").trim();
+        lines.push(`- \`[${stamp}]\` ${clean}`);
+      }
+      lines.push("");
+    }
     const SECTION_SPAN_SEC = 90;
     const sections = [];
     let current = null;
@@ -1017,6 +1092,34 @@ ${blocks.join("\n\n")}
     }
     lines.push("");
     return lines.join("\n");
+  }
+  function escapeCsvCell(val) {
+    const s = String(val ?? "");
+    if (/[",\r\n]/.test(s)) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+  function formatCsvSubtitles(cues) {
+    const normalized = normalizeAndSortCues(cues);
+    const header = "index,start_sec,end_sec,timestamp,speaker,bookmarked,text";
+    if (normalized.length === 0) return `${header}
+`;
+    const rows = normalized.map((cue, idx) => {
+      const cleanText = String(cue.text || "").replace(/\s*\n\s*/g, " ").trim();
+      return [
+        idx + 1,
+        cue.startSec.toFixed(3),
+        cue.endSec.toFixed(3),
+        formatShortTimestamp(cue.startSec),
+        escapeCsvCell(cue.speaker || ""),
+        cue.bookmarked ? "true" : "false",
+        escapeCsvCell(cleanText)
+      ].join(",");
+    });
+    return `${header}
+${rows.join("\n")}
+`;
   }
   function searchCues(cues, query) {
     const q = String(query || "").trim().toLowerCase();
@@ -1068,6 +1171,14 @@ ${blocks.join("\n\n")}
         extension: "md",
         mimeType: "text/markdown;charset=utf-8",
         filename: `${base}-notes.md`
+      };
+    }
+    if (fmt === "csv") {
+      return {
+        content: formatCsvSubtitles(cues),
+        extension: "csv",
+        mimeType: "text/csv;charset=utf-8",
+        filename: `${base}.csv`
       };
     }
     if (fmt === "json") {
@@ -1297,6 +1408,20 @@ ${blocks.join("\n\n")}
     const optTranslateTo = document.getElementById("opt-translate-to");
     const optFontSize = document.getElementById("opt-font-size");
     const optCaptionStyle = document.getElementById("opt-caption-style");
+    const optCaptionFont = document.getElementById("opt-caption-font");
+    const optCaptionColor = document.getElementById("opt-caption-color");
+    const optCaptionPosition = document.getElementById("opt-caption-position");
+    const optCaptionWidth = document.getElementById("opt-caption-width");
+    const optCaptionOpacity = document.getElementById("opt-caption-opacity");
+    const optCaptionOpacityLabel = document.getElementById("opt-caption-opacity-label");
+    const optPlaybackSpeed = document.getElementById("opt-playback-speed");
+    const optKaraokeHighlight = document.getElementById("opt-karaoke-highlight");
+    const optShowSpeakers = document.getElementById("opt-show-speakers");
+    const optHoverPause = document.getElementById("opt-hover-pause");
+    const optClickCopy = document.getElementById("opt-click-copy");
+    const resetCaptionStyleBtn = document.getElementById("reset-caption-style-btn");
+    const optPreviewStage = document.getElementById("opt-caption-preview-stage");
+    const optPreviewBox = document.getElementById("opt-caption-preview-box");
     const optOffsetSec = document.getElementById("opt-offset-sec");
     const optExcludePatterns = document.getElementById("opt-exclude-patterns");
     const saveBehaviorBtn = document.getElementById("save-behavior-btn");
@@ -1515,6 +1640,99 @@ ${blocks.join("\n\n")}
         renderSyncPanel();
       }
     }
+    function renderCaptionPreview() {
+      if (!optPreviewStage || !optPreviewBox) return;
+      const size = optFontSize?.value || settings.fontSize || "medium";
+      const style = optCaptionStyle?.value || settings.captionStyle || "classic";
+      const font = optCaptionFont?.value || settings.captionFontFamily || "sans";
+      const color = optCaptionColor?.value || settings.captionColor || "white";
+      const pos = optCaptionPosition?.value || settings.captionPosition || "bottom";
+      const width = optCaptionWidth?.value || settings.captionMaxWidth || "balanced";
+      const opacity = Number(optCaptionOpacity?.value ?? settings.captionBgOpacity ?? 88);
+      const karaoke = Boolean(optKaraokeHighlight?.checked);
+      const showSpk = optShowSpeakers ? Boolean(optShowSpeakers.checked) : true;
+      if (optCaptionOpacityLabel) {
+        optCaptionOpacityLabel.textContent = `${opacity}%`;
+      }
+      optPreviewStage.dataset.pos = pos;
+      const sizePx = {
+        small: "13px",
+        medium: "15px",
+        large: "17.5px",
+        xlarge: "20px",
+        xxlarge: "23px"
+      }[size] || "15px";
+      const fontCss = {
+        sans: "var(--font-sans)",
+        serif: "Charter, Georgia, Cambria, serif",
+        mono: "var(--font-mono)",
+        dyslexic: '"Trebuchet MS", Verdana, sans-serif'
+      }[font] || "var(--font-sans)";
+      const colorHex = {
+        white: "#fdfdfe",
+        yellow: "#fde047",
+        cyan: "#67e8f9",
+        green: "#86efac",
+        ink: "#111315"
+      }[color] || "#fdfdfe";
+      const maxWidthCss = {
+        compact: "68%",
+        balanced: "86%",
+        wide: "98%"
+      }[width] || "86%";
+      const alpha = Math.max(0.2, Math.min(1, opacity / 100));
+      let bg = `rgba(11, 13, 16, ${alpha.toFixed(2)})`;
+      let border = "1px solid rgba(255, 255, 255, 0.14)";
+      let radius = "7px";
+      let shadow = "none";
+      let resolvedText = colorHex;
+      if (style === "contrast") {
+        bg = `rgba(5, 6, 8, ${Math.max(0.75, alpha).toFixed(2)})`;
+        border = "1.5px solid #3b82f6";
+      } else if (style === "minimal") {
+        bg = "transparent";
+        border = "1px solid transparent";
+        shadow = "0 1px 3px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.85)";
+        if (color === "ink") resolvedText = "#fdfdfe";
+      } else if (style === "cinema") {
+        radius = "999px";
+      } else if (style === "paper") {
+        bg = `rgba(253, 253, 254, ${Math.max(0.82, alpha).toFixed(2)})`;
+        border = "1px solid rgba(17, 19, 21, 0.2)";
+        if (color === "white") resolvedText = "#111315";
+      } else if (style === "amber") {
+        bg = `rgba(28, 22, 12, ${Math.max(0.78, alpha).toFixed(2)})`;
+        border = "1px solid rgba(251, 191, 36, 0.35)";
+        if (color === "white") resolvedText = "#fde68a";
+      }
+      optPreviewBox.style.fontSize = sizePx;
+      optPreviewBox.style.fontFamily = fontCss;
+      optPreviewBox.style.maxWidth = maxWidthCss;
+      optPreviewBox.style.background = bg;
+      optPreviewBox.style.border = border;
+      optPreviewBox.style.borderRadius = radius;
+      optPreviewBox.style.textShadow = shadow;
+      optPreviewBox.style.color = resolvedText;
+      optPreviewBox.style.letterSpacing = font === "dyslexic" ? "0.045em" : "0.005em";
+      optPreviewBox.style.wordSpacing = font === "dyslexic" ? "0.12em" : "normal";
+      while (optPreviewBox.firstChild) {
+        optPreviewBox.removeChild(optPreviewBox.firstChild);
+      }
+      const prefix = showSpk ? "[Host] " : "";
+      if (!karaoke) {
+        optPreviewBox.textContent = `${prefix}Logical qubits suppress phase errors across physical stabilizer arrays.`;
+      } else {
+        const done = document.createElement("span");
+        done.style.color = "#93c5fd";
+        done.style.textDecoration = "underline";
+        done.style.textUnderlineOffset = "3px";
+        done.textContent = `${prefix}Logical qubits suppress phase errors`;
+        optPreviewBox.append(
+          done,
+          document.createTextNode(" across physical stabilizer arrays.")
+        );
+      }
+    }
     function populateForm() {
       optEnabled.checked = settings.enabled;
       if (optDebugMode) optDebugMode.checked = Boolean(settings.debugMode);
@@ -1536,16 +1754,27 @@ ${blocks.join("\n\n")}
       optTranslateTo.value = settings.translateTo || "original";
       optFontSize.value = settings.fontSize || "medium";
       if (optCaptionStyle) optCaptionStyle.value = settings.captionStyle || "classic";
+      if (optCaptionFont) optCaptionFont.value = settings.captionFontFamily || "sans";
+      if (optCaptionColor) optCaptionColor.value = settings.captionColor || "white";
+      if (optCaptionPosition) optCaptionPosition.value = settings.captionPosition || "bottom";
+      if (optCaptionWidth) optCaptionWidth.value = settings.captionMaxWidth || "balanced";
+      if (optCaptionOpacity) optCaptionOpacity.value = String(settings.captionBgOpacity ?? 88);
+      if (optPlaybackSpeed) optPlaybackSpeed.value = String(settings.defaultPlaybackSpeed || 1);
+      if (optKaraokeHighlight) optKaraokeHighlight.checked = Boolean(settings.karaokeHighlight);
+      if (optShowSpeakers) optShowSpeakers.checked = settings.showSpeakerLabels !== false;
+      if (optHoverPause) optHoverPause.checked = Boolean(settings.pauseOnCaptionHover);
+      if (optClickCopy) optClickCopy.checked = settings.clickCaptionToCopy !== false;
       optOffsetSec.value = String(settings.subtitleOffsetSec || 0);
       optExcludePatterns.value = (settings.excludePatterns || []).join("\n");
       rpcCreateInput.value = settings.rpcOverrides?.CREATE_STUDIO || "";
       rpcPollInput.value = settings.rpcOverrides?.POLL_STUDIO || "";
+      renderCaptionPreview();
     }
     async function renderUpdatePanel() {
       if (!optUpdateCard) return;
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.2";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.3";
       const avail = Boolean(updateStatus?.updateAvailable);
       optUpdateCard.dataset.available = avail ? "true" : "false";
       if (optUpdateBadge) {
@@ -1977,6 +2206,7 @@ ${blocks.join("\n\n")}
         const vttBtn = makeFormatButton(item, ".VTT", "vtt");
         const txtBtn = makeFormatButton(item, ".TXT", "txt");
         const mdBtn = makeFormatButton(item, ".MD", "md");
+        const csvBtn = makeFormatButton(item, ".CSV", "csv");
         const jsonBtn = makeFormatButton(item, ".JSON", "json");
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
@@ -2014,7 +2244,7 @@ ${blocks.join("\n\n")}
           renderCacheTable();
           renderStatisticsPanel();
         });
-        actRow.append(editBtn, srtBtn, vttBtn, txtBtn, mdBtn, jsonBtn, copyBtn, delBtn);
+        actRow.append(editBtn, srtBtn, vttBtn, txtBtn, mdBtn, csvBtn, jsonBtn, copyBtn, delBtn);
         tdActions.appendChild(actRow);
         tr.append(tdTitle, tdProv, tdSlim, tdCues, tdActions);
         cacheTbody.appendChild(tr);
@@ -2497,9 +2727,9 @@ ${blocks.join("\n\n")}
       flashSavedPill();
       await triggerAutoSyncIfConnected({ pushOnly: true });
     });
-    saveBehaviorBtn.addEventListener("click", async () => {
+    function collectCaptionBehaviorPatch() {
       const patterns = optExcludePatterns.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-      settings = await saveSettings({
+      return {
         autoOnGenerate: optAutoGenerate.checked,
         autoOnExistingVideos: optAutoExisting.checked,
         showToast: optShowToast.checked,
@@ -2507,9 +2737,63 @@ ${blocks.join("\n\n")}
         translateTo: optTranslateTo.value,
         fontSize: optFontSize.value,
         captionStyle: optCaptionStyle ? optCaptionStyle.value : settings.captionStyle,
+        captionFontFamily: optCaptionFont ? optCaptionFont.value : settings.captionFontFamily,
+        captionColor: optCaptionColor ? optCaptionColor.value : settings.captionColor,
+        captionPosition: optCaptionPosition ? optCaptionPosition.value : settings.captionPosition,
+        captionMaxWidth: optCaptionWidth ? optCaptionWidth.value : settings.captionMaxWidth,
+        captionBgOpacity: optCaptionOpacity ? Number(optCaptionOpacity.value) : settings.captionBgOpacity,
+        defaultPlaybackSpeed: optPlaybackSpeed ? Number(optPlaybackSpeed.value) : settings.defaultPlaybackSpeed,
+        karaokeHighlight: optKaraokeHighlight ? Boolean(optKaraokeHighlight.checked) : settings.karaokeHighlight,
+        showSpeakerLabels: optShowSpeakers ? Boolean(optShowSpeakers.checked) : settings.showSpeakerLabels,
+        pauseOnCaptionHover: optHoverPause ? Boolean(optHoverPause.checked) : settings.pauseOnCaptionHover,
+        clickCaptionToCopy: optClickCopy ? Boolean(optClickCopy.checked) : settings.clickCaptionToCopy,
         subtitleOffsetSec: Number(optOffsetSec.value) || 0,
         excludePatterns: patterns
+      };
+    }
+    for (const liveCtrl of [
+      optFontSize,
+      optCaptionStyle,
+      optCaptionFont,
+      optCaptionColor,
+      optCaptionPosition,
+      optCaptionWidth,
+      optCaptionOpacity,
+      optPlaybackSpeed,
+      optKaraokeHighlight,
+      optShowSpeakers,
+      optHoverPause,
+      optClickCopy
+    ]) {
+      liveCtrl?.addEventListener("input", renderCaptionPreview);
+      liveCtrl?.addEventListener("change", async () => {
+        renderCaptionPreview();
+        settings = await saveSettings(collectCaptionBehaviorPatch());
+        flashSavedPill();
       });
+    }
+    resetCaptionStyleBtn?.addEventListener("click", async () => {
+      settings = await saveSettings({
+        fontSize: "medium",
+        captionStyle: "classic",
+        captionFontFamily: "sans",
+        captionColor: "white",
+        captionPosition: "bottom",
+        captionMaxWidth: "balanced",
+        captionBgOpacity: 88,
+        defaultPlaybackSpeed: 1,
+        karaokeHighlight: false,
+        showSpeakerLabels: true,
+        pauseOnCaptionHover: false,
+        clickCaptionToCopy: true,
+        subtitleOffsetSec: 0
+      });
+      populateForm();
+      flashSavedPill();
+      await triggerAutoSyncIfConnected({ pushOnly: true });
+    });
+    saveBehaviorBtn.addEventListener("click", async () => {
+      settings = await saveSettings(collectCaptionBehaviorPatch());
       flashSavedPill();
       await triggerAutoSyncIfConnected({ pushOnly: true });
     });

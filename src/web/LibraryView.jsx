@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Collapsible, Dialog, DropdownMenu, Switch } from "radix-ui";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import {
+  buildAutoChapters,
   formatTimestamp,
   formatTxt,
   parseTimestampSec,
@@ -933,6 +934,7 @@ export function LibraryView({
                                     ["vtt", "WebVTT (.vtt)"],
                                     ["txt", "Timestamped text (.txt)"],
                                     ["md", "Markdown study notes (.md)"],
+                                    ["csv", "Spreadsheet / Anki (.csv)"],
                                     ["json", "Structured cues (.json)"],
                                   ].map(([fmt, label]) => (
                                     <DropdownMenu.Item
@@ -1061,19 +1063,48 @@ export function LibraryView({
                                 </div>
                               </div>
                             ) : (
-                              <div
-                                style={{
-                                  maxHeight: "220px",
-                                  overflowY: "auto",
-                                  fontFamily: "var(--font-mono)",
-                                  fontSize: "12px",
-                                  lineHeight: 1.55,
-                                  whiteSpace: "pre-wrap",
-                                }}
-                              >
-                                {formatTxt(sub.cues || [], {
-                                  includeTimestamps: true,
-                                })}
+                              <div style={{ display: "grid", gap: "12px", padding: "4px 0" }}>
+                                {buildAutoChapters(sub.cues || []).length > 1 ? (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      flexWrap: "wrap",
+                                      gap: "6px",
+                                      paddingBottom: "10px",
+                                      borderBottom: "1px solid var(--border-hairline)",
+                                    }}
+                                  >
+                                    {buildAutoChapters(sub.cues || []).map((ch) => (
+                                      <span
+                                        key={ch.chapterNumber}
+                                        className="badge"
+                                        style={{
+                                          fontFamily: "var(--font-sans)",
+                                          fontSize: "12px",
+                                        }}
+                                      >
+                                        <code style={{ marginRight: "5px" }}>
+                                          {ch.timestamp}
+                                        </code>
+                                        {ch.title.slice(0, 44)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                <div
+                                  style={{
+                                    maxHeight: "220px",
+                                    overflowY: "auto",
+                                    fontFamily: "var(--font-mono)",
+                                    fontSize: "12px",
+                                    lineHeight: 1.55,
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {formatTxt(sub.cues || [], {
+                                    includeTimestamps: true,
+                                  })}
+                                </div>
                               </div>
                             )}
                           </td>

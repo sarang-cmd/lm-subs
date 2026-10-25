@@ -242,6 +242,7 @@ export function createRuntimeDispatcher({
     cacheKey = null,
     provider = null,
     fireDesktop = false,
+    quiet = false,
   } = {}) {
     const settings = await getSettings(storageArea);
     if (kind === "failover" && !settings.notifyOnFailover) {
@@ -257,12 +258,12 @@ export function createRuntimeDispatcher({
         body,
         cacheKey,
         provider,
-        read: false,
+        read: Boolean(quiet),
       },
       storageArea
     );
     await syncToolbarBadge();
-    if (fireDesktop && settings.desktopNotifications) {
+    if (!quiet && kind !== "sync" && fireDesktop && settings.desktopNotifications) {
       await fireDesktopAlertIfPermitted({
         id: notification.id,
         title: notification.title,
@@ -689,7 +690,8 @@ export function createRuntimeDispatcher({
         body: `${updatedProfile.subtitleCount} transcript(s) and ${
           Object.keys(updatedProfile.keyHints || {}).length
         } encrypted key(s) synced.`,
-        fireDesktop: silentNotification && changedCount > 0,
+        fireDesktop: false,
+        quiet: Boolean(silentNotification),
       }).catch(() => {});
     }
 
@@ -697,7 +699,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -972,18 +974,11 @@ export function createRuntimeDispatcher({
               title: item.title || "LM Subs",
               body: item.body || "",
               cacheKey: item.cacheKey || null,
-              read: Boolean(item.read),
+              read: true,
               createdAt: item.createdAt,
             },
             storageArea
           );
-          if (!item.read && settings.desktopNotifications) {
-            await fireDesktopAlertIfPermitted({
-              id: cloudKey,
-              title: item.title || "LM Subs",
-              body: item.body || "",
-            });
-          }
         }
         await syncToolbarBadge();
       }
@@ -2412,7 +2407,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.2";
+          runtimeApi?.getManifest?.()?.version || "0.2.3";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),

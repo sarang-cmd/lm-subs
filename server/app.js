@@ -379,10 +379,10 @@ export function createSyncApp({
 
   app.get("/api/version", (c) => {
     let meta = {
-      version: "0.2.2",
+      version: "0.2.3",
       buildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
-      versionedZipUrl: "/releases/lm-subs-v0.2.2.zip",
+      versionedZipUrl: "/releases/lm-subs-v0.2.3.zip",
       zipSha256: "",
     };
     try {
@@ -408,7 +408,7 @@ export function createSyncApp({
     return c.json({
       ok: true,
       service: "lm-subs-neon-sync",
-      version: "0.2.2",
+      version: "0.2.3",
       neonProjectId: db.projectId || "falling-cherry-16443194",
       databaseMode: db.mode,
       neonManagedAuth: Boolean(process.env.NEON_AUTH_BASE_URL),
@@ -1293,7 +1293,13 @@ export function createSyncApp({
                  latency_ms = EXCLUDED.latency_ms,
                  failover_used = EXCLUDED.failover_used,
                  cues_json = EXCLUDED.cues_json,
-                 updated_at = NOW()`,
+                 updated_at = CASE
+                   WHEN lmsubs_subtitles.cues_json IS DISTINCT FROM EXCLUDED.cues_json
+                     OR lmsubs_subtitles.title IS DISTINCT FROM EXCLUDED.title
+                     OR lmsubs_subtitles.language IS DISTINCT FROM EXCLUDED.language
+                   THEN NOW()
+                   ELSE lmsubs_subtitles.updated_at
+                 END`,
           [
             user.id,
             cacheKeyStr,
