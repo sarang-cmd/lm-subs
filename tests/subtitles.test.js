@@ -5,12 +5,14 @@ import {
   cuesFromWords,
   findActiveCue,
   formatJsonSubtitles,
+  formatMarkdownNotes,
   formatSrt,
   formatTxt,
   formatVtt,
   parseSrt,
   parseSubtitleText,
   parseVtt,
+  searchCues,
   serializeSubtitles,
   wrapSubtitleLines,
 } from "../src/lib/subtitles.js";
@@ -141,4 +143,19 @@ test("serializeSubtitles exports .srt, .vtt, .txt, and .json cleanly and parseSu
   assert.equal(parsedJsonCues.length, 2);
   assert.equal(parsedJsonCues[1].speaker, "Host");
   assert.ok(formatJsonSubtitles(sample, { title: "Check" }).includes('"schema": "lm-subs/v1"'));
+
+  const mdOut = serializeSubtitles(sample, "md", {
+    title: "Raft Consensus 101",
+    provider: "groq",
+  });
+  assert.equal(mdOut.filename, "raft-consensus-101-notes.md");
+  assert.equal(mdOut.mimeType, "text/markdown;charset=utf-8");
+  assert.ok(mdOut.content.includes("# Raft Consensus 101"));
+  assert.ok(mdOut.content.includes("## Study summary by timestamp"));
+  assert.ok(mdOut.content.includes("## Timestamped transcript"));
+  assert.ok(formatMarkdownNotes(sample, { title: "Notes" }).includes("Majority quorums"));
+
+  const hits = searchCues(sample, "quorums");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].index, 1);
 });

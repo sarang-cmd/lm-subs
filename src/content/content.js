@@ -295,11 +295,68 @@ export async function initContentCoordinator({
     return toast;
   }
 
-  function showToast(title, detail = "", kind = "info", durationMs = 3800) {
+  function showToast(
+    title,
+    detail = "",
+    kind = "info",
+    durationMs = 3800,
+    extra = {}
+  ) {
     if (!settings.showToast || !settings.enabled) return;
     waitForBody(doc, () => {
-      ensureToast()?.show({ title, detail, kind, durationMs });
+      ensureToast()?.show({
+        title,
+        detail,
+        kind,
+        durationMs,
+        actionLabel: extra?.actionLabel || "",
+        onAction: extra?.onAction || null,
+      });
     });
+  }
+
+  function playCompletionChime() {
+    if (!settings.soundAlerts || !settings.enabled) return;
+    try {
+      const AudioCtx = win.AudioContext || win.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const notes = [523.25, 659.25];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+        gain.gain.setValueAtTime(0.0001, now + idx * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.055, now + idx * 0.09 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.09 + 0.2);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.09);
+        osc.stop(now + idx * 0.09 + 0.21);
+      });
+      setTimeout(() => {
+        ctx.close?.().catch?.(() => {});
+      }, 600);
+    } catch {
+      // Ignore autoplay / audio context restrictions
+    }
+  }
+
+  function fireTabDesktopNotification(title, body) {
+    if (!settings.desktopNotifications || !settings.enabled) return;
+    if (!doc.hidden) return;
+    try {
+      const Notif = win.Notification;
+      if (Notif && Notif.permission === "granted") {
+        new Notif(String(title || "LM Subs"), {
+          body: String(body || ""),
+        });
+      }
+    } catch {
+      // Ignore restricted notification context
+    }
   }
 
   function hideToast() {
@@ -819,8 +876,19 @@ export async function initContentCoordinator({
           : `Subtitles ready (${saved.cues.length} cues)`,
         `${saved.provider || "AI"}${ratioDetail} · ${saved.title || title}`,
         "success",
-        4000
+        5200,
+        {
+          actionLabel: "Transcript",
+          onAction: () => controller.toggleTranscriptDrawer(true),
+        }
       );
+      if (!res.cached) {
+        playCompletionChime();
+        fireTabDesktopNotification(
+          `Subtitles ready: ${saved.title || title}`,
+          `${saved.cues.length} cues generated via ${saved.provider || "AI"}.`
+        );
+      }
     } catch (err) {
       const msg = err?.message || String(err);
       controller.setStatus("error", "Subtitle error");
@@ -851,6 +919,7 @@ export async function initContentCoordinator({
     const controller = new VideoSubtitleController(video, {
       doc,
       initialFontSize: settings.fontSize,
+      initialCaptionStyle: settings.captionStyle,
       initialOffsetSec: settings.subtitleOffsetSec,
       onRequestGenerate: ({ force } = {}) => {
         ensureSubtitlesForEntry(entry, {
@@ -861,6 +930,10 @@ export async function initContentCoordinator({
       onFontSizeChange: (fontSize) => {
         settings.fontSize = fontSize;
         saveSettings({ fontSize }).catch(() => {});
+      },
+      onCaptionStyleChange: (captionStyle) => {
+        settings.captionStyle = captionStyle;
+        saveSettings({ captionStyle }).catch(() => {});
       },
       onOffsetChange: (subtitleOffsetSec) => {
         settings.subtitleOffsetSec = subtitleOffsetSec;
@@ -1196,22 +1269,43 @@ export async function initContentCoordinator({
     doc.addEventListener?.(mediaEvt, handleCapturedMediaEvent, true);
   }
 
-  // 3. Keyboard shortcut (`C`) to toggle captions when not typing in an input
+  // 3. Player keyboard shortcuts (`C`, `T`, `[`, `]`, `\`, `-`, `=`, `+`, `B`, `?`)
   doc.addEventListener?.("keydown", (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key !== "c" && e.key !== "C") return;
-    const tag = (e.target?.tagName || "").toLowerCase();
-    if (
-      tag === "input" ||
-      tag === "textarea" ||
-      tag === "select" ||
-      e.target?.isContentEditable
-    ) {
-      return;
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    for (const node of path) {
+      const tag = (node?.tagName || "").toLowerCase();
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        node?.isContentEditable
+      ) {
+        return;
+      }
     }
     const active = pickTargetVideoEntry();
-    if (active) {
+    if (!active) return;
+
+    const key = e.key;
+    if (key === "c" || key === "C") {
       active.controller.toggleSubtitles();
+    } else if (key === "t" || key === "T") {
+      active.controller.toggleTranscriptDrawer();
+    } else if (key === "[") {
+      active.controller.adjustOffset(-0.25);
+    } else if (key === "]") {
+      active.controller.adjustOffset(0.25);
+    } else if (key === "\\") {
+      active.controller.resetOffset();
+    } else if (key === "-") {
+      active.controller.stepFontSize(-1);
+    } else if (key === "=" || key === "+") {
+      active.controller.stepFontSize(1);
+    } else if (key === "b" || key === "B") {
+      active.controller.cycleCaptionStyle();
+    } else if (key === "?") {
+      active.controller.toggleShortcutsHelp();
     }
   });
 
@@ -1219,6 +1313,15 @@ export async function initContentCoordinator({
   runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
     if (!msg || typeof msg.type !== "string") return false;
     if (!msg.type.startsWith(MESSAGE_NAMESPACE)) return false;
+
+    if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY) {
+      playCompletionChime();
+      fireTabDesktopNotification(
+        `Subtitles ready: ${msg.title || "Video Overview"}`,
+        `${msg.cueCount || 0} cues generated via ${msg.provider || "AI"}.`
+      );
+      return false;
+    }
 
     if (msg.type === RUNTIME_MESSAGE.SUBTITLES_PROGRESS) {
       const active = pickTargetVideoEntry();
@@ -1393,6 +1496,7 @@ export async function initContentCoordinator({
       for (const entry of controllers.values()) {
         entry.controller.setSettings({
           fontSize: settings.fontSize,
+          captionStyle: settings.captionStyle,
           subtitleOffsetSec: settings.subtitleOffsetSec,
         });
       }

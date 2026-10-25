@@ -130,7 +130,12 @@ var RUNTIME_MESSAGE = Object.freeze({
   SYNC_GET_STATS: "LM_SUBS_SYNC_GET_STATS",
   SYNC_SIGNOUT: "LM_SUBS_SYNC_SIGNOUT",
   SYNC_NOW: "LM_SUBS_SYNC_NOW",
-  SYNC_STATUS: "LM_SUBS_SYNC_STATUS"
+  SYNC_STATUS: "LM_SUBS_SYNC_STATUS",
+  GET_NOTIFICATIONS: "LM_SUBS_GET_NOTIFICATIONS",
+  MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
+  CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
+  TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
+  UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
 });
 
 // src/lib/audio-extract.js
@@ -2641,12 +2646,14 @@ var STORAGE_KEYS = Object.freeze({
   HISTORY: "subtitleHistory",
   LAST_STATUS: "lastStatus",
   DEBUG_LOGS: "debugLogs",
+  NOTIFICATIONS: "notifications",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret"
 });
 var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
 var MAX_DEBUG_LOGS = 120;
+var MAX_NOTIFICATIONS = 50;
 var DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   debugMode: false,
@@ -2661,8 +2668,15 @@ var DEFAULT_SETTINGS = Object.freeze({
   translateTo: "original",
   fontSize: "medium",
   // "small" | "medium" | "large" | "xlarge"
+  captionStyle: "classic",
+  // "classic" | "contrast" | "minimal"
   subtitleOffsetSec: 0,
   showToast: true,
+  desktopNotifications: true,
+  soundAlerts: false,
+  badgeAlerts: true,
+  notifyOnFailover: true,
+  notifyOnSync: true,
   excludePatterns: [],
   rpcOverrides: {}
 });
@@ -2731,8 +2745,14 @@ async function getSettings(storageArea) {
     languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
     translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
     fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
+    captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
     showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
+    desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
+    soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+    badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
+    notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
+    notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
     excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
     rpcOverrides
   };
@@ -3018,22 +3038,25 @@ async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
   }
   for (const sub of cloudSubtitles) {
     if (!sub?.cacheKey || !Array.isArray(sub.cues) || sub.cues.length === 0) continue;
-    if (!byKey.has(sub.cacheKey)) {
+    const prev = byKey.get(sub.cacheKey);
+    const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
+    const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
+    if (!prev || incomingTime && prevTime && incomingTime > prevTime) {
       byKey.set(sub.cacheKey, {
         cacheKey: sub.cacheKey,
-        artifactId: sub.artifactId || null,
-        notebookId: sub.notebookId || null,
-        mediaToken: sub.mediaToken || null,
-        title: sub.title || "Video Overview",
-        language: sub.language || "en",
-        provider: sub.provider || "neon-sync",
-        model: sub.model || "",
-        failoverUsed: false,
+        artifactId: sub.artifactId || prev?.artifactId || null,
+        notebookId: sub.notebookId || prev?.notebookId || null,
+        mediaToken: sub.mediaToken || prev?.mediaToken || null,
+        title: sub.title || prev?.title || "Video Overview",
+        language: sub.language || prev?.language || "en",
+        provider: sub.provider || prev?.provider || "neon-sync",
+        model: sub.model || prev?.model || "",
+        failoverUsed: Boolean(prev?.failoverUsed),
         cueCount: sub.cues.length,
-        durationSeconds: null,
-        extractedBytes: sub.extractedBytes || null,
-        originalBytes: sub.originalBytes || null,
-        latencyMs: sub.latencyMs || null,
+        durationSeconds: prev?.durationSeconds || null,
+        extractedBytes: sub.extractedBytes || prev?.extractedBytes || null,
+        originalBytes: sub.originalBytes || prev?.originalBytes || null,
+        latencyMs: sub.latencyMs || prev?.latencyMs || null,
         cues: sub.cues,
         createdAt: sub.savedAt || (/* @__PURE__ */ new Date()).toISOString()
       });
@@ -3095,6 +3118,50 @@ async function clearDebugLogs(storageArea) {
   } catch {
   }
 }
+async function getNotifications(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.NOTIFICATIONS);
+    const list = raw?.[STORAGE_KEYS.NOTIFICATIONS];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+async function appendNotification(item, storageArea) {
+  const store = resolveStorage(storageArea);
+  const existing = await getNotifications(store);
+  const record = {
+    id: item?.id || `ntf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    kind: String(item?.kind || "info"),
+    title: String(item?.title || "LM Subs").slice(0, 140),
+    body: String(item?.body || "").slice(0, 280),
+    cacheKey: item?.cacheKey || null,
+    provider: item?.provider || null,
+    read: Boolean(item?.read),
+    createdAt: item?.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const next = [record, ...existing.filter((n) => n?.id !== record.id)].slice(
+    0,
+    MAX_NOTIFICATIONS
+  );
+  await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: next });
+  return { notification: record, notifications: next };
+}
+async function markNotificationsRead({ id = null } = {}, storageArea) {
+  const store = resolveStorage(storageArea);
+  const existing = await getNotifications(store);
+  const next = existing.map(
+    (n) => !id || n.id === id ? { ...n, read: true } : n
+  );
+  await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: next });
+  return next;
+}
+async function clearNotifications(storageArea) {
+  const store = resolveStorage(storageArea);
+  await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: [] });
+  return [];
+}
 
 // src/background/service-worker.js
 var STAGED_AUDIO_TTL_MS = 5 * 60 * 1e3;
@@ -3134,12 +3201,134 @@ function createRuntimeDispatcher({
   storageArea = globalThis.chrome?.storage?.local,
   fetchImpl = globalThis.fetch,
   tabsApi = globalThis.chrome?.tabs,
-  permissionsApi = globalThis.chrome?.permissions
+  permissionsApi = globalThis.chrome?.permissions,
+  actionApi = globalThis.chrome?.action,
+  notificationsApi = globalThis.chrome?.notifications
 } = {}) {
   const inFlightPromises = /* @__PURE__ */ new Map();
   const stagedAudioJobs = /* @__PURE__ */ new Map();
   const memoryDebugLogs = [];
   let debugLogsHydrated = false;
+  async function syncToolbarBadge({ transientState = null } = {}) {
+    if (!actionApi?.setBadgeText) return;
+    try {
+      const [settings, notifications] = await Promise.all([
+        getSettings(storageArea),
+        getNotifications(storageArea)
+      ]);
+      if (!settings.badgeAlerts) {
+        await actionApi.setBadgeText({ text: "" });
+        return;
+      }
+      if (transientState === "working") {
+        await actionApi.setBadgeBackgroundColor?.({ color: "#0055D4" });
+        await actionApi.setBadgeText({ text: "..." });
+        return;
+      }
+      if (transientState === "error") {
+        await actionApi.setBadgeBackgroundColor?.({ color: "#B42318" });
+        await actionApi.setBadgeText({ text: "!" });
+        return;
+      }
+      const unread = notifications.filter((n) => n && !n.read);
+      if (unread.length === 0) {
+        await actionApi.setBadgeText({ text: "" });
+        return;
+      }
+      const newestKind = unread[0]?.kind || "info";
+      const badgeColor = newestKind === "error" ? "#B42318" : newestKind === "ready" ? "#166534" : "#0055D4";
+      await actionApi.setBadgeBackgroundColor?.({ color: badgeColor });
+      await actionApi.setBadgeText({
+        text: unread.length > 99 ? "99+" : String(unread.length)
+      });
+    } catch {
+    }
+  }
+  async function fireDesktopAlertIfPermitted({ id, title, body }) {
+    if (!notificationsApi?.create) return false;
+    try {
+      if (permissionsApi?.contains) {
+        const granted = await new Promise((resolve) => {
+          try {
+            const maybe = permissionsApi.contains(
+              { permissions: ["notifications"] },
+              (res) => resolve(Boolean(res))
+            );
+            if (maybe && typeof maybe.then === "function") {
+              maybe.then((r) => resolve(Boolean(r))).catch(() => resolve(false));
+            }
+          } catch {
+            resolve(false);
+          }
+        });
+        if (!granted) return false;
+      }
+      const iconUrl = globalThis.chrome?.runtime?.getURL?.("icons/icon128.png") || "icons/icon128.png";
+      await new Promise((resolve) => {
+        try {
+          const maybe = notificationsApi.create(
+            id || `lmsubs_${Date.now()}`,
+            {
+              type: "basic",
+              iconUrl,
+              title: String(title || "LM Subs"),
+              message: String(body || "")
+            },
+            () => {
+              void globalThis.chrome?.runtime?.lastError;
+              resolve(true);
+            }
+          );
+          if (maybe && typeof maybe.then === "function") {
+            maybe.then(() => resolve(true)).catch(() => resolve(false));
+          } else if (notificationsApi.create.length < 3) {
+            resolve(true);
+          }
+        } catch {
+          resolve(false);
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function emitExtensionNotification({
+    kind = "info",
+    title = "LM Subs",
+    body = "",
+    cacheKey = null,
+    provider = null,
+    fireDesktop = false
+  } = {}) {
+    const settings = await getSettings(storageArea);
+    if (kind === "failover" && !settings.notifyOnFailover) {
+      return null;
+    }
+    if (kind === "sync" && !settings.notifyOnSync) {
+      return null;
+    }
+    const { notification } = await appendNotification(
+      {
+        kind,
+        title,
+        body,
+        cacheKey,
+        provider,
+        read: false
+      },
+      storageArea
+    );
+    await syncToolbarBadge();
+    if (fireDesktop && settings.desktopNotifications) {
+      await fireDesktopAlertIfPermitted({
+        id: notification.id,
+        title: notification.title,
+        body: notification.body
+      });
+    }
+    return notification;
+  }
   const REQUIRED_GOOGLE_ORIGINS = [
     "https://*.googleusercontent.com/*",
     "https://*.google.com/*",
@@ -3431,6 +3620,13 @@ function createRuntimeDispatcher({
       },
       [token, ...Object.values(pullRes.apiKeys || {})]
     );
+    await emitExtensionNotification({
+      kind: "sync",
+      title: "Cloud sync completed",
+      body: `${updatedProfile.subtitleCount} transcript(s) and ${Object.keys(updatedProfile.keyHints || {}).length} encrypted key(s) synced.`,
+      fireDesktop: false
+    }).catch(() => {
+    });
     return { ok: true, profile: updatedProfile };
   }
   async function handleSyncSignup(msg) {
@@ -4067,6 +4263,7 @@ function createRuntimeDispatcher({
         },
         storageArea
       );
+      await syncToolbarBadge({ transientState: "working" });
       let audioBundle = stagedAudio;
       if (!audioBundle) {
         notifyTabProgress(tabId, {
@@ -4174,6 +4371,34 @@ function createRuntimeDispatcher({
         },
         storageArea
       );
+      if (txResult.failoverUsed) {
+        await emitExtensionNotification({
+          kind: "failover",
+          title: `Switched to ${txResult.providerName}`,
+          body: `Primary provider hit a limit or timeout on "${savedEntry.title}". Completed via ${txResult.providerName}.`,
+          cacheKey: savedEntry.cacheKey,
+          provider: txResult.provider,
+          fireDesktop: false
+        }).catch(() => {
+        });
+      }
+      await emitExtensionNotification({
+        kind: "ready",
+        title: `Subtitles ready: ${savedEntry.title}`,
+        body: `${savedEntry.cueCount} cues generated in ${(txResult.latencyMs / 1e3).toFixed(1)}s via ${txResult.providerName}.`,
+        cacheKey: savedEntry.cacheKey,
+        provider: txResult.provider,
+        fireDesktop: true
+      }).catch(() => {
+      });
+      notifyTabMessage(tabId, {
+        type: RUNTIME_MESSAGE.SUBTITLES_READY,
+        cacheKey: savedEntry.cacheKey,
+        artifactId: savedEntry.artifactId,
+        title: savedEntry.title,
+        cueCount: savedEntry.cueCount,
+        provider: txResult.providerName
+      });
       getCloudSyncProfile(storageArea).then((prof) => {
         if (prof.connected && prof.autoSync) {
           return runBidirectionalCloudSync({ pushOnly: true });
@@ -4208,6 +4433,15 @@ function createRuntimeDispatcher({
         storageArea
       ).catch(() => {
       });
+      await emitExtensionNotification({
+        kind: "error",
+        title: `Subtitle error: ${artifact.title || "Video Overview"}`,
+        body: safeError,
+        cacheKey,
+        fireDesktop: true
+      }).catch(() => {
+      });
+      await syncToolbarBadge({ transientState: "error" });
       return {
         ok: false,
         error: safeError,
@@ -4304,6 +4538,98 @@ function createRuntimeDispatcher({
         });
         sendResponse({ ok: true, entry: saved });
       }).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.UPDATE_CACHED_SUBTITLES) {
+      (async () => {
+        if (!msg.cacheKey) {
+          return { ok: false, error: "cacheKey is required." };
+        }
+        const existing = await findCachedSubtitles(
+          { cacheKey: msg.cacheKey },
+          storageArea
+        );
+        if (!existing) {
+          return { ok: false, error: "Transcript not found in local cache." };
+        }
+        const cleanedCues = normalizeAndSortCues(msg.cues || []);
+        if (cleanedCues.length === 0) {
+          return { ok: false, error: "Transcript must keep at least one valid cue." };
+        }
+        const saved = await saveCachedSubtitles(
+          {
+            ...existing,
+            title: typeof msg.title === "string" && msg.title.trim() ? msg.title.trim() : existing.title,
+            cues: cleanedCues
+          },
+          storageArea
+        );
+        await emitExtensionNotification({
+          kind: "edit",
+          title: `Saved cue edits: ${saved.title}`,
+          body: `Updated ${saved.cueCount} synchronized cues.`,
+          cacheKey: saved.cacheKey,
+          fireDesktop: false
+        }).catch(() => {
+        });
+        getCloudSyncProfile(storageArea).then((prof) => {
+          if (prof.connected && prof.autoSync) {
+            return runBidirectionalCloudSync({ pushOnly: true });
+          }
+          return null;
+        }).catch(() => {
+        });
+        return { ok: true, entry: saved };
+      })().then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.GET_NOTIFICATIONS) {
+      getNotifications(storageArea).then((notifications) => {
+        const unreadCount = notifications.filter((n) => !n.read).length;
+        sendResponse({ ok: true, unreadCount, notifications });
+      }).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.MARK_NOTIFICATIONS_READ) {
+      markNotificationsRead({ id: msg.id || null }, storageArea).then(async (notifications) => {
+        await syncToolbarBadge();
+        const unreadCount = notifications.filter((n) => !n.read).length;
+        sendResponse({ ok: true, unreadCount, notifications });
+      }).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.CLEAR_NOTIFICATIONS) {
+      clearNotifications(storageArea).then(async () => {
+        await syncToolbarBadge();
+        sendResponse({ ok: true, unreadCount: 0, notifications: [] });
+      }).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION) {
+      (async () => {
+        const created = await emitExtensionNotification({
+          kind: "ready",
+          title: "LM Subs desktop alerts active",
+          body: "You will receive an alert when background Video Overviews finish captioning.",
+          fireDesktop: true
+        });
+        const osDispatched = await fireDesktopAlertIfPermitted({
+          id: `test_${Date.now()}`,
+          title: "LM Subs desktop alerts active",
+          body: "Background Video Overview alerts are ready."
+        });
+        return { ok: true, notification: created, osDispatched };
+      })().then((res) => sendResponse(res)).catch(
         (err) => sendResponse({ ok: false, error: err?.message || String(err) })
       );
       return true;

@@ -18,6 +18,7 @@ import {
   deleteCachedSubtitles,
   getCloudSyncProfile,
   getModelForProvider,
+  getNotifications,
   getSavedKeyPresenceMap,
   getSettings,
   getSubtitleCacheList,
@@ -25,7 +26,13 @@ import {
   saveSettings,
   setApiKey,
 } from "../lib/storage.js";
-import { formatTxt, serializeSubtitles } from "../lib/subtitles.js";
+import {
+  formatTimestamp,
+  formatTxt,
+  parseTimestampSec,
+  searchCues,
+  serializeSubtitles,
+} from "../lib/subtitles.js";
 import { createBrandMarkSvg } from "../ui/brand-icon.js";
 
 function sendRuntime(msg) {
@@ -98,10 +105,23 @@ async function initOptions() {
   const optLanguageHint = document.getElementById("opt-language-hint");
   const optTranslateTo = document.getElementById("opt-translate-to");
   const optFontSize = document.getElementById("opt-font-size");
+  const optCaptionStyle = document.getElementById("opt-caption-style");
   const optOffsetSec = document.getElementById("opt-offset-sec");
   const optExcludePatterns = document.getElementById("opt-exclude-patterns");
   const saveBehaviorBtn = document.getElementById("save-behavior-btn");
   const savedPill = document.getElementById("settings-saved-pill");
+
+  // Notifications & Desktop Alerts elements
+  const optNotifUnreadBadge = document.getElementById("opt-notif-unread-badge");
+  const optDesktopNotifications = document.getElementById("opt-desktop-notifications");
+  const optBadgeAlerts = document.getElementById("opt-badge-alerts");
+  const optSoundAlerts = document.getElementById("opt-sound-alerts");
+  const optNotifyFailover = document.getElementById("opt-notify-failover");
+  const optNotifySync = document.getElementById("opt-notify-sync");
+  const optTestNotifBtn = document.getElementById("opt-test-notif-btn");
+  const optMarkNotifReadBtn = document.getElementById("opt-mark-notif-read-btn");
+  const optClearNotifBtn = document.getElementById("opt-clear-notif-btn");
+  const optNotifList = document.getElementById("opt-notif-list");
 
   // Account & Cloud Sync elements
   const optSyncBadge = document.getElementById("opt-sync-badge");
@@ -143,6 +163,7 @@ async function initOptions() {
   const cacheEmpty = document.getElementById("cache-empty");
   const cacheTableWrap = document.getElementById("cache-table-wrap");
   const cacheTbody = document.getElementById("cache-tbody");
+  const cacheSearchInput = document.getElementById("cache-search-input");
   const exportAllVaultBtn = document.getElementById("export-all-vault-btn");
   const clearCacheBtn = document.getElementById("clear-cache-btn");
 
@@ -158,12 +179,15 @@ async function initOptions() {
   const optClearDebugBtn = document.getElementById("opt-clear-debug-btn");
   const debugLogViewer = document.getElementById("debug-log-viewer");
   let missingOriginsForOptions = [];
+  let cacheFilterQuery = "";
+  let editingCacheKey = null;
 
-  let [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
+  let [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
     getSettings(),
     getSavedKeyPresenceMap(),
     getSubtitleCacheList(),
     getCloudSyncProfile(),
+    getNotifications(),
   ]);
 
   // Collapsible provider rows: start compact (all collapsed) if any key exists;
@@ -301,15 +325,17 @@ async function initOptions() {
   }
 
   async function reloadAllLocalState() {
-    [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
+    [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getSubtitleCacheList(),
       getCloudSyncProfile(),
+      getNotifications(),
     ]);
     populateForm();
     renderSyncPanel();
     renderProviderQueue();
+    renderNotificationsPanel();
     renderCacheTable();
     await renderStatisticsPanel();
   }
@@ -332,13 +358,78 @@ async function initOptions() {
     optAutoGenerate.checked = settings.autoOnGenerate;
     optAutoExisting.checked = settings.autoOnExistingVideos;
     optShowToast.checked = settings.showToast;
+    if (optDesktopNotifications) {
+      optDesktopNotifications.checked = Boolean(settings.desktopNotifications);
+    }
+    if (optBadgeAlerts) optBadgeAlerts.checked = Boolean(settings.badgeAlerts);
+    if (optSoundAlerts) optSoundAlerts.checked = Boolean(settings.soundAlerts);
+    if (optNotifyFailover) {
+      optNotifyFailover.checked = Boolean(settings.notifyOnFailover);
+    }
+    if (optNotifySync) optNotifySync.checked = Boolean(settings.notifyOnSync);
     optLanguageHint.value = settings.languageHint || "auto";
     optTranslateTo.value = settings.translateTo || "original";
     optFontSize.value = settings.fontSize || "medium";
+    if (optCaptionStyle) optCaptionStyle.value = settings.captionStyle || "classic";
     optOffsetSec.value = String(settings.subtitleOffsetSec || 0);
     optExcludePatterns.value = (settings.excludePatterns || []).join("\n");
     rpcCreateInput.value = settings.rpcOverrides?.CREATE_STUDIO || "";
     rpcPollInput.value = settings.rpcOverrides?.POLL_STUDIO || "";
+  }
+
+  function renderNotificationsPanel() {
+    if (!optNotifList) return;
+    const list = Array.isArray(notifications) ? notifications : [];
+    const unread = list.filter((n) => !n.read).length;
+
+    if (optNotifUnreadBadge) {
+      optNotifUnreadBadge.textContent = `${unread} unread`;
+      optNotifUnreadBadge.className = unread > 0 ? "badge badge-saved" : "badge";
+    }
+
+    optNotifList.textContent = "";
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.style.padding = "12px 14px";
+      empty.style.margin = "0";
+      empty.textContent =
+        "No notifications recorded yet. Completed captions, rate-limit failovers, and sync events appear here.";
+      optNotifList.appendChild(empty);
+      return;
+    }
+
+    for (const item of list.slice(0, 25)) {
+      const row = document.createElement("div");
+      row.className = "notif-row";
+      row.dataset.unread = item.read ? "false" : "true";
+
+      const head = document.createElement("div");
+      head.className = "notif-row-head";
+
+      const title = document.createElement("span");
+      title.className = "notif-row-title";
+      title.textContent = item.title || "LM Subs";
+
+      const time = document.createElement("span");
+      time.className = "hint";
+      time.style.margin = "0";
+      time.textContent = item.createdAt
+        ? new Date(item.createdAt).toLocaleString()
+        : "";
+
+      head.append(title, time);
+      row.appendChild(head);
+
+      if (item.body) {
+        const body = document.createElement("div");
+        body.className = "notif-row-body";
+        body.textContent = item.body;
+        row.appendChild(body);
+      }
+
+      optNotifList.appendChild(row);
+    }
   }
 
   function moveProviderInQueue(index, delta) {
@@ -667,14 +758,43 @@ async function initOptions() {
     cacheTbody.textContent = "";
     if (!cacheList || cacheList.length === 0) {
       cacheEmpty.style.display = "block";
+      cacheEmpty.textContent =
+        "No transcripts cached yet. Open a Video Overview in NotebookLM or sign in above to pull synced transcripts.";
       cacheTableWrap.style.display = "none";
       if (exportAllVaultBtn) exportAllVaultBtn.style.display = "none";
       return;
     }
 
+    if (exportAllVaultBtn) exportAllVaultBtn.style.display = "inline-flex";
+
+    const q = cacheFilterQuery.trim().toLowerCase();
+    const visibleItems = !q
+      ? cacheList.map((item) => ({ item, cueMatches: [] }))
+      : cacheList
+          .map((item) => {
+            const titleHit =
+              String(item.title || "")
+                .toLowerCase()
+                .includes(q) ||
+              String(item.provider || "")
+                .toLowerCase()
+                .includes(q);
+            const cueMatches = searchCues(item.cues || [], q);
+            return titleHit || cueMatches.length > 0
+              ? { item, cueMatches }
+              : null;
+          })
+          .filter(Boolean);
+
+    if (visibleItems.length === 0) {
+      cacheEmpty.style.display = "block";
+      cacheEmpty.textContent = "No transcripts or spoken lines match your search.";
+      cacheTableWrap.style.display = "none";
+      return;
+    }
+
     cacheEmpty.style.display = "none";
     cacheTableWrap.style.display = "block";
-    if (exportAllVaultBtn) exportAllVaultBtn.style.display = "inline-flex";
 
     const makeFormatButton = (item, label, fmt) => {
       const b = document.createElement("button");
@@ -698,12 +818,23 @@ async function initOptions() {
       return b;
     };
 
-    for (const item of cacheList) {
+    for (const { item, cueMatches } of visibleItems) {
       const tr = document.createElement("tr");
 
       const tdTitle = document.createElement("td");
-      tdTitle.style.fontWeight = "600";
-      tdTitle.textContent = item.title || "Video Overview";
+      const titleDiv = document.createElement("div");
+      titleDiv.style.fontWeight = "600";
+      titleDiv.textContent = item.title || "Video Overview";
+      tdTitle.appendChild(titleDiv);
+      if (cueMatches.length > 0) {
+        const matchSub = document.createElement("div");
+        matchSub.className = "hint";
+        matchSub.style.color = "var(--accent)";
+        matchSub.textContent = `${cueMatches.length} matching spoken line${
+          cueMatches.length === 1 ? "" : "s"
+        }`;
+        tdTitle.appendChild(matchSub);
+      }
 
       const tdProv = document.createElement("td");
       const badge = document.createElement("span");
@@ -740,10 +871,22 @@ async function initOptions() {
       const tdActions = document.createElement("td");
       const actRow = document.createElement("div");
       actRow.className = "row";
+      actRow.style.flexWrap = "wrap";
+
+      const isEditing = editingCacheKey === item.cacheKey;
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "btn btn-sm";
+      editBtn.textContent = isEditing ? "Close" : "Edit cues";
+      editBtn.addEventListener("click", () => {
+        editingCacheKey = isEditing ? null : item.cacheKey;
+        renderCacheTable();
+      });
 
       const srtBtn = makeFormatButton(item, ".SRT", "srt");
       const vttBtn = makeFormatButton(item, ".VTT", "vtt");
       const txtBtn = makeFormatButton(item, ".TXT", "txt");
+      const mdBtn = makeFormatButton(item, ".MD", "md");
       const jsonBtn = makeFormatButton(item, ".JSON", "json");
 
       const copyBtn = document.createElement("button");
@@ -784,11 +927,136 @@ async function initOptions() {
         renderStatisticsPanel();
       });
 
-      actRow.append(srtBtn, vttBtn, txtBtn, jsonBtn, copyBtn, delBtn);
+      actRow.append(editBtn, srtBtn, vttBtn, txtBtn, mdBtn, jsonBtn, copyBtn, delBtn);
       tdActions.appendChild(actRow);
 
       tr.append(tdTitle, tdProv, tdSlim, tdCues, tdActions);
       cacheTbody.appendChild(tr);
+
+      if (isEditing) {
+        const editTr = document.createElement("tr");
+        const editTd = document.createElement("td");
+        editTd.colSpan = 5;
+        editTd.style.background = "var(--bg-canvas)";
+
+        const editorWrap = document.createElement("div");
+        editorWrap.style.display = "grid";
+        editorWrap.style.gap = "8px";
+
+        const topBar = document.createElement("div");
+        topBar.className = "row";
+        topBar.style.justifyContent = "space-between";
+
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.value = item.title || "Video Overview";
+        titleInput.style.maxWidth = "340px";
+
+        const saveEditsBtn = document.createElement("button");
+        saveEditsBtn.type = "button";
+        saveEditsBtn.className = "btn btn-sm btn-primary";
+        saveEditsBtn.textContent = "Save cue edits";
+
+        const errLine = document.createElement("div");
+        errLine.className = "status-line";
+
+        const cueRowsBox = document.createElement("div");
+        cueRowsBox.className = "ext-cue-editor";
+
+        const draftRows = (item.cues || []).map((c) => ({
+          start: formatTimestamp(c.startSec, "."),
+          end: formatTimestamp(c.endSec, "."),
+          text: String(c.text || ""),
+          speaker: c.speaker || "",
+        }));
+
+        const rebuildRowsDom = () => {
+          cueRowsBox.textContent = "";
+          draftRows.forEach((dr, idx) => {
+            const rowEl = document.createElement("div");
+            rowEl.className = "ext-cue-row";
+
+            const sIn = document.createElement("input");
+            sIn.type = "text";
+            sIn.className = "mono-input";
+            sIn.value = dr.start;
+            sIn.addEventListener("input", () => {
+              dr.start = sIn.value;
+            });
+
+            const eIn = document.createElement("input");
+            eIn.type = "text";
+            eIn.className = "mono-input";
+            eIn.value = dr.end;
+            eIn.addEventListener("input", () => {
+              dr.end = eIn.value;
+            });
+
+            const tIn = document.createElement("input");
+            tIn.type = "text";
+            tIn.value = dr.text;
+            tIn.addEventListener("input", () => {
+              dr.text = tIn.value;
+            });
+
+            const rmBtn = document.createElement("button");
+            rmBtn.type = "button";
+            rmBtn.className = "btn btn-sm btn-danger";
+            rmBtn.textContent = "Remove";
+            rmBtn.addEventListener("click", () => {
+              draftRows.splice(idx, 1);
+              rebuildRowsDom();
+            });
+
+            rowEl.append(sIn, eIn, tIn, rmBtn);
+            cueRowsBox.appendChild(rowEl);
+          });
+        };
+        rebuildRowsDom();
+
+        saveEditsBtn.addEventListener("click", async () => {
+          const nextCues = [];
+          for (const dr of draftRows) {
+            const txt = String(dr.text || "").trim();
+            if (!txt) continue;
+            const s = parseTimestampSec(dr.start);
+            const e = parseTimestampSec(dr.end);
+            if (!Number.isFinite(s) || !Number.isFinite(e)) {
+              errLine.dataset.kind = "err";
+              errLine.textContent = "Enter valid HH:MM:SS.mmm timestamps.";
+              return;
+            }
+            nextCues.push({
+              startSec: s,
+              endSec: Math.max(s + 0.25, e),
+              text: txt,
+              ...(dr.speaker ? { speaker: dr.speaker } : {}),
+            });
+          }
+          saveEditsBtn.disabled = true;
+          const res = await sendRuntime({
+            type: RUNTIME_MESSAGE.UPDATE_CACHED_SUBTITLES,
+            cacheKey: item.cacheKey,
+            title: titleInput.value.trim(),
+            cues: nextCues,
+          });
+          saveEditsBtn.disabled = false;
+          if (!res?.ok) {
+            errLine.dataset.kind = "err";
+            errLine.textContent = res?.error || "Could not save edits.";
+            return;
+          }
+          editingCacheKey = null;
+          await reloadAllLocalState();
+          flashSavedPill();
+        });
+
+        topBar.append(titleInput, saveEditsBtn);
+        editorWrap.append(topBar, errLine, cueRowsBox);
+        editTd.appendChild(editorWrap);
+        editTr.appendChild(editTd);
+        cacheTbody.appendChild(editTr);
+      }
     }
   }
 
@@ -810,8 +1078,70 @@ async function initOptions() {
   populateForm();
   renderSyncPanel();
   renderProviderQueue();
+  renderNotificationsPanel();
   renderCacheTable();
   renderStatisticsPanel();
+
+  cacheSearchInput?.addEventListener("input", () => {
+    cacheFilterQuery = cacheSearchInput.value || "";
+    renderCacheTable();
+  });
+
+  async function saveNotificationToggles() {
+    settings = await saveSettings({
+      desktopNotifications: Boolean(optDesktopNotifications?.checked),
+      badgeAlerts: Boolean(optBadgeAlerts?.checked),
+      soundAlerts: Boolean(optSoundAlerts?.checked),
+      notifyOnFailover: Boolean(optNotifyFailover?.checked),
+      notifyOnSync: Boolean(optNotifySync?.checked),
+    });
+    flashSavedPill();
+    await sendRuntime({ type: RUNTIME_MESSAGE.GET_NOTIFICATIONS });
+  }
+
+  optDesktopNotifications?.addEventListener("change", async () => {
+    if (optDesktopNotifications.checked && chrome.permissions?.request) {
+      try {
+        await chrome.permissions.request({ permissions: ["notifications"] });
+      } catch {
+        // Ignore
+      }
+    }
+    await saveNotificationToggles();
+  });
+  optBadgeAlerts?.addEventListener("change", saveNotificationToggles);
+  optSoundAlerts?.addEventListener("change", saveNotificationToggles);
+  optNotifyFailover?.addEventListener("change", saveNotificationToggles);
+  optNotifySync?.addEventListener("change", saveNotificationToggles);
+
+  optTestNotifBtn?.addEventListener("click", async () => {
+    if (chrome.permissions?.request) {
+      try {
+        await chrome.permissions.request({ permissions: ["notifications"] });
+      } catch {
+        // Ignore
+      }
+    }
+    if (optDesktopNotifications) optDesktopNotifications.checked = true;
+    settings = await saveSettings({ desktopNotifications: true });
+    await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
+    notifications = await getNotifications();
+    renderNotificationsPanel();
+  });
+
+  optMarkNotifReadBtn?.addEventListener("click", async () => {
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.MARK_NOTIFICATIONS_READ,
+    });
+    notifications = res?.notifications || (await getNotifications());
+    renderNotificationsPanel();
+  });
+
+  optClearNotifBtn?.addEventListener("click", async () => {
+    await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_NOTIFICATIONS });
+    notifications = [];
+    renderNotificationsPanel();
+  });
 
   function openWebLocalCodePage() {
     const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
@@ -1085,6 +1415,7 @@ async function initOptions() {
       languageHint: optLanguageHint.value,
       translateTo: optTranslateTo.value,
       fontSize: optFontSize.value,
+      captionStyle: optCaptionStyle ? optCaptionStyle.value : settings.captionStyle,
       subtitleOffsetSec: Number(optOffsetSec.value) || 0,
       excludePatterns: patterns,
     });
@@ -1179,6 +1510,22 @@ async function initOptions() {
     await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS });
     await refreshDiagnosticsPanel();
   });
+
+  try {
+    chrome.storage?.onChanged?.addListener(async (changes, areaName) => {
+      if (areaName !== "local") return;
+      if (changes.notifications) {
+        notifications = await getNotifications();
+        renderNotificationsPanel();
+      }
+      if (changes.subtitleCache) {
+        cacheList = await getSubtitleCacheList();
+        renderCacheTable();
+      }
+    });
+  } catch {
+    // Ignore
+  }
 
   refreshDiagnosticsPanel();
 }

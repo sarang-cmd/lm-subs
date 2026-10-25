@@ -557,18 +557,28 @@ test("In-Player VideoSubtitleController.exportSubtitles mounts download anchor i
   assert.equal(controller.exportSubtitles("srt"), true);
   assert.equal(controller.exportSubtitles("vtt"), true);
   assert.equal(controller.exportSubtitles("txt"), true);
+  assert.equal(controller.exportSubtitles("md"), true);
   assert.equal(controller.exportSubtitles("json"), true);
 
-  assert.equal(clickedDownloads.length, 4);
+  assert.equal(clickedDownloads.length, 5);
   assert.deepEqual(
     clickedDownloads.map((d) => d.download),
     [
       "quantum-error-correction.srt",
       "quantum-error-correction.vtt",
       "quantum-error-correction.txt",
+      "quantum-error-correction-notes.md",
       "quantum-error-correction.json",
     ]
   );
+  // Verify interactive Transcript Drawer, Caption Style cycling, and Shortcuts popover
+  assert.equal(controller.toggleTranscriptDrawer(true), true);
+  assert.equal(controller.drawerEl.dataset.open, "true");
+  assert.equal(controller.cycleCaptionStyle(), "contrast");
+  assert.equal(controller.cycleCaptionStyle(), "minimal");
+  assert.equal(controller.cycleCaptionStyle(), "classic");
+  assert.equal(controller.toggleShortcutsHelp(true), true);
+  assert.equal(controller.shortcutsEl.dataset.open, "true");
   // Critical regression check: never appended to inert `document.body` outside `<dialog>`!
   assert.equal(appendedToBody.length, 0);
   assert.ok(clickedDownloads.every((d) => d.stoppedPropagation));

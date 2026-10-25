@@ -71,6 +71,7 @@
           <button id="download-latest-srt-btn" type="button" class="btn btn-sm">.SRT</button>
           <button id="download-latest-vtt-btn" type="button" class="btn btn-sm">.VTT</button>
           <button id="download-latest-txt-btn" type="button" class="btn btn-sm">.TXT</button>
+          <button id="download-latest-md-btn" type="button" class="btn btn-sm">.MD</button>
           <button id="download-latest-json-btn" type="button" class="btn btn-sm">.JSON</button>
           <button id="copy-latest-txt-btn" type="button" class="btn btn-sm btn-ink">Copy</button>
         </div>
@@ -201,6 +202,40 @@
               Open <a class="link" href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq Console</a> or <a class="link" href="https://console.mistral.ai/api-keys/" target="_blank" rel="noopener noreferrer">Mistral La Plateforme</a>, create an API key, and paste it above.
             </div>
           </details>
+        </div>
+      </details>
+    </section>
+
+    <!-- Collapsible Notifications & Desktop Alerts -->
+    <section class="popup-section">
+      <details id="popup-notifications-disclosure" class="compact-disclosure">
+        <summary>
+          <div class="row">
+            <span>Notifications</span>
+            <span id="popup-notif-badge" class="notif-unread-pill" style="display: none">0</span>
+          </div>
+          <div class="row">
+            <span id="popup-notif-summary" style="font-size: 11.5px; font-weight: 500; color: var(--ink-secondary)">
+              No unread alerts
+            </span>
+            <span class="disclosure-chevron" aria-hidden="true">▾</span>
+          </div>
+        </summary>
+        <div class="compact-disclosure-body" style="padding: 8px 10px 10px">
+          <div class="row" style="justify-content: space-between; margin-bottom: 8px">
+            <button id="popup-enable-os-notif-btn" type="button" class="btn btn-sm">
+              Enable desktop alerts
+            </button>
+            <div class="row">
+              <button id="popup-mark-read-btn" type="button" class="btn btn-sm">
+                Mark read
+              </button>
+              <button id="popup-clear-notif-btn" type="button" class="btn btn-sm btn-danger">
+                Clear
+              </button>
+            </div>
+          </div>
+          <div id="popup-notif-list" class="notif-list"></div>
         </div>
       </details>
     </section>

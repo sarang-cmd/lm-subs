@@ -129,7 +129,12 @@
     SYNC_GET_STATS: "LM_SUBS_SYNC_GET_STATS",
     SYNC_SIGNOUT: "LM_SUBS_SYNC_SIGNOUT",
     SYNC_NOW: "LM_SUBS_SYNC_NOW",
-    SYNC_STATUS: "LM_SUBS_SYNC_STATUS"
+    SYNC_STATUS: "LM_SUBS_SYNC_STATUS",
+    GET_NOTIFICATIONS: "LM_SUBS_GET_NOTIFICATIONS",
+    MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
+    CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
+    TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
+    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
   });
 
   // src/lib/audio-extract.js
@@ -419,6 +424,7 @@
     HISTORY: "subtitleHistory",
     LAST_STATUS: "lastStatus",
     DEBUG_LOGS: "debugLogs",
+    NOTIFICATIONS: "notifications",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
@@ -436,8 +442,15 @@
     translateTo: "original",
     fontSize: "medium",
     // "small" | "medium" | "large" | "xlarge"
+    captionStyle: "classic",
+    // "classic" | "contrast" | "minimal"
     subtitleOffsetSec: 0,
     showToast: true,
+    desktopNotifications: true,
+    soundAlerts: false,
+    badgeAlerts: true,
+    notifyOnFailover: true,
+    notifyOnSync: true,
     excludePatterns: [],
     rpcOverrides: {}
   });
@@ -506,8 +519,14 @@
       languageHint: typeof saved.languageHint === "string" && saved.languageHint ? saved.languageHint : "auto",
       translateTo: typeof saved.translateTo === "string" && saved.translateTo ? saved.translateTo : "original",
       fontSize: ["small", "medium", "large", "xlarge"].includes(saved.fontSize) ? saved.fontSize : "medium",
+      captionStyle: ["classic", "contrast", "minimal"].includes(saved.captionStyle) ? saved.captionStyle : "classic",
       subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
       showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
+      desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
+      soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+      badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
+      notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
+      notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
       excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
       rpcOverrides
     };
@@ -665,10 +684,44 @@
       lastSyncedAt: saved.lastSyncedAt || null
     };
   }
+  async function getNotifications(storageArea) {
+    try {
+      const store = resolveStorage(storageArea);
+      const raw = await store.get(STORAGE_KEYS.NOTIFICATIONS);
+      const list = raw?.[STORAGE_KEYS.NOTIFICATIONS];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
 
   // src/lib/subtitles.js
   var DEFAULT_MAX_LINE_CHARS = 42;
   var DEFAULT_MIN_DURATION_SEC = 0.85;
+  function parseTimestampSec(raw) {
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return Math.max(0, raw);
+    }
+    if (typeof raw !== "string") return NaN;
+    const trimmed = raw.trim().replace(",", ".");
+    const parts = trimmed.split(":");
+    if (parts.length < 2 || parts.length > 3) return NaN;
+    let hours = 0;
+    let minutes = 0;
+    let seconds = 0;
+    if (parts.length === 3) {
+      hours = Number(parts[0]);
+      minutes = Number(parts[1]);
+      seconds = Number(parts[2]);
+    } else {
+      minutes = Number(parts[0]);
+      seconds = Number(parts[1]);
+    }
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+      return NaN;
+    }
+    return Math.max(0, hours * 3600 + minutes * 60 + seconds);
+  }
   function formatTimestamp(seconds, separator = ",") {
     const clamped = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
     const totalMs = Math.round(clamped * 1e3);
@@ -838,6 +891,81 @@ ${blocks.join("\n\n")}
     return `${JSON.stringify(payload, null, 2)}
 `;
   }
+  function formatMarkdownNotes(cues, meta = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    const title = String(meta.title || "NotebookLM Video Overview").trim();
+    const lang = String(meta.language || "en").trim();
+    const lastEnd = normalized.length > 0 ? normalized[normalized.length - 1].endSec : 0;
+    const mins = Math.floor(lastEnd / 60);
+    const secs = Math.round(lastEnd % 60);
+    const durationLabel = `${mins}:${String(secs).padStart(2, "0")}`;
+    const lines = [
+      `# ${title}`,
+      "",
+      `- **Language:** ${lang}`,
+      `- **Duration:** ${durationLabel}`,
+      `- **Synchronized cues:** ${normalized.length}`,
+      ...meta.provider ? [`- **Transcribed via:** ${meta.provider}`] : [],
+      ""
+    ];
+    if (normalized.length === 0) {
+      lines.push("_No caption cues available._", "");
+      return lines.join("\n");
+    }
+    const SECTION_SPAN_SEC = 90;
+    const sections = [];
+    let current = null;
+    for (const cue of normalized) {
+      if (!current || cue.startSec - current.startSec >= SECTION_SPAN_SEC) {
+        current = {
+          startSec: cue.startSec,
+          endSec: cue.endSec,
+          items: []
+        };
+        sections.push(current);
+      }
+      current.endSec = Math.max(current.endSec, cue.endSec);
+      current.items.push(cue);
+    }
+    lines.push("## Study summary by timestamp", "");
+    sections.forEach((sec, idx) => {
+      const startStamp = formatTimestamp(sec.startSec, ".").slice(3, 8);
+      const endStamp = formatTimestamp(sec.endSec, ".").slice(3, 8);
+      lines.push(`### Part ${idx + 1} (${startStamp} to ${endStamp})`, "");
+      const prose = sec.items.map((c) => {
+        const clean = c.text.replace(/\s*\n\s*/g, " ").trim();
+        return c.speaker ? `**${c.speaker}:** ${clean}` : clean;
+      }).join(" ");
+      lines.push(prose, "");
+    });
+    lines.push("## Timestamped transcript", "");
+    for (const cue of normalized) {
+      const stamp = formatTimestamp(cue.startSec, ".").slice(3, 8);
+      const clean = cue.text.replace(/\s*\n\s*/g, " ").trim();
+      const speakerPrefix = cue.speaker ? `**${cue.speaker}:** ` : "";
+      lines.push(`- \`[${stamp}]\` ${speakerPrefix}${clean}`);
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
+  function searchCues(cues, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q || !Array.isArray(cues) || cues.length === 0) return [];
+    const matches = [];
+    for (let i = 0; i < cues.length; i++) {
+      const cue = cues[i];
+      const hay = `${cue?.speaker || ""} ${cue?.text || ""}`.toLowerCase();
+      if (hay.includes(q)) {
+        matches.push({
+          index: i,
+          startSec: cue.startSec,
+          endSec: cue.endSec,
+          text: String(cue.text || "").replace(/\s*\n\s*/g, " ").trim()
+        });
+      }
+    }
+    return matches;
+  }
   function slugifySubtitleFilename(title) {
     const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
     return slug || "notebooklm-video-overview";
@@ -862,6 +990,14 @@ ${blocks.join("\n\n")}
         extension: "txt",
         mimeType: "text/plain;charset=utf-8",
         filename: `${base}.txt`
+      };
+    }
+    if (fmt === "md" || fmt === "markdown") {
+      return {
+        content: formatMarkdownNotes(cues, meta),
+        extension: "md",
+        mimeType: "text/markdown;charset=utf-8",
+        filename: `${base}-notes.md`
       };
     }
     if (fmt === "json") {
@@ -995,10 +1131,21 @@ ${blocks.join("\n\n")}
     const optLanguageHint = document.getElementById("opt-language-hint");
     const optTranslateTo = document.getElementById("opt-translate-to");
     const optFontSize = document.getElementById("opt-font-size");
+    const optCaptionStyle = document.getElementById("opt-caption-style");
     const optOffsetSec = document.getElementById("opt-offset-sec");
     const optExcludePatterns = document.getElementById("opt-exclude-patterns");
     const saveBehaviorBtn = document.getElementById("save-behavior-btn");
     const savedPill = document.getElementById("settings-saved-pill");
+    const optNotifUnreadBadge = document.getElementById("opt-notif-unread-badge");
+    const optDesktopNotifications = document.getElementById("opt-desktop-notifications");
+    const optBadgeAlerts = document.getElementById("opt-badge-alerts");
+    const optSoundAlerts = document.getElementById("opt-sound-alerts");
+    const optNotifyFailover = document.getElementById("opt-notify-failover");
+    const optNotifySync = document.getElementById("opt-notify-sync");
+    const optTestNotifBtn = document.getElementById("opt-test-notif-btn");
+    const optMarkNotifReadBtn = document.getElementById("opt-mark-notif-read-btn");
+    const optClearNotifBtn = document.getElementById("opt-clear-notif-btn");
+    const optNotifList = document.getElementById("opt-notif-list");
     const optSyncBadge = document.getElementById("opt-sync-badge");
     const syncLoggedOutPanel = document.getElementById("sync-logged-out-panel");
     const syncLoggedInPanel = document.getElementById("sync-logged-in-panel");
@@ -1033,6 +1180,7 @@ ${blocks.join("\n\n")}
     const cacheEmpty = document.getElementById("cache-empty");
     const cacheTableWrap = document.getElementById("cache-table-wrap");
     const cacheTbody = document.getElementById("cache-tbody");
+    const cacheSearchInput = document.getElementById("cache-search-input");
     const exportAllVaultBtn = document.getElementById("export-all-vault-btn");
     const clearCacheBtn = document.getElementById("clear-cache-btn");
     const rpcCreateInput = document.getElementById("rpc-create-input");
@@ -1046,11 +1194,14 @@ ${blocks.join("\n\n")}
     const optClearDebugBtn = document.getElementById("opt-clear-debug-btn");
     const debugLogViewer = document.getElementById("debug-log-viewer");
     let missingOriginsForOptions = [];
-    let [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
+    let cacheFilterQuery = "";
+    let editingCacheKey = null;
+    let [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getSubtitleCacheList(),
-      getCloudSyncProfile()
+      getCloudSyncProfile(),
+      getNotifications()
     ]);
     const hasAnySavedKey = () => settings.queueOrder.some(
       (id) => id === "custom" ? Boolean(settings.customEnabled) : Boolean(presenceMap[id])
@@ -1162,15 +1313,17 @@ ${blocks.join("\n\n")}
       }
     }
     async function reloadAllLocalState() {
-      [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
+      [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
         getSettings(),
         getSavedKeyPresenceMap(),
         getSubtitleCacheList(),
-        getCloudSyncProfile()
+        getCloudSyncProfile(),
+        getNotifications()
       ]);
       populateForm();
       renderSyncPanel();
       renderProviderQueue();
+      renderNotificationsPanel();
       renderCacheTable();
       await renderStatisticsPanel();
     }
@@ -1191,13 +1344,65 @@ ${blocks.join("\n\n")}
       optAutoGenerate.checked = settings.autoOnGenerate;
       optAutoExisting.checked = settings.autoOnExistingVideos;
       optShowToast.checked = settings.showToast;
+      if (optDesktopNotifications) {
+        optDesktopNotifications.checked = Boolean(settings.desktopNotifications);
+      }
+      if (optBadgeAlerts) optBadgeAlerts.checked = Boolean(settings.badgeAlerts);
+      if (optSoundAlerts) optSoundAlerts.checked = Boolean(settings.soundAlerts);
+      if (optNotifyFailover) {
+        optNotifyFailover.checked = Boolean(settings.notifyOnFailover);
+      }
+      if (optNotifySync) optNotifySync.checked = Boolean(settings.notifyOnSync);
       optLanguageHint.value = settings.languageHint || "auto";
       optTranslateTo.value = settings.translateTo || "original";
       optFontSize.value = settings.fontSize || "medium";
+      if (optCaptionStyle) optCaptionStyle.value = settings.captionStyle || "classic";
       optOffsetSec.value = String(settings.subtitleOffsetSec || 0);
       optExcludePatterns.value = (settings.excludePatterns || []).join("\n");
       rpcCreateInput.value = settings.rpcOverrides?.CREATE_STUDIO || "";
       rpcPollInput.value = settings.rpcOverrides?.POLL_STUDIO || "";
+    }
+    function renderNotificationsPanel() {
+      if (!optNotifList) return;
+      const list = Array.isArray(notifications) ? notifications : [];
+      const unread = list.filter((n) => !n.read).length;
+      if (optNotifUnreadBadge) {
+        optNotifUnreadBadge.textContent = `${unread} unread`;
+        optNotifUnreadBadge.className = unread > 0 ? "badge badge-saved" : "badge";
+      }
+      optNotifList.textContent = "";
+      if (list.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "hint";
+        empty.style.padding = "12px 14px";
+        empty.style.margin = "0";
+        empty.textContent = "No notifications recorded yet. Completed captions, rate-limit failovers, and sync events appear here.";
+        optNotifList.appendChild(empty);
+        return;
+      }
+      for (const item of list.slice(0, 25)) {
+        const row = document.createElement("div");
+        row.className = "notif-row";
+        row.dataset.unread = item.read ? "false" : "true";
+        const head = document.createElement("div");
+        head.className = "notif-row-head";
+        const title = document.createElement("span");
+        title.className = "notif-row-title";
+        title.textContent = item.title || "LM Subs";
+        const time = document.createElement("span");
+        time.className = "hint";
+        time.style.margin = "0";
+        time.textContent = item.createdAt ? new Date(item.createdAt).toLocaleString() : "";
+        head.append(title, time);
+        row.appendChild(head);
+        if (item.body) {
+          const body = document.createElement("div");
+          body.className = "notif-row-body";
+          body.textContent = item.body;
+          row.appendChild(body);
+        }
+        optNotifList.appendChild(row);
+      }
     }
     function moveProviderInQueue(index, delta) {
       const order = [...settings.queueOrder];
@@ -1459,13 +1664,26 @@ ${blocks.join("\n\n")}
       cacheTbody.textContent = "";
       if (!cacheList || cacheList.length === 0) {
         cacheEmpty.style.display = "block";
+        cacheEmpty.textContent = "No transcripts cached yet. Open a Video Overview in NotebookLM or sign in above to pull synced transcripts.";
         cacheTableWrap.style.display = "none";
         if (exportAllVaultBtn) exportAllVaultBtn.style.display = "none";
         return;
       }
+      if (exportAllVaultBtn) exportAllVaultBtn.style.display = "inline-flex";
+      const q = cacheFilterQuery.trim().toLowerCase();
+      const visibleItems = !q ? cacheList.map((item) => ({ item, cueMatches: [] })) : cacheList.map((item) => {
+        const titleHit = String(item.title || "").toLowerCase().includes(q) || String(item.provider || "").toLowerCase().includes(q);
+        const cueMatches = searchCues(item.cues || [], q);
+        return titleHit || cueMatches.length > 0 ? { item, cueMatches } : null;
+      }).filter(Boolean);
+      if (visibleItems.length === 0) {
+        cacheEmpty.style.display = "block";
+        cacheEmpty.textContent = "No transcripts or spoken lines match your search.";
+        cacheTableWrap.style.display = "none";
+        return;
+      }
       cacheEmpty.style.display = "none";
       cacheTableWrap.style.display = "block";
-      if (exportAllVaultBtn) exportAllVaultBtn.style.display = "inline-flex";
       const makeFormatButton = (item, label, fmt) => {
         const b = document.createElement("button");
         b.type = "button";
@@ -1487,11 +1705,20 @@ ${blocks.join("\n\n")}
         });
         return b;
       };
-      for (const item of cacheList) {
+      for (const { item, cueMatches } of visibleItems) {
         const tr = document.createElement("tr");
         const tdTitle = document.createElement("td");
-        tdTitle.style.fontWeight = "600";
-        tdTitle.textContent = item.title || "Video Overview";
+        const titleDiv = document.createElement("div");
+        titleDiv.style.fontWeight = "600";
+        titleDiv.textContent = item.title || "Video Overview";
+        tdTitle.appendChild(titleDiv);
+        if (cueMatches.length > 0) {
+          const matchSub = document.createElement("div");
+          matchSub.className = "hint";
+          matchSub.style.color = "var(--accent)";
+          matchSub.textContent = `${cueMatches.length} matching spoken line${cueMatches.length === 1 ? "" : "s"}`;
+          tdTitle.appendChild(matchSub);
+        }
         const tdProv = document.createElement("td");
         const badge = document.createElement("span");
         badge.className = "badge";
@@ -1522,9 +1749,20 @@ ${blocks.join("\n\n")}
         const tdActions = document.createElement("td");
         const actRow = document.createElement("div");
         actRow.className = "row";
+        actRow.style.flexWrap = "wrap";
+        const isEditing = editingCacheKey === item.cacheKey;
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "btn btn-sm";
+        editBtn.textContent = isEditing ? "Close" : "Edit cues";
+        editBtn.addEventListener("click", () => {
+          editingCacheKey = isEditing ? null : item.cacheKey;
+          renderCacheTable();
+        });
         const srtBtn = makeFormatButton(item, ".SRT", "srt");
         const vttBtn = makeFormatButton(item, ".VTT", "vtt");
         const txtBtn = makeFormatButton(item, ".TXT", "txt");
+        const mdBtn = makeFormatButton(item, ".MD", "md");
         const jsonBtn = makeFormatButton(item, ".JSON", "json");
         const copyBtn = document.createElement("button");
         copyBtn.type = "button";
@@ -1562,10 +1800,119 @@ ${blocks.join("\n\n")}
           renderCacheTable();
           renderStatisticsPanel();
         });
-        actRow.append(srtBtn, vttBtn, txtBtn, jsonBtn, copyBtn, delBtn);
+        actRow.append(editBtn, srtBtn, vttBtn, txtBtn, mdBtn, jsonBtn, copyBtn, delBtn);
         tdActions.appendChild(actRow);
         tr.append(tdTitle, tdProv, tdSlim, tdCues, tdActions);
         cacheTbody.appendChild(tr);
+        if (isEditing) {
+          const editTr = document.createElement("tr");
+          const editTd = document.createElement("td");
+          editTd.colSpan = 5;
+          editTd.style.background = "var(--bg-canvas)";
+          const editorWrap = document.createElement("div");
+          editorWrap.style.display = "grid";
+          editorWrap.style.gap = "8px";
+          const topBar = document.createElement("div");
+          topBar.className = "row";
+          topBar.style.justifyContent = "space-between";
+          const titleInput = document.createElement("input");
+          titleInput.type = "text";
+          titleInput.value = item.title || "Video Overview";
+          titleInput.style.maxWidth = "340px";
+          const saveEditsBtn = document.createElement("button");
+          saveEditsBtn.type = "button";
+          saveEditsBtn.className = "btn btn-sm btn-primary";
+          saveEditsBtn.textContent = "Save cue edits";
+          const errLine = document.createElement("div");
+          errLine.className = "status-line";
+          const cueRowsBox = document.createElement("div");
+          cueRowsBox.className = "ext-cue-editor";
+          const draftRows = (item.cues || []).map((c) => ({
+            start: formatTimestamp(c.startSec, "."),
+            end: formatTimestamp(c.endSec, "."),
+            text: String(c.text || ""),
+            speaker: c.speaker || ""
+          }));
+          const rebuildRowsDom = () => {
+            cueRowsBox.textContent = "";
+            draftRows.forEach((dr, idx) => {
+              const rowEl = document.createElement("div");
+              rowEl.className = "ext-cue-row";
+              const sIn = document.createElement("input");
+              sIn.type = "text";
+              sIn.className = "mono-input";
+              sIn.value = dr.start;
+              sIn.addEventListener("input", () => {
+                dr.start = sIn.value;
+              });
+              const eIn = document.createElement("input");
+              eIn.type = "text";
+              eIn.className = "mono-input";
+              eIn.value = dr.end;
+              eIn.addEventListener("input", () => {
+                dr.end = eIn.value;
+              });
+              const tIn = document.createElement("input");
+              tIn.type = "text";
+              tIn.value = dr.text;
+              tIn.addEventListener("input", () => {
+                dr.text = tIn.value;
+              });
+              const rmBtn = document.createElement("button");
+              rmBtn.type = "button";
+              rmBtn.className = "btn btn-sm btn-danger";
+              rmBtn.textContent = "Remove";
+              rmBtn.addEventListener("click", () => {
+                draftRows.splice(idx, 1);
+                rebuildRowsDom();
+              });
+              rowEl.append(sIn, eIn, tIn, rmBtn);
+              cueRowsBox.appendChild(rowEl);
+            });
+          };
+          rebuildRowsDom();
+          saveEditsBtn.addEventListener("click", async () => {
+            const nextCues = [];
+            for (const dr of draftRows) {
+              const txt = String(dr.text || "").trim();
+              if (!txt) continue;
+              const s = parseTimestampSec(dr.start);
+              const e = parseTimestampSec(dr.end);
+              if (!Number.isFinite(s) || !Number.isFinite(e)) {
+                errLine.dataset.kind = "err";
+                errLine.textContent = "Enter valid HH:MM:SS.mmm timestamps.";
+                return;
+              }
+              nextCues.push({
+                startSec: s,
+                endSec: Math.max(s + 0.25, e),
+                text: txt,
+                ...dr.speaker ? { speaker: dr.speaker } : {}
+              });
+            }
+            saveEditsBtn.disabled = true;
+            const res = await sendRuntime({
+              type: RUNTIME_MESSAGE.UPDATE_CACHED_SUBTITLES,
+              cacheKey: item.cacheKey,
+              title: titleInput.value.trim(),
+              cues: nextCues
+            });
+            saveEditsBtn.disabled = false;
+            if (!res?.ok) {
+              errLine.dataset.kind = "err";
+              errLine.textContent = res?.error || "Could not save edits.";
+              return;
+            }
+            editingCacheKey = null;
+            await reloadAllLocalState();
+            flashSavedPill();
+          });
+          topBar.append(titleInput, saveEditsBtn);
+          editorWrap.append(topBar, errLine, cueRowsBox);
+          editTd.appendChild(editorWrap);
+          editTr.appendChild(editTd);
+          cacheTbody.appendChild(editTr);
+        }
       }
     }
     exportAllVaultBtn?.addEventListener("click", () => {
@@ -1586,8 +1933,62 @@ ${blocks.join("\n\n")}
     populateForm();
     renderSyncPanel();
     renderProviderQueue();
+    renderNotificationsPanel();
     renderCacheTable();
     renderStatisticsPanel();
+    cacheSearchInput?.addEventListener("input", () => {
+      cacheFilterQuery = cacheSearchInput.value || "";
+      renderCacheTable();
+    });
+    async function saveNotificationToggles() {
+      settings = await saveSettings({
+        desktopNotifications: Boolean(optDesktopNotifications?.checked),
+        badgeAlerts: Boolean(optBadgeAlerts?.checked),
+        soundAlerts: Boolean(optSoundAlerts?.checked),
+        notifyOnFailover: Boolean(optNotifyFailover?.checked),
+        notifyOnSync: Boolean(optNotifySync?.checked)
+      });
+      flashSavedPill();
+      await sendRuntime({ type: RUNTIME_MESSAGE.GET_NOTIFICATIONS });
+    }
+    optDesktopNotifications?.addEventListener("change", async () => {
+      if (optDesktopNotifications.checked && chrome.permissions?.request) {
+        try {
+          await chrome.permissions.request({ permissions: ["notifications"] });
+        } catch {
+        }
+      }
+      await saveNotificationToggles();
+    });
+    optBadgeAlerts?.addEventListener("change", saveNotificationToggles);
+    optSoundAlerts?.addEventListener("change", saveNotificationToggles);
+    optNotifyFailover?.addEventListener("change", saveNotificationToggles);
+    optNotifySync?.addEventListener("change", saveNotificationToggles);
+    optTestNotifBtn?.addEventListener("click", async () => {
+      if (chrome.permissions?.request) {
+        try {
+          await chrome.permissions.request({ permissions: ["notifications"] });
+        } catch {
+        }
+      }
+      if (optDesktopNotifications) optDesktopNotifications.checked = true;
+      settings = await saveSettings({ desktopNotifications: true });
+      await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
+      notifications = await getNotifications();
+      renderNotificationsPanel();
+    });
+    optMarkNotifReadBtn?.addEventListener("click", async () => {
+      const res = await sendRuntime({
+        type: RUNTIME_MESSAGE.MARK_NOTIFICATIONS_READ
+      });
+      notifications = res?.notifications || await getNotifications();
+      renderNotificationsPanel();
+    });
+    optClearNotifBtn?.addEventListener("click", async () => {
+      await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_NOTIFICATIONS });
+      notifications = [];
+      renderNotificationsPanel();
+    });
     function openWebLocalCodePage() {
       const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
       const url = `${base}/?view=library&ext_connect=1`;
@@ -1825,6 +2226,7 @@ ${blocks.join("\n\n")}
         languageHint: optLanguageHint.value,
         translateTo: optTranslateTo.value,
         fontSize: optFontSize.value,
+        captionStyle: optCaptionStyle ? optCaptionStyle.value : settings.captionStyle,
         subtitleOffsetSec: Number(optOffsetSec.value) || 0,
         excludePatterns: patterns
       });
@@ -1907,6 +2309,20 @@ ${blocks.join("\n\n")}
       await sendRuntime({ type: RUNTIME_MESSAGE.CLEAR_DEBUG_LOGS });
       await refreshDiagnosticsPanel();
     });
+    try {
+      chrome.storage?.onChanged?.addListener(async (changes, areaName) => {
+        if (areaName !== "local") return;
+        if (changes.notifications) {
+          notifications = await getNotifications();
+          renderNotificationsPanel();
+        }
+        if (changes.subtitleCache) {
+          cacheList = await getSubtitleCacheList();
+          renderCacheTable();
+        }
+      });
+    } catch {
+    }
     refreshDiagnosticsPanel();
   }
   document.addEventListener("DOMContentLoaded", initOptions);
