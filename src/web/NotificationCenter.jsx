@@ -66,7 +66,11 @@ export function NotificationCenter({
           for (const item of data.notifications) {
             if (!seenIdsRef.current.has(item.id) && !item.read && item.kind === "ready") {
               try {
-                new window.Notification(item.title, { body: item.body });
+                new window.Notification(item.title, {
+                  body: item.body,
+                  icon: "/assets/icon-128.png",
+                  badge: "/favicon.png",
+                });
               } catch {
                 // Ignore browser restrictions
               }
@@ -127,6 +131,8 @@ export function NotificationCenter({
       if (result === "granted") {
         new window.Notification("LM Subs alerts enabled", {
           body: "You will be notified when new Video Overview captions sync to your library.",
+          icon: "/assets/icon-128.png",
+          badge: "/favicon.png",
         });
       }
     } catch {
@@ -221,8 +227,23 @@ export function NotificationCenter({
               marginBottom: "8px",
             }}
           >
-            <Dialog.Title className="radix-dialog-title" style={{ margin: 0 }}>
-              Notifications
+            <Dialog.Title
+              className="radix-dialog-title"
+              style={{
+                margin: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "9px",
+              }}
+            >
+              <img
+                src="/assets/logo.svg"
+                alt=""
+                width="24"
+                height="24"
+                className="notif-brand-logo"
+              />
+              <span>Notifications</span>
             </Dialog.Title>
             <div style={{ display: "flex", gap: "6px" }}>
               {combined.length > 0 ? (
@@ -282,6 +303,14 @@ export function NotificationCenter({
               </div>
             ) : combined.length === 0 ? (
               <div className="notif-empty-state">
+                <img
+                  src="/assets/logo.svg"
+                  alt=""
+                  width="32"
+                  height="32"
+                  className="notif-brand-logo"
+                  style={{ marginBottom: "10px" }}
+                />
                 <p style={{ margin: "0 0 8px", fontWeight: 600, color: "var(--ink-primary)" }}>
                   No notifications yet
                 </p>
@@ -311,40 +340,49 @@ export function NotificationCenter({
                   className="notif-feed-row"
                   data-unread={item.read ? "false" : "true"}
                 >
-                  <div className="notif-feed-row-top">
-                    <span
-                      className="status-tag"
-                      data-tone={
-                        item.kind === "ready"
-                          ? "ok"
-                          : item.kind === "error"
-                            ? "err"
-                            : "neutral"
-                      }
-                    >
-                      {kindBadgeLabel(item.kind)}
-                    </span>
-                    <span className="notif-time">
-                      {formatRelativeTime(item.createdAt)}
-                    </span>
+                  <img
+                    src="/assets/logo.svg"
+                    alt=""
+                    width="24"
+                    height="24"
+                    className="notif-row-logo"
+                  />
+                  <div className="notif-feed-content">
+                    <div className="notif-feed-row-top">
+                      <span
+                        className="status-tag"
+                        data-tone={
+                          item.kind === "ready"
+                            ? "ok"
+                            : item.kind === "error"
+                              ? "err"
+                              : "neutral"
+                        }
+                      >
+                        {kindBadgeLabel(item.kind)}
+                      </span>
+                      <span className="notif-time">
+                        {formatRelativeTime(item.createdAt)}
+                      </span>
+                    </div>
+                    <div className="notif-feed-title">{item.title}</div>
+                    {item.body ? (
+                      <div className="notif-feed-body">{item.body}</div>
+                    ) : null}
+                    {item.cacheKey && onSelectTranscript ? (
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{ marginTop: "8px" }}
+                        onClick={() => {
+                          setOpen(false);
+                          onSelectTranscript(item.cacheKey);
+                        }}
+                      >
+                        Open in library
+                      </button>
+                    ) : null}
                   </div>
-                  <div className="notif-feed-title">{item.title}</div>
-                  {item.body ? (
-                    <div className="notif-feed-body">{item.body}</div>
-                  ) : null}
-                  {item.cacheKey && onSelectTranscript ? (
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      style={{ marginTop: "8px" }}
-                      onClick={() => {
-                        setOpen(false);
-                        onSelectTranscript(item.cacheKey);
-                      }}
-                    >
-                      Open in library
-                    </button>
-                  ) : null}
                 </div>
               ))
             )}

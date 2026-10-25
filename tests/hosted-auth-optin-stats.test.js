@@ -6,6 +6,8 @@ import { createSyncApp } from "../server/app.js";
 import { createDatabaseClient } from "../server/db.js";
 import { createRuntimeDispatcher } from "../src/background/service-worker.js";
 import { RUNTIME_MESSAGE } from "../src/config/selectors.js";
+import { createToastManager } from "../src/content/toast.js";
+import { LM_SUBS_LOGO_DATA_URI, createBrandLogoElement } from "../src/lib/brand-logo.js";
 import { setApiKey } from "../src/lib/storage.js";
 
 function createMemoryStorage() {
@@ -691,10 +693,99 @@ test("Notifications Center, Desktop OS Alerts, Toolbar Badge, Inline Cue Editor,
   assert.equal(badgeTexts.at(-1), "1", "Toolbar badge should show unread count '1' on completion");
   assert.equal(osAlerts.length, 1, "OS desktop notification should fire when permitted");
   assert.ok(osAlerts[0].opts.title.includes("Quantum Computing Overview"));
+  assert.equal(
+    osAlerts[0].opts.iconUrl,
+    "icons/icon128.png",
+    "OS desktop notification must include the LM Subs 128px logo icon"
+  );
   assert.ok(
     tabMessages.some((m) => m.tabId === 42 && m.payload.type === RUNTIME_MESSAGE.SUBTITLES_READY),
     "Background worker should notify originating tab via SUBTITLES_READY"
   );
+
+  // Verify brand logo presence across Web NotificationCenter, Manifest web_accessible_resources, and In-Page Shadow Toast
+  const notifCenterSrc = fs.readFileSync(
+    path.resolve("src/web/NotificationCenter.jsx"),
+    "utf8"
+  );
+  assert.ok(
+    notifCenterSrc.includes('icon: "/assets/icon-128.png"') &&
+      notifCenterSrc.includes('src="/assets/logo.svg"'),
+    "NotificationCenter.jsx must render /assets/logo.svg and pass /assets/icon-128.png to OS notifications"
+  );
+
+  const manifestJson = JSON.parse(
+    fs.readFileSync(path.resolve("extension/manifest.json"), "utf8")
+  );
+  assert.ok(
+    manifestJson.web_accessible_resources?.[0]?.resources?.includes("icons/icon128.png"),
+    "manifest.json must expose icons/icon128.png to NotebookLM origins for tab OS notifications"
+  );
+  assert.ok(LM_SUBS_LOGO_DATA_URI.startsWith("data:image/svg+xml;utf8,"));
+
+  // Verify Trusted-Types-safe toast mounts the LM Subs squircle SVG logo inside closed ShadowRoot
+  const shadowNodes = [];
+  const makeNode = (tag) => {
+    const attrs = {};
+    const children = [];
+    return {
+      tagName: String(tag).toUpperCase(),
+      style: {},
+      dataset: {},
+      attrs,
+      children,
+      set innerHTML(_v) {
+        throw new Error("TrustedHTML violation: toast must never assign innerHTML");
+      },
+      setAttribute(k, v) {
+        attrs[k] = String(v);
+      },
+      append(...items) {
+        children.push(...items);
+      },
+      appendChild(item) {
+        children.push(item);
+        return item;
+      },
+      addEventListener() {},
+      contains() {
+        return true;
+      },
+      remove() {},
+      attachShadow() {
+        return {
+          append(...items) {
+            shadowNodes.push(...items);
+          },
+        };
+      },
+    };
+  };
+  const mockToastDoc = {
+    body: makeNode("body"),
+    getElementById: () => null,
+    createElement: makeNode,
+    createElementNS: (_ns, tag) => makeNode(tag),
+  };
+  const svgMark = createBrandLogoElement(mockToastDoc, { size: 26 });
+  assert.equal(svgMark.tagName, "SVG");
+  assert.equal(svgMark.children.length, 6);
+
+  const toastMgr = createToastManager(mockToastDoc);
+  toastMgr.show({
+    title: "Subtitles ready (18 cues)",
+    detail: "Groq · Video Overview",
+    kind: "success",
+    durationMs: 0,
+  });
+  const mountedToast = shadowNodes.find((n) => n.className === "toast");
+  assert.ok(mountedToast, "Toast element must mount inside closed ShadowRoot");
+  assert.equal(
+    mountedToast.children[0].className,
+    "logo-wrap",
+    "Toast must lead with .logo-wrap containing the LM Subs brand mark"
+  );
+  assert.equal(mountedToast.children[0].children[0].tagName, "SVG");
 
   // Update cached subtitles via UPDATE_CACHED_SUBTITLES
   const updateCachedRes = await invokeDispatcher(dispatcher, {

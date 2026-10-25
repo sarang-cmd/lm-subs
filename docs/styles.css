@@ -1243,9 +1243,28 @@ textarea:focus-visible,
   border-top: 1px solid var(--border-hairline);
 }
 
+.notif-brand-logo,
+.notif-row-logo {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
+.notif-row-logo {
+  margin-top: 2px;
+}
+
 .notif-feed-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
   padding: 12px 4px;
   border-bottom: 1px solid var(--border-hairline);
+}
+
+.notif-feed-content {
+  min-width: 0;
+  flex: 1;
 }
 
 .notif-feed-row[data-unread="true"] {

@@ -2,10 +2,12 @@
  * Isolated Shadow-DOM Status and Action Toast (`src/content/toast.js`).
  *
  * Uses a closed ShadowRoot so NotebookLM's Angular Material styles cannot bleed
- * inward and our styles never touch the host document.
+ * inward and our styles never touch the host document. Renders the genuine
+ * LM Subs squircle brand mark via Trusted-Types-safe SVG DOM APIs.
  */
 
 import { DOM_SELECTORS } from "../config/selectors.js";
+import { createBrandLogoElement } from "../lib/brand-logo.js";
 
 const TOAST_CSS = `
   :host {
@@ -21,9 +23,9 @@ const TOAST_CSS = `
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    max-width: 420px;
-    padding: 10px 12px 10px 14px;
-    border-radius: 8px;
+    max-width: 430px;
+    padding: 9px 11px 9px 11px;
+    border-radius: 9px;
     background: #111315;
     color: #f6f7f8;
     border: 1px solid #272b33;
@@ -45,11 +47,29 @@ const TOAST_CSS = `
       transform: none;
     }
   }
+  .logo-wrap {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .brand-logo {
+    width: 26px;
+    height: 26px;
+    display: block;
+    border-radius: 6px;
+  }
   .dot {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    flex-shrink: 0;
+    border: 1.5px solid #111315;
     background: #9ca3af;
   }
   .toast[data-kind="working"] .dot {
@@ -154,11 +174,18 @@ export function createToastManager(doc = globalThis.document) {
 
     toastEl = doc.createElement("div");
     toastEl.className = "toast";
-    toastEl.setAttribute("role", "status");
-    toastEl.setAttribute("aria-live", "polite");
+    toastEl.setAttribute?.("role", "status");
+    toastEl.setAttribute?.("aria-live", "polite");
 
+    const logoWrap = doc.createElement("span");
+    logoWrap.className = "logo-wrap";
+    const logoMark = createBrandLogoElement(doc, {
+      size: 26,
+      className: "brand-logo",
+    });
     const dot = doc.createElement("span");
     dot.className = "dot";
+    logoWrap.append(logoMark, dot);
 
     const body = doc.createElement("div");
     body.className = "body";
@@ -183,7 +210,7 @@ export function createToastManager(doc = globalThis.document) {
     closeBtn = doc.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "close-btn";
-    closeBtn.setAttribute("aria-label", "Dismiss notification");
+    closeBtn.setAttribute?.("aria-label", "Dismiss notification");
     closeBtn.textContent = "×";
     closeBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -191,7 +218,7 @@ export function createToastManager(doc = globalThis.document) {
     });
 
     body.append(titleEl, detailEl);
-    toastEl.append(dot, body, actionBtn, closeBtn);
+    toastEl.append(logoWrap, body, actionBtn, closeBtn);
     shadow.append(style, toastEl);
     doc.body.appendChild(host);
     return true;

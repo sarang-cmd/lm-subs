@@ -32,6 +32,10 @@ import {
   summarizeMediaUrlForDebug,
 } from "../lib/batchexecute.js";
 import {
+  LM_SUBS_LOGO_DATA_URI,
+  resolveExtensionLogoUrl,
+} from "../lib/brand-logo.js";
+import {
   resolveSubtitleCacheKey,
   shouldGenerateSubtitles,
 } from "../lib/decide.js";
@@ -350,8 +354,16 @@ export async function initContentCoordinator({
     try {
       const Notif = win.Notification;
       if (Notif && Notif.permission === "granted") {
+        const iconUrl = runtime?.getURL
+          ? resolveExtensionLogoUrl(runtime, 128)
+          : LM_SUBS_LOGO_DATA_URI;
+        const badgeUrl = runtime?.getURL
+          ? resolveExtensionLogoUrl(runtime, 48)
+          : LM_SUBS_LOGO_DATA_URI;
         new Notif(String(title || "LM Subs"), {
           body: String(body || ""),
+          icon: iconUrl,
+          badge: badgeUrl,
         });
       }
     } catch {

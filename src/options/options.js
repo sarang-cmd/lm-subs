@@ -404,6 +404,16 @@ async function initOptions() {
       row.className = "notif-row";
       row.dataset.unread = item.read ? "false" : "true";
 
+      const logo = document.createElement("img");
+      logo.src = "icons/icon32.png";
+      logo.alt = "";
+      logo.width = 22;
+      logo.height = 22;
+      logo.className = "notif-row-logo";
+
+      const content = document.createElement("div");
+      content.className = "notif-row-content";
+
       const head = document.createElement("div");
       head.className = "notif-row-head";
 
@@ -419,15 +429,16 @@ async function initOptions() {
         : "";
 
       head.append(title, time);
-      row.appendChild(head);
+      content.appendChild(head);
 
       if (item.body) {
         const body = document.createElement("div");
         body.className = "notif-row-body";
         body.textContent = item.body;
-        row.appendChild(body);
+        content.appendChild(body);
       }
 
+      row.append(logo, content);
       optNotifList.appendChild(row);
     }
   }

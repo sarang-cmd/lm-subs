@@ -33,6 +33,7 @@ import {
   isTrustedGoogleMediaUrl,
   summarizeMediaUrlForDebug,
 } from "../lib/batchexecute.js";
+import { resolveExtensionLogoUrl } from "../lib/brand-logo.js";
 import { resolveSubtitleCacheKey } from "../lib/decide.js";
 import {
   getProviderOriginPattern,
@@ -184,9 +185,7 @@ export function createRuntimeDispatcher({
         if (!granted) return false;
       }
 
-      const iconUrl =
-        globalThis.chrome?.runtime?.getURL?.("icons/icon128.png") ||
-        "icons/icon128.png";
+      const iconUrl = resolveExtensionLogoUrl(globalThis.chrome?.runtime, 128);
       await new Promise((resolve) => {
         try {
           const maybe = notificationsApi.create(
@@ -1807,7 +1806,7 @@ export function createRuntimeDispatcher({
           kind: "ready",
           title: "LM Subs desktop alerts active",
           body: "You will receive an alert when background Video Overviews finish captioning.",
-          fireDesktop: true,
+          fireDesktop: false,
         });
         const osDispatched = await fireDesktopAlertIfPermitted({
           id: `test_${Date.now()}`,

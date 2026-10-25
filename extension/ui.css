@@ -823,9 +823,24 @@ details.compact-disclosure[open] .disclosure-chevron {
   overscroll-behavior: contain;
 }
 
+.notif-inline-logo,
+.notif-row-logo {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 5px;
+}
+
 .notif-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-hairline);
+}
+
+.notif-row-content {
+  min-width: 0;
+  flex: 1;
 }
 
 .notif-row:last-child {

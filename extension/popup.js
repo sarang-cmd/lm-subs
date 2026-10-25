@@ -1344,6 +1344,14 @@ ${blocks.join("\n\n")}
         const row = document.createElement("div");
         row.className = "notif-row";
         row.dataset.unread = item.read ? "false" : "true";
+        const logo = document.createElement("img");
+        logo.src = "icons/icon32.png";
+        logo.alt = "";
+        logo.width = 20;
+        logo.height = 20;
+        logo.className = "notif-row-logo";
+        const content = document.createElement("div");
+        content.className = "notif-row-content";
         const head = document.createElement("div");
         head.className = "notif-row-head";
         const title = document.createElement("span");
@@ -1357,13 +1365,14 @@ ${blocks.join("\n\n")}
           minute: "2-digit"
         }) : "";
         head.append(title, time);
-        row.appendChild(head);
+        content.appendChild(head);
         if (item.body) {
           const body = document.createElement("div");
           body.className = "notif-row-body";
           body.textContent = item.body;
-          row.appendChild(body);
+          content.appendChild(body);
         }
+        row.append(logo, content);
         popupNotifList.appendChild(row);
       }
     }
