@@ -275,7 +275,7 @@ export function createRuntimeDispatcher({
   ) {
     const primaryBase = normalizeSyncServerUrl(serverUrl);
     const basesToTry = [primaryBase];
-    if (primaryBase === "https://notebooklm-subtitles.vercel.app") {
+    if (primaryBase === "https://lm-subs.vercel.app" || primaryBase === "https://notebooklm-subtitles.vercel.app") {
       basesToTry.push("http://localhost:4173");
     }
 

@@ -1,6 +1,6 @@
 (() => {
   // src/config/selectors.js
-  var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
+  var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
     "notebook.google.com",
@@ -840,44 +840,42 @@ ${blocks.join("\n\n")}
     bg.setAttribute("height", "128");
     bg.setAttribute("rx", "28");
     bg.setAttribute("fill", "#111315");
-    const rim = doc.createElementNS(SVG_NS, "rect");
-    rim.setAttribute("x", "2");
-    rim.setAttribute("y", "2");
-    rim.setAttribute("width", "124");
-    rim.setAttribute("height", "124");
-    rim.setAttribute("rx", "26");
-    rim.setAttribute("stroke", "#262B35");
-    rim.setAttribute("stroke-width", "2");
-    const screen = doc.createElementNS(SVG_NS, "rect");
-    screen.setAttribute("x", "18");
-    screen.setAttribute("y", "22");
-    screen.setAttribute("width", "92");
-    screen.setAttribute("height", "84");
-    screen.setAttribute("rx", "14");
-    screen.setAttribute("fill", "#181C22");
-    screen.setAttribute("stroke", "#363D4A");
-    screen.setAttribute("stroke-width", "2");
-    const play = doc.createElementNS(SVG_NS, "path");
-    play.setAttribute(
+    const page = doc.createElementNS(SVG_NS, "path");
+    page.setAttribute("fill-rule", "evenodd");
+    page.setAttribute("clip-rule", "evenodd");
+    page.setAttribute(
       "d",
-      "M52 39.5C52 37.9 53.75 36.92 55.12 37.75L77.4 51.25C78.72 52.05 78.72 53.95 77.4 54.75L55.12 68.25C53.75 69.08 52 68.1 52 66.5V39.5Z"
+      "M45.8 21.5C48.2 20.4 51 22.2 51 24.9V103.5C51 106.5 47.5 108.2 45.1 106.4L22.6 89.2C20.1 87.3 18.6 84.3 18.6 81.1V41.6C18.6 37.3 21.1 33.4 25 31.6L45.8 21.5ZM24.5 81.8L42.6 95.6C43.7 96.4 45.2 95.6 45.2 94.3V83.1C45.2 81.7 44 80.5 42.6 80.5H25.1C23.8 80.5 23.4 81 24.5 81.8Z"
     );
-    play.setAttribute("fill", "#F6F7F8");
-    const cuePrimary = doc.createElementNS(SVG_NS, "rect");
-    cuePrimary.setAttribute("x", "28");
-    cuePrimary.setAttribute("y", "82");
-    cuePrimary.setAttribute("width", "44");
-    cuePrimary.setAttribute("height", "10");
-    cuePrimary.setAttribute("rx", "5");
-    cuePrimary.setAttribute("fill", "#3B82F6");
-    const cueSecondary = doc.createElementNS(SVG_NS, "rect");
-    cueSecondary.setAttribute("x", "78");
-    cueSecondary.setAttribute("y", "82");
-    cueSecondary.setAttribute("width", "22");
-    cueSecondary.setAttribute("height", "10");
-    cueSecondary.setAttribute("rx", "5");
-    cueSecondary.setAttribute("fill", "#F6F7F8");
-    svg.append(bg, rim, screen, play, cuePrimary, cueSecondary);
+    page.setAttribute("fill", "#F6F7F8");
+    const barLeft = doc.createElementNS(SVG_NS, "rect");
+    barLeft.setAttribute("x", "56.5");
+    barLeft.setAttribute("y", "49.5");
+    barLeft.setAttribute("width", "8");
+    barLeft.setAttribute("height", "29");
+    barLeft.setAttribute("rx", "4");
+    barLeft.setAttribute("fill", "#F6F7F8");
+    const barMid = doc.createElementNS(SVG_NS, "rect");
+    barMid.setAttribute("x", "68.5");
+    barMid.setAttribute("y", "37");
+    barMid.setAttribute("width", "8.5");
+    barMid.setAttribute("height", "54");
+    barMid.setAttribute("rx", "4.25");
+    barMid.setAttribute("fill", "#F6F7F8");
+    const barRight = doc.createElementNS(SVG_NS, "rect");
+    barRight.setAttribute("x", "81");
+    barRight.setAttribute("y", "49.5");
+    barRight.setAttribute("width", "8");
+    barRight.setAttribute("height", "29");
+    barRight.setAttribute("rx", "4");
+    barRight.setAttribute("fill", "#F6F7F8");
+    const bracket = doc.createElementNS(SVG_NS, "path");
+    bracket.setAttribute(
+      "d",
+      "M84.5 27H98.5C104.851 27 110 32.1487 110 38.5V89.5C110 95.8513 104.851 101 98.5 101H84.5C81.7386 101 79.5 98.7614 79.5 96C79.5 93.2386 81.7386 91 84.5 91H97C98.3807 91 99.5 89.8807 99.5 88.5V39.5C99.5 38.1193 98.3807 37 97 37H84.5C81.7386 37 79.5 34.7614 79.5 32C79.5 29.2386 81.7386 27 84.5 27Z"
+    );
+    bracket.setAttribute("fill", "#1D5CF6");
+    svg.append(bg, page, barLeft, barMid, barRight, bracket);
     return svg;
   }
 

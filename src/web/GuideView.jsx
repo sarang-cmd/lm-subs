@@ -204,7 +204,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/03-toolbar-popup.png?v=3"
+              src="/assets/screenshots/03-toolbar-popup.png?v=4"
               alt="LM Subs Chrome toolbar popup showing where to paste and save your free Groq API key"
               width="1280"
               height="800"
@@ -270,7 +270,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/01-player-subtitles.png?v=3"
+              src="/assets/screenshots/01-player-subtitles.png?v=4"
               alt="Synchronized closed captions and export controls inside a NotebookLM Video Overview"
               width="1280"
               height="800"

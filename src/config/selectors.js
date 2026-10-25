@@ -11,7 +11,7 @@
 export const MESSAGE_NS = "nlm-subtitles";
 export const MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
 export const KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
-export const HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
+export const HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
 
 export const NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
 

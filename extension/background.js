@@ -1,7 +1,7 @@
 // src/config/selectors.js
 var MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
 var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
-var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
+var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
 var NOTEBOOKLM_HOSTS = Object.freeze([
   "notebooklm.google.com",
   "notebook.google.com",
@@ -3204,7 +3204,7 @@ function createRuntimeDispatcher({
   async function callSyncApi(serverUrl, path, { method = "GET", token = "", body = null, timeoutMs = 1e4 } = {}) {
     const primaryBase = normalizeSyncServerUrl(serverUrl);
     const basesToTry = [primaryBase];
-    if (primaryBase === "https://notebooklm-subtitles.vercel.app") {
+    if (primaryBase === "https://lm-subs.vercel.app" || primaryBase === "https://notebooklm-subtitles.vercel.app") {
       basesToTry.push("http://localhost:4173");
     }
     let lastErr = null;
