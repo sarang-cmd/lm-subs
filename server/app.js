@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { serializeSubtitles } from "../src/lib/subtitles.js";
 import {
   decryptApiKeyForUser,
   encryptApiKeyForUser,
@@ -630,6 +631,111 @@ export function createSyncApp({
         latencyMs: r.latency_ms ? Number(r.latency_ms) : null,
         cues: Array.isArray(r.cues_json) ? r.cues_json : [],
         savedAt: r.updated_at,
+      },
+    });
+  });
+
+  app.get("/api/sync/export", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    const cacheKey = c.req.query("cacheKey") || "";
+    const artifactId = c.req.query("artifactId") || "";
+    const format = (c.req.query("format") || "srt").toLowerCase();
+
+    if (!cacheKey && !artifactId) {
+      return c.json({ ok: false, error: "cacheKey or artifactId is required." }, 400);
+    }
+
+    const res = await db.query(
+      `SELECT cache_key, artifact_id, title, language, provider, model, cues_json, updated_at
+       FROM lmsubs_subtitles
+       WHERE user_id = $1
+         AND (($2 <> '' AND cache_key = $2) OR ($3 <> '' AND artifact_id = $3))
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [user.id, cacheKey, artifactId]
+    );
+
+    if (res.rows.length === 0) {
+      return c.json({ ok: false, error: "Subtitle transcript not found." }, 404);
+    }
+
+    const r = res.rows[0];
+    const serialized = serializeSubtitles(
+      Array.isArray(r.cues_json) ? r.cues_json : [],
+      format,
+      {
+        title: r.title,
+        language: r.language || "en",
+        provider: r.provider,
+        model: r.model,
+        artifactId: r.artifact_id,
+      }
+    );
+
+    return new Response(serialized.content, {
+      status: 200,
+      headers: {
+        "Content-Type": serialized.mimeType,
+        "Content-Disposition": `attachment; filename="${serialized.filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  });
+
+  app.get("/api/sync/export-all", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    const res = await db.query(
+      `SELECT cache_key, artifact_id, notebook_id, media_token, title, language,
+              provider, model, cue_count, original_bytes, extracted_bytes,
+              latency_ms, cues_json, updated_at
+       FROM lmsubs_subtitles
+       WHERE user_id = $1
+       ORDER BY updated_at DESC`,
+      [user.id]
+    );
+
+    const transcripts = res.rows.map((r) => ({
+      cacheKey: r.cache_key,
+      artifactId: r.artifact_id,
+      notebookId: r.notebook_id,
+      mediaToken: r.media_token,
+      title: r.title,
+      language: r.language,
+      provider: r.provider,
+      model: r.model,
+      cueCount: Number(r.cue_count) || 0,
+      cues: Array.isArray(r.cues_json) ? r.cues_json : [],
+      savedAt: r.updated_at,
+    }));
+
+    const filename = `lm-subs-vault-${new Date().toISOString().slice(0, 10)}.json`;
+    const body = `${JSON.stringify(
+      {
+        schema: "lm-subs-vault/v1",
+        exportedAt: new Date().toISOString(),
+        count: transcripts.length,
+        transcripts,
+      },
+      null,
+      2
+    )}\n`;
+
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json;charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
       },
     });
   });

@@ -1097,6 +1097,25 @@ function normalizeAndSortCues(rawCues, offsetSec = 0) {
 function parseSubtitleText(input, offsetSec = 0) {
   const cleaned = stripLlmFences(input);
   if (!cleaned) return [];
+  const trimmed = cleaned.replace(/^\uFEFF/, "").trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsedJson = JSON.parse(trimmed);
+      const cueArray = Array.isArray(parsedJson) ? parsedJson : Array.isArray(parsedJson?.cues) ? parsedJson.cues : null;
+      if (cueArray) {
+        return normalizeAndSortCues(
+          cueArray.map((c) => ({
+            startSec: Number(c.startSec ?? c.start ?? 0),
+            endSec: Number(c.endSec ?? c.end ?? 0),
+            text: String(c.text || ""),
+            ...c.speaker ? { speaker: String(c.speaker) } : {}
+          })),
+          offsetSec
+        );
+      }
+    } catch {
+    }
+  }
   const lines = cleaned.replace(/^\uFEFF/, "").split(/\r?\n/);
   const rawCues = [];
   let i = 0;

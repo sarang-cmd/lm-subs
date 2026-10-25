@@ -1157,6 +1157,25 @@ ${line2}`;
   function parseSubtitleText(input, offsetSec = 0) {
     const cleaned = stripLlmFences(input);
     if (!cleaned) return [];
+    const trimmed = cleaned.replace(/^\uFEFF/, "").trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsedJson = JSON.parse(trimmed);
+        const cueArray = Array.isArray(parsedJson) ? parsedJson : Array.isArray(parsedJson?.cues) ? parsedJson.cues : null;
+        if (cueArray) {
+          return normalizeAndSortCues(
+            cueArray.map((c) => ({
+              startSec: Number(c.startSec ?? c.start ?? 0),
+              endSec: Number(c.endSec ?? c.end ?? 0),
+              text: String(c.text || ""),
+              ...c.speaker ? { speaker: String(c.speaker) } : {}
+            })),
+            offsetSec
+          );
+        }
+      } catch {
+      }
+    }
     const lines = cleaned.replace(/^\uFEFF/, "").split(/\r?\n/);
     const rawCues = [];
     let i = 0;
@@ -1233,6 +1252,93 @@ ${body}`;
 
 ${blocks.join("\n\n")}
 `;
+  }
+  function formatShortTimestamp(seconds) {
+    const clamped = Math.max(0, Math.round(Number.isFinite(seconds) ? seconds : 0));
+    const s = clamped % 60;
+    const totalMins = Math.floor(clamped / 60);
+    const m = totalMins % 60;
+    const h = Math.floor(totalMins / 60);
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    if (h > 0) {
+      return `${String(h).padStart(2, "0")}:${mm}:${ss}`;
+    }
+    return `${mm}:${ss}`;
+  }
+  function formatTxt(cues, { includeTimestamps = true, title = "" } = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    if (normalized.length === 0) return "";
+    const header = title ? `# ${String(title).trim()}
+
+` : "";
+    const lines = normalized.map((cue) => {
+      const cleanText = String(cue.text || "").replace(/\s+/g, " ").trim();
+      const speakerPrefix = cue.speaker ? `${cue.speaker}: ` : "";
+      if (!includeTimestamps) {
+        return `${speakerPrefix}${cleanText}`;
+      }
+      return `[${formatShortTimestamp(cue.startSec)}] ${speakerPrefix}${cleanText}`;
+    });
+    return `${header}${lines.join("\n")}
+`;
+  }
+  function formatJsonSubtitles(cues, meta = {}) {
+    const normalized = normalizeAndSortCues(cues);
+    const payload = {
+      schema: "lm-subs/v1",
+      title: meta.title || "NotebookLM Video Overview",
+      language: meta.language || "en",
+      ...meta.provider ? { provider: meta.provider } : {},
+      ...meta.model ? { model: meta.model } : {},
+      ...meta.artifactId ? { artifactId: meta.artifactId } : {},
+      cueCount: normalized.length,
+      exportedAt: meta.exportedAt || (/* @__PURE__ */ new Date()).toISOString(),
+      cues: normalized
+    };
+    return `${JSON.stringify(payload, null, 2)}
+`;
+  }
+  function slugifySubtitleFilename(title) {
+    const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+    return slug || "notebooklm-video-overview";
+  }
+  function serializeSubtitles(cues, format = "srt", meta = {}) {
+    const fmt = String(format || "srt").toLowerCase();
+    const base = slugifySubtitleFilename(meta.title);
+    if (fmt === "vtt") {
+      return {
+        content: formatVtt(cues),
+        extension: "vtt",
+        mimeType: "text/vtt;charset=utf-8",
+        filename: `${base}.vtt`
+      };
+    }
+    if (fmt === "txt") {
+      return {
+        content: formatTxt(cues, {
+          includeTimestamps: meta.includeTimestamps !== false,
+          title: meta.title || ""
+        }),
+        extension: "txt",
+        mimeType: "text/plain;charset=utf-8",
+        filename: `${base}.txt`
+      };
+    }
+    if (fmt === "json") {
+      return {
+        content: formatJsonSubtitles(cues, meta),
+        extension: "json",
+        mimeType: "application/json;charset=utf-8",
+        filename: `${base}.json`
+      };
+    }
+    return {
+      content: formatSrt(cues),
+      extension: "srt",
+      mimeType: "application/x-subrip;charset=utf-8",
+      filename: `${base}.srt`
+    };
   }
   function findActiveCue(cues, timeSec) {
     if (!Array.isArray(cues) || cues.length === 0 || !Number.isFinite(timeSec)) {
@@ -1390,20 +1496,33 @@ ${blocks.join("\n\n")}
     display: none;
   }
 `;
-  function slugifyFilename(title) {
-    const slug = String(title || "notebooklm-video-overview").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
-    return slug || "notebooklm-video-overview";
-  }
-  function triggerTextDownload(doc, content, filename, mimeType) {
-    const blob = new Blob([content], { type: mimeType });
+  function triggerTextDownload(doc, content, filename, mimeType, mountContainer = null) {
+    const blob = new Blob(["\uFEFF", content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = doc.createElement("a");
     a.href = url;
     a.download = filename;
-    doc.body.appendChild(a);
+    a.rel = "noopener";
+    a.style.display = "none";
+    a.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+    });
+    const container = mountContainer || doc.fullscreenElement || doc.body || doc.documentElement;
+    container?.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2500);
+    setTimeout(() => URL.revokeObjectURL(url), 4e3);
+  }
+  function flashButtonLabel(btn, tempLabel, durationMs = 1200) {
+    if (!btn) return;
+    const original = btn.dataset.origLabel || btn.textContent;
+    btn.dataset.origLabel = original;
+    btn.textContent = tempLabel;
+    btn.dataset.active = "true";
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.dataset.active = "false";
+    }, durationMs);
   }
   var VideoSubtitleController = class {
     constructor(video, {
@@ -1484,6 +1603,7 @@ ${blocks.join("\n\n")}
       this.host = this.doc.createElement("div");
       this.host.className = DOM_SELECTORS.OVERLAY_HOST_CLASS;
       const shadow = this.host.attachShadow({ mode: "closed" });
+      this.shadow = shadow;
       const style = this.doc.createElement("style");
       style.textContent = OVERLAY_CSS;
       this.toolbar = this.doc.createElement("div");
@@ -1539,27 +1659,38 @@ ${blocks.join("\n\n")}
       );
       const sep3 = this.doc.createElement("span");
       sep3.className = "sep";
-      this.srtBtn = this._makeBtn(".SRT", "Download SubRip (.srt)", () => {
+      this.srtBtn = this._makeBtn(".SRT", "Export SubRip (.srt)", () => {
         if (this.cues.length === 0) return;
-        triggerTextDownload(
-          this.doc,
-          formatSrt(this._shiftedCues()),
-          `${slugifyFilename(this.title)}.srt`,
-          "application/x-subrip;charset=utf-8"
-        );
+        this.exportSubtitles("srt");
+        flashButtonLabel(this.srtBtn, "Saved");
       });
-      this.vttBtn = this._makeBtn(".VTT", "Download WebVTT (.vtt)", () => {
+      this.vttBtn = this._makeBtn(".VTT", "Export WebVTT (.vtt)", () => {
         if (this.cues.length === 0) return;
-        triggerTextDownload(
-          this.doc,
-          formatVtt(this._shiftedCues()),
-          `${slugifyFilename(this.title)}.vtt`,
-          "text/vtt;charset=utf-8"
-        );
+        this.exportSubtitles("vtt");
+        flashButtonLabel(this.vttBtn, "Saved");
+      });
+      this.txtBtn = this._makeBtn(".TXT", "Export readable plain-text transcript (.txt)", () => {
+        if (this.cues.length === 0) return;
+        this.exportSubtitles("txt");
+        flashButtonLabel(this.txtBtn, "Saved");
+      });
+      this.copyBtn = this._makeBtn("Copy", "Copy transcript to clipboard", async () => {
+        if (this.cues.length === 0) return;
+        const text = formatTxt(this._shiftedCues(), {
+          includeTimestamps: true,
+          title: this.title
+        });
+        try {
+          await globalThis.navigator?.clipboard?.writeText(text);
+          flashButtonLabel(this.copyBtn, "Copied");
+        } catch {
+          this.exportSubtitles("txt");
+          flashButtonLabel(this.copyBtn, "Saved");
+        }
       });
       this.fileInput = this.doc.createElement("input");
       this.fileInput.type = "file";
-      this.fileInput.accept = ".srt,.vtt,text/vtt,text/plain";
+      this.fileInput.accept = ".srt,.vtt,.json,text/vtt,text/plain,application/json";
       this.fileInput.addEventListener("change", async () => {
         const file = this.fileInput.files?.[0];
         if (!file) return;
@@ -1571,7 +1702,7 @@ ${blocks.join("\n\n")}
         }
         this.fileInput.value = "";
       });
-      this.importBtn = this._makeBtn("Import", "Load external .srt or .vtt file", () => {
+      this.importBtn = this._makeBtn("Import", "Load external .srt, .vtt, or .json file", () => {
         this.fileInput.click();
       });
       this.regenBtn = this._makeBtn("Retry", "Regenerate subtitles with AI", () => {
@@ -1587,7 +1718,9 @@ ${blocks.join("\n\n")}
         this.offsetPlusBtn,
         sep3,
         this.srtBtn,
-        this.vttBtn
+        this.vttBtn,
+        this.txtBtn,
+        this.copyBtn
       );
       this.toolbar.append(
         this.ccBtn,
@@ -1751,6 +1884,29 @@ ${blocks.join("\n\n")}
       this._renderActiveCue();
       this._scheduleIdleFade();
     }
+    getExportCues() {
+      return this._shiftedCues();
+    }
+    exportSubtitles(format = "srt") {
+      if (this.cues.length === 0) return false;
+      const { content, filename, mimeType } = serializeSubtitles(
+        this._shiftedCues(),
+        format,
+        {
+          title: this.title,
+          language: this.language || "en"
+        }
+      );
+      const openDialog = this.video?.closest?.("dialog[open]") || null;
+      triggerTextDownload(
+        this.doc,
+        content,
+        filename,
+        mimeType,
+        this.shadow || openDialog
+      );
+      return true;
+    }
     _syncNativeTextTrack() {
       if (typeof this.video.addTextTrack !== "function" || typeof VTTCue === "undefined") {
         return;
@@ -1759,7 +1915,7 @@ ${blocks.join("\n\n")}
         if (!this.nativeTrack) {
           this.nativeTrack = this.video.addTextTrack(
             "subtitles",
-            "NotebookLM Subtitles",
+            DOM_SELECTORS.TRACK_LABEL || "LM Subs",
             this.language || "en"
           );
         }
@@ -3001,14 +3157,20 @@ ${blocks.join("\n\n")}
           (a) => a.status === "initializing" || a.status === "processing"
         );
         const matched = target ? matchArtifactForVideo(target.video) : readyArts[readyArts.length - 1] || null;
+        const hasLiveCues = Boolean(target && target.controller.cues.length > 0);
         sendResponse({
           ok: true,
           hasVideoElement: controllers.size > 0,
           videoCount: controllers.size,
           readyArtifactCount: readyArts.length,
           generatingCount: generatingArts.length,
-          hasSubtitles: Boolean(target && target.controller.cues.length > 0),
+          hasSubtitles: hasLiveCues,
           activeArtifact: matched ? { artifactId: matched.artifactId, title: matched.title } : target ? { title: target.controller.title || getNotebookTitleFallback() } : null,
+          activeSubtitles: hasLiveCues ? {
+            title: matched?.title || target.controller.title || getNotebookTitleFallback(),
+            language: target.controller.language || "en",
+            cues: target.controller.getExportCues()
+          } : null,
           diagnostics: buildTabDiagnosticSnapshot()
         });
         return false;

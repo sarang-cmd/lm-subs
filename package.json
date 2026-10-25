@@ -4,7 +4,30 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "description": "LM Subs — Fast client-side audio extraction, 12-provider BYOK subtitles, and Neon Postgres encrypted sync for Google NotebookLM Video Overviews.",
+  "description": "LM Subs — Sub-5s synchronized captions, .SRT/.VTT/.TXT/.JSON subtitle export, 12-provider BYOK speech-to-text, and encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
+  "keywords": [
+    "lm-subs",
+    "notebooklm",
+    "google-notebooklm",
+    "subtitles",
+    "captions",
+    "srt",
+    "webvtt",
+    "transcript-export",
+    "chrome-extension",
+    "manifest-v3",
+    "speech-to-text",
+    "whisper",
+    "groq",
+    "mistral",
+    "neon",
+    "postgresql",
+    "byok"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sarang-cmd/notebooklm-subtitles.git"
+  },
   "scripts": {
     "build": "node build.mjs",
     "start": "node serve-docs.mjs",

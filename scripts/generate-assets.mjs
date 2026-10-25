@@ -82,7 +82,7 @@ writeText("docs/assets/badges/manifest-v3.svg", makeBadge("CHROME", "MANIFEST V3
 writeText("docs/assets/badges/providers.svg", makeBadge("BYOK QUEUE", "12 STT PROVIDERS", "#D9531E"));
 writeText("docs/assets/badges/audio-extract.svg", makeBadge("LATENCY", "~3.2S =M140 / HTTP 206", "#1B6E38"));
 writeText("docs/assets/badges/neon-sync.svg", makeBadge("NEON SYNC", "AES-256-GCM POSTGRES", "#1B6E38"));
-writeText("docs/assets/badges/tests.svg", makeBadge("TESTS", "37 / 37 PASSING", "#1B6E38"));
+writeText("docs/assets/badges/tests.svg", makeBadge("TESTS", "40 / 40 PASSING", "#1B6E38"));
 writeText("docs/assets/badges/telemetry.svg", makeBadge("TELEMETRY", "ZERO", "#45433E"));
 writeText("docs/assets/badges/license.svg", makeBadge("LICENSE", "MIT", "#45433E"));
 
@@ -318,8 +318,8 @@ const SCREENSHOT_1_PLAYER = `<svg xmlns="http://www.w3.org/2000/svg" width="1280
     <rect width="836" height="532" rx="4" fill="#141413" stroke="#2E2D2A" stroke-width="1.5"/>
 
     <!-- Top-right LM Subs Broadcast Control Bar -->
-    <g transform="translate(378, 16)">
-      <rect width="442" height="32" rx="4" fill="#1D1D1B" stroke="#3A3833"/>
+    <g transform="translate(298, 16)">
+      <rect width="522" height="32" rx="4" fill="#1D1D1B" stroke="#3A3833"/>
       <rect x="5" y="4" width="38" height="24" rx="2" fill="#E96A26"/>
       <text x="24" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11.5" font-weight="700" fill="#FFFFFF">CC</text>
       <line x1="50" y1="8" x2="50" y2="24" stroke="#3A3833"/>
@@ -331,9 +331,11 @@ const SCREENSHOT_1_PLAYER = `<svg xmlns="http://www.w3.org/2000/svg" width="1280
       <text x="240" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#D6D3CB">+0.25s</text>
       <line x1="270" y1="8" x2="270" y2="24" stroke="#3A3833"/>
       <text x="294" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#4ADE80">.SRT</text>
-      <text x="332" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#E6E4DE">.VTT</text>
-      <text x="376" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#D6D3CB">Import</text>
-      <text x="418" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#9E9B93">Regen</text>
+      <text x="330" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#E6E4DE">.VTT</text>
+      <text x="366" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#E6E4DE">.TXT</text>
+      <text x="404" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#D6D3CB">Copy</text>
+      <text x="448" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#D6D3CB">Import</text>
+      <text x="494" y="20" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#9E9B93">Regen</text>
     </g>
 
     <!-- Slide visual -->
@@ -490,8 +492,8 @@ const SCREENSHOT_3_POPUP = `<svg xmlns="http://www.w3.org/2000/svg" width="1280"
   <text x="84" y="67" font-family="DejaVu Sans Mono, monospace" font-size="12" font-weight="700" fill="#5C5A55">NOTEBOOK.GOOGLE.COM · TOOLBAR POPUP</text>
 
   <!-- Centered 384px Braun Control Unit -->
-  <g transform="translate(436, 72)">
-    <rect width="408" height="652" rx="4" fill="#F4F2ED" stroke="#B6B0A3" stroke-width="1.5"/>
+  <g transform="translate(436, 56)">
+    <rect width="408" height="694" rx="4" fill="#F4F2ED" stroke="#B6B0A3" stroke-width="1.5"/>
 
     <!-- Header -->
     <g transform="translate(16, 16)">
@@ -558,31 +560,43 @@ const SCREENSHOT_3_POPUP = `<svg xmlns="http://www.w3.org/2000/svg" width="1280"
       <text x="239" y="75" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#161615">Manage Account</text>
     </g>
 
-    <!-- Panel 03: Active Tab -->
+    <!-- Panel 03: Active Tab + Multi-Format Subtitle Export -->
     <g transform="translate(16, 430)">
-      <rect width="376" height="104" rx="4" fill="#FCFBF8" stroke="#D5D1C8"/>
+      <rect width="376" height="150" rx="4" fill="#FCFBF8" stroke="#D5D1C8"/>
       <text x="12" y="23" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#5C5A55">03 · ACTIVE TAB</text>
       <rect x="296" y="9" width="68" height="18" rx="2" fill="#E3F1E7" stroke="#B6DEC2"/>
       <text x="330" y="21" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="700" fill="#1B6E38">1 READY</text>
 
-      <text x="12" y="46" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#5C5A55">Video: "Raft Consensus Overview"</text>
+      <text x="12" y="45" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#5C5A55">Video: "Raft Consensus Overview"</text>
 
-      <rect x="12" y="60" width="288" height="32" rx="3" fill="#161615"/>
-      <text x="156" y="80" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#FCFBF8">Generate Subtitles</text>
+      <rect x="12" y="56" width="352" height="30" rx="3" fill="#161615"/>
+      <text x="188" y="75" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#FCFBF8">Generate Subtitles</text>
 
-      <rect x="308" y="60" width="56" height="32" rx="3" fill="#FCFBF8" stroke="#B6B0A3"/>
-      <text x="336" y="80" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11.5" font-weight="700" fill="#161615">.SRT</text>
+      <line x1="12" y1="96" x2="364" y2="96" stroke="#E0DDD5"/>
+      <text x="12" y="112" font-family="DejaVu Sans Mono, monospace" font-size="9.5" font-weight="700" fill="#5C5A55">EXPORT SUBTITLES</text>
+      <text x="364" y="112" text-anchor="end" font-family="DejaVu Sans Mono, monospace" font-size="9.5" fill="#5C5A55">64 CUES</text>
+
+      <rect x="12" y="118" width="66" height="24" rx="2.5" fill="#FCFBF8" stroke="#B6B0A3"/>
+      <text x="45" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">.SRT</text>
+      <rect x="83" y="118" width="66" height="24" rx="2.5" fill="#FCFBF8" stroke="#B6B0A3"/>
+      <text x="116" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">.VTT</text>
+      <rect x="154" y="118" width="66" height="24" rx="2.5" fill="#FCFBF8" stroke="#B6B0A3"/>
+      <text x="187" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">.TXT</text>
+      <rect x="225" y="118" width="68" height="24" rx="2.5" fill="#FCFBF8" stroke="#B6B0A3"/>
+      <text x="259" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">.JSON</text>
+      <rect x="298" y="118" width="66" height="24" rx="2.5" fill="#FCFBF8" stroke="#B6B0A3"/>
+      <text x="331" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">Copy</text>
     </g>
 
     <!-- Latest Output + Footer -->
-    <g transform="translate(16, 544)">
-      <rect width="376" height="62" rx="4" fill="#FCFBF8" stroke="#D5D1C8"/>
-      <text x="12" y="23" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#161615">Raft Consensus Overview</text>
-      <text x="12" y="44" font-family="DejaVu Sans Mono, monospace" font-size="11" fill="#1B6E38">64 cues · 3.1s · 4.1 MB audio (groq)</text>
+    <g transform="translate(16, 590)">
+      <rect width="376" height="58" rx="4" fill="#FCFBF8" stroke="#D5D1C8"/>
+      <text x="12" y="22" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#161615">Raft Consensus Overview</text>
+      <text x="12" y="42" font-family="DejaVu Sans Mono, monospace" font-size="11" fill="#1B6E38">64 cues · 3.1s · 4.1 MB audio (groq)</text>
     </g>
 
-    <text x="16" y="634" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#5C5A55">DEBUG [OFF]</text>
-    <text x="392" y="634" text-anchor="end" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">REPORT · SETTINGS -&gt;</text>
+    <text x="16" y="674" font-family="DejaVu Sans Mono, monospace" font-size="10.5" fill="#5C5A55">DEBUG [OFF]</text>
+    <text x="392" y="674" text-anchor="end" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="700" fill="#161615">REPORT · SETTINGS -&gt;</text>
   </g>
 </svg>
 `;

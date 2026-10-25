@@ -11,9 +11,9 @@
 import { DOM_SELECTORS } from "../config/selectors.js";
 import {
   findActiveCue,
-  formatSrt,
-  formatVtt,
+  formatTxt,
   parseSubtitleText,
+  serializeSubtitles,
 } from "../lib/subtitles.js";
 
 const FONT_SIZES = ["small", "medium", "large", "xlarge"];
@@ -149,25 +149,41 @@ const OVERLAY_CSS = `
   }
 `;
 
-function slugifyFilename(title) {
-  const slug = String(title || "notebooklm-video-overview")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return slug || "notebooklm-video-overview";
-}
-
-function triggerTextDownload(doc, content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
+function triggerTextDownload(doc, content, filename, mimeType, mountContainer = null) {
+  const blob = new Blob(["\uFEFF", content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = doc.createElement("a");
   a.href = url;
   a.download = filename;
-  doc.body.appendChild(a);
+  a.rel = "noopener";
+  a.style.display = "none";
+  a.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+  });
+
+  // Mount inside ShadowRoot / open `<dialog>` / fullscreenElement so HTML5 modal
+  // top-layer `inert` rules and Angular document router listeners never block `.click()`.
+  const container =
+    mountContainer ||
+    doc.fullscreenElement ||
+    doc.body ||
+    doc.documentElement;
+  container?.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2500);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function flashButtonLabel(btn, tempLabel, durationMs = 1200) {
+  if (!btn) return;
+  const original = btn.dataset.origLabel || btn.textContent;
+  btn.dataset.origLabel = original;
+  btn.textContent = tempLabel;
+  btn.dataset.active = "true";
+  setTimeout(() => {
+    btn.textContent = original;
+    btn.dataset.active = "false";
+  }, durationMs);
 }
 
 export class VideoSubtitleController {
@@ -259,6 +275,7 @@ export class VideoSubtitleController {
     this.host = this.doc.createElement("div");
     this.host.className = DOM_SELECTORS.OVERLAY_HOST_CLASS;
     const shadow = this.host.attachShadow({ mode: "closed" });
+    this.shadow = shadow;
 
     const style = this.doc.createElement("style");
     style.textContent = OVERLAY_CSS;
@@ -315,29 +332,43 @@ export class VideoSubtitleController {
     const sep3 = this.doc.createElement("span");
     sep3.className = "sep";
 
-    this.srtBtn = this._makeBtn(".SRT", "Download SubRip (.srt)", () => {
+    this.srtBtn = this._makeBtn(".SRT", "Export SubRip (.srt)", () => {
       if (this.cues.length === 0) return;
-      triggerTextDownload(
-        this.doc,
-        formatSrt(this._shiftedCues()),
-        `${slugifyFilename(this.title)}.srt`,
-        "application/x-subrip;charset=utf-8"
-      );
+      this.exportSubtitles("srt");
+      flashButtonLabel(this.srtBtn, "Saved");
     });
 
-    this.vttBtn = this._makeBtn(".VTT", "Download WebVTT (.vtt)", () => {
+    this.vttBtn = this._makeBtn(".VTT", "Export WebVTT (.vtt)", () => {
       if (this.cues.length === 0) return;
-      triggerTextDownload(
-        this.doc,
-        formatVtt(this._shiftedCues()),
-        `${slugifyFilename(this.title)}.vtt`,
-        "text/vtt;charset=utf-8"
-      );
+      this.exportSubtitles("vtt");
+      flashButtonLabel(this.vttBtn, "Saved");
+    });
+
+    this.txtBtn = this._makeBtn(".TXT", "Export readable plain-text transcript (.txt)", () => {
+      if (this.cues.length === 0) return;
+      this.exportSubtitles("txt");
+      flashButtonLabel(this.txtBtn, "Saved");
+    });
+
+    this.copyBtn = this._makeBtn("Copy", "Copy transcript to clipboard", async () => {
+      if (this.cues.length === 0) return;
+      const text = formatTxt(this._shiftedCues(), {
+        includeTimestamps: true,
+        title: this.title,
+      });
+      try {
+        await globalThis.navigator?.clipboard?.writeText(text);
+        flashButtonLabel(this.copyBtn, "Copied");
+      } catch {
+        // Fallback if clipboard API is restricted
+        this.exportSubtitles("txt");
+        flashButtonLabel(this.copyBtn, "Saved");
+      }
     });
 
     this.fileInput = this.doc.createElement("input");
     this.fileInput.type = "file";
-    this.fileInput.accept = ".srt,.vtt,text/vtt,text/plain";
+    this.fileInput.accept = ".srt,.vtt,.json,text/vtt,text/plain,application/json";
     this.fileInput.addEventListener("change", async () => {
       const file = this.fileInput.files?.[0];
       if (!file) return;
@@ -350,7 +381,7 @@ export class VideoSubtitleController {
       this.fileInput.value = "";
     });
 
-    this.importBtn = this._makeBtn("Import", "Load external .srt or .vtt file", () => {
+    this.importBtn = this._makeBtn("Import", "Load external .srt, .vtt, or .json file", () => {
       this.fileInput.click();
     });
 
@@ -368,7 +399,9 @@ export class VideoSubtitleController {
       this.offsetPlusBtn,
       sep3,
       this.srtBtn,
-      this.vttBtn
+      this.vttBtn,
+      this.txtBtn,
+      this.copyBtn
     );
 
     this.toolbar.append(
@@ -553,6 +586,31 @@ export class VideoSubtitleController {
     this._scheduleIdleFade();
   }
 
+  getExportCues() {
+    return this._shiftedCues();
+  }
+
+  exportSubtitles(format = "srt") {
+    if (this.cues.length === 0) return false;
+    const { content, filename, mimeType } = serializeSubtitles(
+      this._shiftedCues(),
+      format,
+      {
+        title: this.title,
+        language: this.language || "en",
+      }
+    );
+    const openDialog = this.video?.closest?.("dialog[open]") || null;
+    triggerTextDownload(
+      this.doc,
+      content,
+      filename,
+      mimeType,
+      this.shadow || openDialog
+    );
+    return true;
+  }
+
   _syncNativeTextTrack() {
     if (typeof this.video.addTextTrack !== "function" || typeof VTTCue === "undefined") {
       return;
@@ -561,7 +619,7 @@ export class VideoSubtitleController {
       if (!this.nativeTrack) {
         this.nativeTrack = this.video.addTextTrack(
           "subtitles",
-          "NotebookLM Subtitles",
+          DOM_SELECTORS.TRACK_LABEL || "LM Subs",
           this.language || "en"
         );
       }

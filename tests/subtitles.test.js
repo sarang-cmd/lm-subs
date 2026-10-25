@@ -4,10 +4,14 @@ import {
   cuesFromSegments,
   cuesFromWords,
   findActiveCue,
+  formatJsonSubtitles,
   formatSrt,
+  formatTxt,
   formatVtt,
   parseSrt,
+  parseSubtitleText,
   parseVtt,
+  serializeSubtitles,
   wrapSubtitleLines,
 } from "../src/lib/subtitles.js";
 
@@ -102,4 +106,39 @@ test("findActiveCue performs accurate binary search and wrapSubtitleLines balanc
   assert.equal(findActiveCue(cues, 3.2), null);
   assert.equal(findActiveCue(cues, 5.0)?.text, "Second");
   assert.equal(findActiveCue(cues, 7.5)?.text, "Third");
+});
+
+test("serializeSubtitles exports .srt, .vtt, .txt, and .json cleanly and parseSubtitleText imports .json", () => {
+  const sample = [
+    { startSec: 1.5, endSec: 4.2, text: "Leader election uses randomized\ntimeouts to prevent split votes." },
+    { startSec: 65.0, endSec: 69.4, text: "Majority quorums guarantee safety.", speaker: "Host" },
+  ];
+
+  const srtOut = serializeSubtitles(sample, "srt", { title: "Raft Consensus 101" });
+  assert.equal(srtOut.filename, "raft-consensus-101.srt");
+  assert.ok(srtOut.content.includes("00:00:01,500 --> 00:00:04,200"));
+  assert.ok(srtOut.content.includes("[Host] Majority quorums"));
+
+  const vttOut = serializeSubtitles(sample, "vtt", { title: "Raft Consensus 101" });
+  assert.equal(vttOut.filename, "raft-consensus-101.vtt");
+  assert.ok(vttOut.content.startsWith("WEBVTT\n\n"));
+
+  const txtOut = serializeSubtitles(sample, "txt", { title: "Raft Consensus 101" });
+  assert.equal(txtOut.filename, "raft-consensus-101.txt");
+  assert.ok(txtOut.content.startsWith("# Raft Consensus 101\n\n"));
+  assert.ok(txtOut.content.includes("[00:02] Leader election uses randomized timeouts to prevent split votes."));
+  assert.ok(txtOut.content.includes("[01:05] Host: Majority quorums guarantee safety."));
+
+  const plainNoTs = formatTxt(sample, { includeTimestamps: false });
+  assert.ok(!plainNoTs.includes("[00:02]"));
+
+  const jsonOut = serializeSubtitles(sample, "json", {
+    title: "Raft Consensus 101",
+    provider: "groq",
+  });
+  assert.equal(jsonOut.filename, "raft-consensus-101.json");
+  const parsedJsonCues = parseSubtitleText(jsonOut.content);
+  assert.equal(parsedJsonCues.length, 2);
+  assert.equal(parsedJsonCues[1].speaker, "Host");
+  assert.ok(formatJsonSubtitles(sample, { title: "Check" }).includes('"schema": "lm-subs/v1"'));
 });

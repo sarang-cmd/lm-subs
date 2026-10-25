@@ -93,6 +93,7 @@
   const offsetUpBtn = document.getElementById("sim-offset-up");
   const dlSrtBtn = document.getElementById("sim-dl-srt");
   const dlVttBtn = document.getElementById("sim-dl-vtt");
+  const dlTxtBtn = document.getElementById("sim-dl-txt");
   const captionEl = document.getElementById("sim-caption");
   const slideKickerEl = document.getElementById("sim-slide-kicker");
   const slideTitleEl = document.getElementById("sim-slide-title");
@@ -241,6 +242,13 @@
     downloadBlob(`WEBVTT\n\n${body}`, "raft-consensus-overview.vtt", "text/vtt;charset=utf-8");
   });
 
+  dlTxtBtn?.addEventListener("click", () => {
+    const txt = `# Distributed Consensus & Raft\n\n${DEMO_CUES.map(
+      (c) => `[${formatClock(c.startSec)}] ${c.text.replace(/\s+/g, " ").trim()}`
+    ).join("\n")}\n`;
+    downloadBlob(txt, "raft-consensus-overview.txt", "text/plain;charset=utf-8");
+  });
+
   async function runSimulation() {
     if (!logBox || !runBtn) return;
     runBtn.disabled = true;
@@ -304,9 +312,11 @@
   const savePrefsBtn = document.getElementById("web-save-prefs-btn");
   const subsEmpty = document.getElementById("web-subs-empty");
   const subsList = document.getElementById("web-subs-list");
+  const exportAllBtn = document.getElementById("web-export-all-btn");
 
   let activeToken = localStorage.getItem(TOKEN_STORAGE_KEY) || "";
   let currentSettings = {};
+  let cachedVaultSubtitles = [];
 
   function setFeedback(msg, isError = false) {
     if (!authFeedback) return;
@@ -403,8 +413,17 @@
     if (currentSettings.fontSize) prefFont.value = currentSettings.fontSize;
 
     const subs = Array.isArray(pullData.subtitles) ? pullData.subtitles : [];
+    cachedVaultSubtitles = subs;
     subsList.textContent = "";
     subsEmpty.style.display = subs.length === 0 ? "block" : "none";
+    if (exportAllBtn) exportAllBtn.style.display = subs.length > 0 ? "inline-flex" : "none";
+
+    const slugFor = (title) =>
+      String(title || "overview")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 64) || "overview";
 
     for (const s of subs) {
       const row = document.createElement("div");
@@ -417,29 +436,122 @@
         s.provider || "stt"
       }`;
 
+      const cues = Array.isArray(s.cues) ? s.cues : [];
+      const slug = slugFor(s.title);
       const btnWrap = document.createElement("div");
-      btnWrap.style.cssText = "display:flex;gap:6px";
+      btnWrap.style.cssText = "display:flex;gap:5px;flex-wrap:wrap";
+
       const srtB = document.createElement("button");
       srtB.type = "button";
       srtB.className = "btn btn-sm";
       srtB.textContent = ".SRT";
       srtB.addEventListener("click", () => {
-        const srt = (s.cues || [])
-          .map(
-            (c, idx) =>
-              `${idx + 1}\n${formatSubTime(c.startSec, ",")} --> ${formatSubTime(
-                c.endSec,
-                ","
-              )}\n${c.text}\n`
-          )
-          .join("\n");
-        downloadBlob(srt, `${(s.title || "overview").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.srt`, "application/x-subrip;charset=utf-8");
+        const srt =
+          cues
+            .map(
+              (c, idx) =>
+                `${idx + 1}\n${formatSubTime(c.startSec, ",")} --> ${formatSubTime(
+                  c.endSec,
+                  ","
+                )}\n${c.text}`
+            )
+            .join("\n\n") + "\n";
+        downloadBlob(`\uFEFF${srt}`, `${slug}.srt`, "application/x-subrip;charset=utf-8");
       });
-      btnWrap.appendChild(srtB);
+
+      const vttB = document.createElement("button");
+      vttB.type = "button";
+      vttB.className = "btn btn-sm";
+      vttB.textContent = ".VTT";
+      vttB.addEventListener("click", () => {
+        const vtt =
+          "WEBVTT\n\n" +
+          cues
+            .map(
+              (c, idx) =>
+                `${idx + 1}\n${formatSubTime(c.startSec, ".")} --> ${formatSubTime(
+                  c.endSec,
+                  "."
+                )}\n${c.text}`
+            )
+            .join("\n\n") +
+          "\n";
+        downloadBlob(`\uFEFF${vtt}`, `${slug}.vtt`, "text/vtt;charset=utf-8");
+      });
+
+      const txtB = document.createElement("button");
+      txtB.type = "button";
+      txtB.className = "btn btn-sm";
+      txtB.textContent = ".TXT";
+      txtB.addEventListener("click", () => {
+        const txt = `# ${s.title || "Video Overview"}\n\n${cues
+          .map((c) => `[${formatClock(c.startSec)}] ${String(c.text || "").replace(/\s+/g, " ").trim()}`)
+          .join("\n")}\n`;
+        downloadBlob(`\uFEFF${txt}`, `${slug}.txt`, "text/plain;charset=utf-8");
+      });
+
+      const jsonB = document.createElement("button");
+      jsonB.type = "button";
+      jsonB.className = "btn btn-sm";
+      jsonB.textContent = ".JSON";
+      jsonB.addEventListener("click", () => {
+        const payload = {
+          schema: "lm-subs/v1",
+          title: s.title || "Video Overview",
+          language: s.language || "en",
+          provider: s.provider,
+          model: s.model,
+          cueCount: cues.length,
+          exportedAt: new Date().toISOString(),
+          cues,
+        };
+        downloadBlob(
+          `${JSON.stringify(payload, null, 2)}\n`,
+          `${slug}.json`,
+          "application/json;charset=utf-8"
+        );
+      });
+
+      const copyB = document.createElement("button");
+      copyB.type = "button";
+      copyB.className = "btn btn-sm";
+      copyB.textContent = "Copy";
+      copyB.addEventListener("click", async () => {
+        const txt = `# ${s.title || "Video Overview"}\n\n${cues
+          .map((c) => `[${formatClock(c.startSec)}] ${String(c.text || "").replace(/\s+/g, " ").trim()}`)
+          .join("\n")}\n`;
+        try {
+          await navigator.clipboard.writeText(txt);
+          copyB.textContent = "Copied";
+        } catch {
+          downloadBlob(`\uFEFF${txt}`, `${slug}.txt`, "text/plain;charset=utf-8");
+          copyB.textContent = "Saved";
+        }
+        setTimeout(() => {
+          copyB.textContent = "Copy";
+        }, 1200);
+      });
+
+      btnWrap.append(srtB, vttB, txtB, jsonB, copyB);
       row.append(info, btnWrap);
       subsList.appendChild(row);
     }
   }
+
+  exportAllBtn?.addEventListener("click", () => {
+    if (!cachedVaultSubtitles.length) return;
+    const bundle = {
+      schema: "lm-subs-vault/v1",
+      exportedAt: new Date().toISOString(),
+      count: cachedVaultSubtitles.length,
+      transcripts: cachedVaultSubtitles,
+    };
+    downloadBlob(
+      `${JSON.stringify(bundle, null, 2)}\n`,
+      `lm-subs-vault-${new Date().toISOString().slice(0, 10)}.json`,
+      "application/json;charset=utf-8"
+    );
+  });
 
   async function loadVault() {
     if (!activeToken) {
