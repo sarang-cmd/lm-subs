@@ -2,6 +2,10 @@
 var MESSAGE_NAMESPACE = "LM_SUBS_";
 var KEEPALIVE_PORT_NAME = "LM_SUBS_KEEPALIVE";
 var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
+var ALARM_NAMES = Object.freeze({
+  UPDATE_CHECK: "lmsubs-update-check",
+  CLOUD_SYNC: "lmsubs-cloud-sync"
+});
 var NOTEBOOKLM_HOSTS = Object.freeze([
   "notebooklm.google.com",
   "notebook.google.com",
@@ -135,7 +139,12 @@ var RUNTIME_MESSAGE = Object.freeze({
   MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
   CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
   TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
-  UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
+  UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES",
+  CHECK_FOR_UPDATES: "LM_SUBS_CHECK_FOR_UPDATES",
+  GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
+  APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
+  SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
+  BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
 });
 
 // src/lib/audio-extract.js
@@ -2665,6 +2674,7 @@ var STORAGE_KEYS = Object.freeze({
   LAST_STATUS: "lastStatus",
   DEBUG_LOGS: "debugLogs",
   NOTIFICATIONS: "notifications",
+  UPDATE_STATUS: "updateStatus",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret"
 });
@@ -2695,6 +2705,8 @@ var DEFAULT_SETTINGS = Object.freeze({
   badgeAlerts: true,
   notifyOnFailover: true,
   notifyOnSync: true,
+  autoUpdateExtension: true,
+  autoBackgroundSync: true,
   excludePatterns: [],
   rpcOverrides: {}
 });
@@ -2771,6 +2783,8 @@ async function getSettings(storageArea) {
     badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
     notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
     notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
+    autoUpdateExtension: typeof saved.autoUpdateExtension === "boolean" ? saved.autoUpdateExtension : DEFAULT_SETTINGS.autoUpdateExtension,
+    autoBackgroundSync: typeof saved.autoBackgroundSync === "boolean" ? saved.autoBackgroundSync : DEFAULT_SETTINGS.autoBackgroundSync,
     excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
     rpcOverrides
   };
@@ -3044,7 +3058,9 @@ async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
   await store.set({ [STORAGE_KEYS.API_KEYS]: merged });
 }
 async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
-  if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) return;
+  if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) {
+    return { addedEntries: [], updatedEntries: [] };
+  }
   const store = resolveStorage(storageArea);
   const [localCache, localHistory] = await Promise.all([
     getSubtitleCacheList(store),
@@ -3054,13 +3070,15 @@ async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
   for (const item of localCache) {
     if (item?.cacheKey) byKey.set(item.cacheKey, item);
   }
+  const addedEntries = [];
+  const updatedEntries = [];
   for (const sub of cloudSubtitles) {
     if (!sub?.cacheKey || !Array.isArray(sub.cues) || sub.cues.length === 0) continue;
     const prev = byKey.get(sub.cacheKey);
     const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
     const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
     if (!prev || incomingTime && prevTime && incomingTime > prevTime) {
-      byKey.set(sub.cacheKey, {
+      const mergedEntry = {
         cacheKey: sub.cacheKey,
         artifactId: sub.artifactId || prev?.artifactId || null,
         notebookId: sub.notebookId || prev?.notebookId || null,
@@ -3077,7 +3095,10 @@ async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
         latencyMs: sub.latencyMs || prev?.latencyMs || null,
         cues: sub.cues,
         createdAt: sub.savedAt || (/* @__PURE__ */ new Date()).toISOString()
-      });
+      };
+      byKey.set(sub.cacheKey, mergedEntry);
+      if (!prev) addedEntries.push(mergedEntry);
+      else updatedEntries.push(mergedEntry);
     }
   }
   const nextCache = [...byKey.values()].slice(0, MAX_CACHE_ENTRIES);
@@ -3108,6 +3129,7 @@ async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
     [STORAGE_KEYS.SUBTITLE_CACHE]: nextCache,
     [STORAGE_KEYS.HISTORY]: nextHistory
   });
+  return { addedEntries, updatedEntries };
 }
 async function getDebugLogs(storageArea) {
   try {
@@ -3180,6 +3202,330 @@ async function clearNotifications(storageArea) {
   await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: [] });
   return [];
 }
+async function getUpdateStatus(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.UPDATE_STATUS);
+    const saved = raw?.[STORAGE_KEYS.UPDATE_STATUS];
+    if (!saved || typeof saved !== "object") {
+      return {
+        updateAvailable: false,
+        currentVersion: "0.2.2",
+        currentBuildId: "",
+        latestVersion: "0.2.2",
+        latestBuildId: "",
+        zipUrl: "/releases/lm-subs-latest.zip",
+        zipSha256: "",
+        notifiedReleaseKey: "",
+        checkedAt: null,
+        autoAppliedAt: null,
+        linkedFolderName: ""
+      };
+    }
+    return {
+      updateAvailable: Boolean(saved.updateAvailable),
+      currentVersion: String(saved.currentVersion || "0.2.2"),
+      currentBuildId: String(saved.currentBuildId || ""),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+      latestBuildId: String(saved.latestBuildId || ""),
+      zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
+      zipSha256: String(saved.zipSha256 || ""),
+      notifiedReleaseKey: String(saved.notifiedReleaseKey || ""),
+      checkedAt: saved.checkedAt || null,
+      autoAppliedAt: saved.autoAppliedAt || null,
+      linkedFolderName: String(saved.linkedFolderName || "")
+    };
+  } catch {
+    return {
+      updateAvailable: false,
+      currentVersion: "0.2.2",
+      currentBuildId: "",
+      latestVersion: "0.2.2",
+      latestBuildId: "",
+      zipUrl: "/releases/lm-subs-latest.zip",
+      zipSha256: "",
+      notifiedReleaseKey: "",
+      checkedAt: null,
+      autoAppliedAt: null,
+      linkedFolderName: ""
+    };
+  }
+}
+async function saveUpdateStatus(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getUpdateStatus(store);
+  const next = { ...current, ...partial || {} };
+  await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+  return next;
+}
+
+// src/lib/unpacked-updater.js
+var IDB_NAME = "lmsubs_updater_db";
+var IDB_STORE = "handles";
+var IDB_DIR_KEY = "extension_root_dir";
+var CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+function computeCrc32(bytes) {
+  let crc = 4294967295;
+  for (let i = 0; i < bytes.length; i++) {
+    crc = CRC_TABLE[(crc ^ bytes[i]) & 255] ^ crc >>> 8;
+  }
+  return (crc ^ 4294967295) >>> 0;
+}
+function compareSemver(a, b) {
+  const pa = String(a || "0.0.0").replace(/^v/i, "").split("-")[0].split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const pb = String(b || "0.0.0").replace(/^v/i, "").split("-")[0].split(".").map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff > 0 ? 1 : -1;
+  }
+  return 0;
+}
+function isRemoteReleaseNewer({
+  localVersion = "0.0.0",
+  localBuildId = "",
+  remoteVersion = "0.0.0",
+  remoteBuildId = ""
+} = {}) {
+  if (!remoteVersion) return false;
+  const cmp = compareSemver(remoteVersion, localVersion);
+  if (cmp > 0) return true;
+  if (cmp < 0) return false;
+  if (localBuildId && remoteBuildId && String(localBuildId).trim() !== String(remoteBuildId).trim()) {
+    return true;
+  }
+  return false;
+}
+async function computeSha256Hex(inputBytes) {
+  const u8 = inputBytes instanceof Uint8Array ? inputBytes : new Uint8Array(inputBytes);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", u8);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function verifySha256Hex(inputBytes, expectedHex) {
+  if (!expectedHex) return true;
+  const actual = await computeSha256Hex(inputBytes);
+  return actual.toLowerCase() === String(expectedHex).trim().toLowerCase();
+}
+async function inflateRawBytes(compressedBytes) {
+  if (typeof globalThis.DecompressionStream !== "function") {
+    throw new Error("DecompressionStream is unavailable in this environment.");
+  }
+  const ds = new globalThis.DecompressionStream("deflate-raw");
+  const writer = ds.writable.getWriter();
+  writer.write(compressedBytes);
+  writer.close();
+  const res = new Response(ds.readable);
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+function sanitizeZipRelativePath(rawName) {
+  const normalized = String(rawName || "").replace(/\\/g, "/").trim();
+  if (!normalized || normalized.endsWith("/")) return null;
+  if (normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized)) {
+    throw new Error(`Unsafe archive path rejected: ${rawName}`);
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.some((p) => p === "." || p === "..")) {
+    throw new Error(`Path traversal rejected in archive: ${rawName}`);
+  }
+  if (parts.length > 1 && parts[0] === "lm-subs") {
+    return parts.slice(1).join("/");
+  }
+  return parts.join("/");
+}
+async function extractZipArchive(zipInput) {
+  const bytes = zipInput instanceof Uint8Array ? zipInput : new Uint8Array(zipInput);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eocdOffset = -1;
+  const minPos = Math.max(0, bytes.byteLength - 65557);
+  for (let pos = bytes.byteLength - 22; pos >= minPos; pos--) {
+    if (view.getUint32(pos, true) === 101010256) {
+      eocdOffset = pos;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw new Error("Invalid update package: ZIP central directory not found.");
+  }
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  const centralDirOffset = view.getUint32(eocdOffset + 16, true);
+  const decoder = new TextDecoder("utf-8");
+  const files = [];
+  let cursor = centralDirOffset;
+  for (let i = 0; i < totalEntries; i++) {
+    if (cursor + 46 > bytes.byteLength || view.getUint32(cursor, true) !== 33639248) {
+      throw new Error("Invalid update package: corrupted central directory header.");
+    }
+    const method = view.getUint16(cursor + 10, true);
+    const expectedCrc = view.getUint32(cursor + 16, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const uncompressedSize = view.getUint32(cursor + 24, true);
+    const nameLen = view.getUint16(cursor + 28, true);
+    const extraLen = view.getUint16(cursor + 30, true);
+    const commentLen = view.getUint16(cursor + 32, true);
+    const localHeaderOffset = view.getUint32(cursor + 42, true);
+    const rawName = decoder.decode(
+      bytes.subarray(cursor + 46, cursor + 46 + nameLen)
+    );
+    cursor += 46 + nameLen + extraLen + commentLen;
+    const relPath = sanitizeZipRelativePath(rawName);
+    if (!relPath) continue;
+    if (localHeaderOffset + 30 > bytes.byteLength || view.getUint32(localHeaderOffset, true) !== 67324752) {
+      throw new Error(`Invalid local header for ${relPath}`);
+    }
+    const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    const dataEnd = dataStart + compressedSize;
+    if (dataEnd > bytes.byteLength) {
+      throw new Error(`Truncated archive payload for ${relPath}`);
+    }
+    const slice = bytes.subarray(dataStart, dataEnd);
+    let outBytes;
+    if (method === 0) {
+      outBytes = new Uint8Array(slice);
+    } else if (method === 8) {
+      outBytes = await inflateRawBytes(slice);
+    } else {
+      throw new Error(`Unsupported ZIP compression method ${method} for ${relPath}`);
+    }
+    if (outBytes.byteLength !== uncompressedSize) {
+      throw new Error(`Size mismatch while extracting ${relPath}`);
+    }
+    const actualCrc = computeCrc32(outBytes);
+    if (actualCrc !== expectedCrc) {
+      throw new Error(`CRC-32 integrity check failed for ${relPath}`);
+    }
+    files.push({ path: relPath, bytes: outBytes });
+  }
+  if (!files.some((f) => f.path === "manifest.json")) {
+    throw new Error("Invalid extension archive: manifest.json missing.");
+  }
+  return files;
+}
+function openHandlesDb() {
+  if (typeof globalThis.indexedDB === "undefined") {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    try {
+      const req = globalThis.indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+async function loadLinkedExtensionDirHandle() {
+  const db = await openHandlesDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(IDB_DIR_KEY);
+      req.onsuccess = () => {
+        db.close();
+        resolve(req.result || null);
+      };
+      req.onerror = () => {
+        db.close();
+        resolve(null);
+      };
+    } catch {
+      db.close();
+      resolve(null);
+    }
+  });
+}
+async function inspectLinkedDirPermission(dirHandle) {
+  if (!dirHandle) return { linked: false, permission: "none", folderName: "" };
+  try {
+    const perm = await dirHandle.queryPermission?.({ mode: "readwrite" }) || "granted";
+    return {
+      linked: true,
+      permission: perm,
+      folderName: dirHandle.name || "lm-subs"
+    };
+  } catch {
+    return {
+      linked: true,
+      permission: "prompt",
+      folderName: dirHandle.name || "lm-subs"
+    };
+  }
+}
+async function resolveTargetExtensionDir(dirHandle) {
+  try {
+    await dirHandle.getFileHandle("manifest.json", { create: false });
+    return dirHandle;
+  } catch {
+    try {
+      const sub = await dirHandle.getDirectoryHandle("lm-subs", { create: false });
+      await sub.getFileHandle("manifest.json", { create: false });
+      return sub;
+    } catch {
+      throw new Error(
+        "Selected folder does not contain LM Subs manifest.json. Select your unzipped lm-subs folder."
+      );
+    }
+  }
+}
+async function applyUpdateToDirectoryHandle(dirHandle, zipBytes, { expectedSha256 = "", requestPermission = false } = {}) {
+  if (!dirHandle) {
+    throw new Error("No unpacked extension folder is linked yet.");
+  }
+  let perm = await dirHandle.queryPermission?.({ mode: "readwrite" }) || "granted";
+  if (perm !== "granted" && requestPermission && dirHandle.requestPermission) {
+    perm = await dirHandle.requestPermission({ mode: "readwrite" });
+  }
+  if (perm !== "granted") {
+    const err = new Error("Write permission is required to update the unpacked folder.");
+    err.code = "PERMISSION_REQUIRED";
+    throw err;
+  }
+  const shaOk = await verifySha256Hex(zipBytes, expectedSha256);
+  if (!shaOk) {
+    throw new Error("Update package SHA-256 verification failed.");
+  }
+  const targetDir = await resolveTargetExtensionDir(dirHandle);
+  const entries = await extractZipArchive(zipBytes);
+  for (const entry of entries) {
+    const segments = entry.path.split("/").filter(Boolean);
+    const fileName = segments.pop();
+    let currentDir = targetDir;
+    for (const seg of segments) {
+      currentDir = await currentDir.getDirectoryHandle(seg, { create: true });
+    }
+    const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(entry.bytes);
+    await writable.close();
+  }
+  const manifestEntry = entries.find((e) => e.path === "manifest.json");
+  const updatedManifest = JSON.parse(new TextDecoder().decode(manifestEntry.bytes));
+  return {
+    ok: true,
+    writtenFiles: entries.length,
+    version: updatedManifest.version || "",
+    folderName: targetDir.name || "lm-subs"
+  };
+}
 
 // src/background/service-worker.js
 var STAGED_AUDIO_TTL_MS = 5 * 60 * 1e3;
@@ -3221,7 +3567,10 @@ function createRuntimeDispatcher({
   tabsApi = globalThis.chrome?.tabs,
   permissionsApi = globalThis.chrome?.permissions,
   actionApi = globalThis.chrome?.action,
-  notificationsApi = globalThis.chrome?.notifications
+  notificationsApi = globalThis.chrome?.notifications,
+  alarmsApi = globalThis.chrome?.alarms,
+  runtimeApi = globalThis.chrome?.runtime,
+  dirHandleLoader = loadLinkedExtensionDirHandle
 } = {}) {
   const inFlightPromises = /* @__PURE__ */ new Map();
   const stagedAudioJobs = /* @__PURE__ */ new Map();
@@ -3230,9 +3579,10 @@ function createRuntimeDispatcher({
   async function syncToolbarBadge({ transientState = null } = {}) {
     if (!actionApi?.setBadgeText) return;
     try {
-      const [settings, notifications] = await Promise.all([
+      const [settings, notifications, updateStatus] = await Promise.all([
         getSettings(storageArea),
-        getNotifications(storageArea)
+        getNotifications(storageArea),
+        getUpdateStatus(storageArea)
       ]);
       if (!settings.badgeAlerts) {
         await actionApi.setBadgeText({ text: "" });
@@ -3246,6 +3596,11 @@ function createRuntimeDispatcher({
       if (transientState === "error") {
         await actionApi.setBadgeBackgroundColor?.({ color: "#B42318" });
         await actionApi.setBadgeText({ text: "!" });
+        return;
+      }
+      if (updateStatus?.updateAvailable) {
+        await actionApi.setBadgeBackgroundColor?.({ color: "#0055D4" });
+        await actionApi.setBadgeText({ text: "UPD" });
         return;
       }
       const unread = notifications.filter((n) => n && !n.read);
@@ -3281,7 +3636,7 @@ function createRuntimeDispatcher({
         });
         if (!granted) return false;
       }
-      const iconUrl = resolveExtensionLogoUrl(globalThis.chrome?.runtime, 128);
+      const iconUrl = resolveExtensionLogoUrl(runtimeApi, 128);
       await new Promise((resolve) => {
         try {
           const maybe = notificationsApi.create(
@@ -3470,6 +3825,40 @@ function createRuntimeDispatcher({
       ...payload
     });
   }
+  async function broadcastUpdatedSubtitlesToTabs(entries) {
+    if (!Array.isArray(entries) || entries.length === 0 || !tabsApi?.query) return;
+    try {
+      const urls = [
+        "https://notebooklm.google.com/*",
+        "https://notebook.google.com/*",
+        "https://notebook.cloud.google.com/*"
+      ];
+      const tabs = await new Promise((resolve) => {
+        try {
+          const maybe = tabsApi.query(
+            { url: urls },
+            (res) => resolve(Array.isArray(res) ? res : [])
+          );
+          if (maybe && typeof maybe.then === "function") {
+            maybe.then((res) => resolve(Array.isArray(res) ? res : [])).catch(() => resolve([]));
+          } else if (tabsApi.query.length < 2) {
+            resolve([]);
+          }
+        } catch {
+          resolve([]);
+        }
+      });
+      for (const tab of tabs) {
+        if (tab?.id) {
+          notifyTabMessage(tab.id, {
+            type: RUNTIME_MESSAGE.SUBTITLES_UPDATED,
+            entries
+          });
+        }
+      }
+    } catch {
+    }
+  }
   async function checkProviderOriginPermission(providerId, customBaseUrl = "") {
     if (providerId !== "custom") return true;
     if (!permissionsApi?.contains) return true;
@@ -3551,7 +3940,8 @@ function createRuntimeDispatcher({
   async function runBidirectionalCloudSync({
     deletedProviders = [],
     deletedCacheKeys = [],
-    pushOnly = false
+    pushOnly = false,
+    silentNotification = false
   } = {}) {
     const [profile, token] = await Promise.all([
       getCloudSyncProfile(storageArea),
@@ -3614,8 +4004,19 @@ function createRuntimeDispatcher({
     if (mergedPrefs.syncApiKeys && pullRes.apiKeys && typeof pullRes.apiKeys === "object") {
       await mergeSecretApiKeysFromCloud(pullRes.apiKeys, storageArea);
     }
+    let mergeResult = { addedEntries: [], updatedEntries: [] };
     if (mergedPrefs.syncTranscripts && Array.isArray(pullRes.subtitles) && pullRes.subtitles.length > 0) {
-      await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea);
+      mergeResult = await mergeCloudSubtitlesIntoCache(pullRes.subtitles, storageArea) || {
+        addedEntries: [],
+        updatedEntries: []
+      };
+      const changedEntries = [
+        ...mergeResult.addedEntries,
+        ...mergeResult.updatedEntries
+      ];
+      if (changedEntries.length > 0) {
+        await broadcastUpdatedSubtitlesToTabs(changedEntries);
+      }
     }
     const updatedProfile = await saveCloudSyncProfile(
       {
@@ -3638,14 +4039,272 @@ function createRuntimeDispatcher({
       },
       [token, ...Object.values(pullRes.apiKeys || {})]
     );
+    const changedCount = mergeResult.addedEntries.length + mergeResult.updatedEntries.length;
+    if (!silentNotification || changedCount > 0) {
+      await emitExtensionNotification({
+        kind: "sync",
+        title: changedCount > 0 ? `Synced ${changedCount} updated transcript${changedCount === 1 ? "" : "s"}` : "Cloud sync completed",
+        body: `${updatedProfile.subtitleCount} transcript(s) and ${Object.keys(updatedProfile.keyHints || {}).length} encrypted key(s) synced.`,
+        fireDesktop: silentNotification && changedCount > 0
+      }).catch(() => {
+      });
+    }
+    return { ok: true, profile: updatedProfile, mergeResult };
+  }
+  async function resolveLocalExtensionBuildMeta() {
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
+    let buildId = "";
+    try {
+      if (runtimeApi?.getURL) {
+        const metaUrl = runtimeApi.getURL("build-meta.json");
+        if (metaUrl && metaUrl.startsWith("chrome-extension://")) {
+          const res = await fetchImpl(metaUrl, { cache: "no-store" });
+          if (res?.ok) {
+            const json = await res.json();
+            if (typeof json?.buildId === "string") {
+              buildId = json.buildId;
+            }
+          }
+        }
+      }
+    } catch {
+    }
+    return { version: manifestVersion, buildId };
+  }
+  async function fetchRemoteReleaseMeta(serverBase) {
+    const base = normalizeSyncServerUrl(serverBase || HOSTED_CLOUD_URL);
+    for (const candidate of [`${base}/releases/latest.json`, `${base}/api/version`]) {
+      try {
+        const res = await fetchImpl(candidate, { cache: "no-store" });
+        if (!res?.ok) continue;
+        const json = await res.json();
+        if (json?.version) {
+          return {
+            version: String(json.version),
+            buildId: String(json.buildId || ""),
+            zipUrl: String(json.zipUrl || "/releases/lm-subs-latest.zip"),
+            zipSha256: String(json.zipSha256 || ""),
+            serverBase: base
+          };
+        }
+      } catch {
+      }
+    }
+    throw new Error("Could not reach LM Subs release server.");
+  }
+  async function applyUnpackedUpdateNow({
+    zipUrl = "",
+    zipSha256 = "",
+    targetVersion = "",
+    targetBuildId = ""
+  } = {}) {
+    const [profile, prevStatus] = await Promise.all([
+      getCloudSyncProfile(storageArea),
+      getUpdateStatus(storageArea)
+    ]);
+    const dirHandle = await dirHandleLoader().catch(() => null);
+    if (!dirHandle) {
+      throw new Error(
+        "Link your unzipped lm-subs folder once so updates can be written directly."
+      );
+    }
+    const base = normalizeSyncServerUrl(profile?.serverUrl || HOSTED_CLOUD_URL);
+    const rawZipUrl = zipUrl || prevStatus.zipUrl || "/releases/lm-subs-latest.zip";
+    const resolvedZipUrl = /^https?:\/\//i.test(rawZipUrl) ? rawZipUrl : `${base}${rawZipUrl.startsWith("/") ? "" : "/"}${rawZipUrl}`;
+    const expectedSha = zipSha256 || prevStatus.zipSha256 || "";
+    const res = await fetchImpl(resolvedZipUrl, { cache: "no-store" });
+    if (!res?.ok) {
+      throw new Error(`Failed to download update package (HTTP ${res?.status || 0}).`);
+    }
+    const zipBytes = new Uint8Array(await res.arrayBuffer());
+    const applied = await applyUpdateToDirectoryHandle(dirHandle, zipBytes, {
+      expectedSha256: expectedSha,
+      requestPermission: false
+    });
+    const newVer = applied.version || targetVersion || prevStatus.latestVersion;
+    const newBuild = targetBuildId || prevStatus.latestBuildId || "";
+    const releaseKey = `${newVer}:${newBuild}`;
+    const nextStatus = await saveUpdateStatus(
+      {
+        updateAvailable: false,
+        currentVersion: newVer,
+        currentBuildId: newBuild,
+        latestVersion: newVer,
+        latestBuildId: newBuild,
+        notifiedReleaseKey: releaseKey,
+        checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        autoAppliedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        linkedFolderName: applied.folderName || "lm-subs"
+      },
+      storageArea
+    );
     await emitExtensionNotification({
-      kind: "sync",
-      title: "Cloud sync completed",
-      body: `${updatedProfile.subtitleCount} transcript(s) and ${Object.keys(updatedProfile.keyHints || {}).length} encrypted key(s) synced.`,
-      fireDesktop: false
+      kind: "update",
+      title: `LM Subs updated automatically (v${newVer})`,
+      body: `Wrote ${applied.writtenFiles} verified files into ${applied.folderName} and reloaded.`,
+      fireDesktop: true
     }).catch(() => {
     });
-    return { ok: true, profile: updatedProfile };
+    if (runtimeApi?.reload) {
+      if (runtimeApi.reload.length === 0 && typeof setTimeout === "function") {
+        setTimeout(() => {
+          try {
+            runtimeApi.reload();
+          } catch {
+          }
+        }, 120);
+      } else {
+        runtimeApi.reload();
+      }
+    }
+    return { ok: true, applied: true, status: nextStatus };
+  }
+  async function checkExtensionUpdate({ attemptAutoApply = true } = {}) {
+    const [settings, profile, prevStatus, localMeta, dirHandle] = await Promise.all([
+      getSettings(storageArea),
+      getCloudSyncProfile(storageArea),
+      getUpdateStatus(storageArea),
+      resolveLocalExtensionBuildMeta(),
+      dirHandleLoader().catch(() => null)
+    ]);
+    const dirInfo = await inspectLinkedDirPermission(dirHandle);
+    const remote = await fetchRemoteReleaseMeta(
+      profile?.serverUrl || HOSTED_CLOUD_URL
+    );
+    const newer = isRemoteReleaseNewer({
+      localVersion: localMeta.version,
+      localBuildId: localMeta.buildId,
+      remoteVersion: remote.version,
+      remoteBuildId: remote.buildId
+    });
+    const resolvedZipUrl = /^https?:\/\//i.test(remote.zipUrl) ? remote.zipUrl : `${remote.serverBase}${remote.zipUrl.startsWith("/") ? "" : "/"}${remote.zipUrl}`;
+    if (!newer) {
+      const upToDate = await saveUpdateStatus(
+        {
+          updateAvailable: false,
+          currentVersion: localMeta.version,
+          currentBuildId: localMeta.buildId,
+          latestVersion: remote.version,
+          latestBuildId: remote.buildId,
+          zipUrl: resolvedZipUrl,
+          zipSha256: remote.zipSha256,
+          checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          linkedFolderName: dirInfo.folderName
+        },
+        storageArea
+      );
+      await syncToolbarBadge();
+      return {
+        ok: true,
+        updateAvailable: false,
+        autoApplied: false,
+        status: upToDate,
+        folderPermission: dirInfo.permission
+      };
+    }
+    if (attemptAutoApply && settings.autoUpdateExtension && dirInfo.linked && dirInfo.permission === "granted" && inFlightPromises.size === 0) {
+      try {
+        const appliedRes = await applyUnpackedUpdateNow({
+          zipUrl: resolvedZipUrl,
+          zipSha256: remote.zipSha256,
+          targetVersion: remote.version,
+          targetBuildId: remote.buildId
+        });
+        return {
+          ok: true,
+          updateAvailable: false,
+          autoApplied: true,
+          status: appliedRes.status,
+          folderPermission: dirInfo.permission
+        };
+      } catch {
+      }
+    }
+    const releaseKey = `${remote.version}:${remote.buildId}`;
+    const shouldNotify = prevStatus.notifiedReleaseKey !== releaseKey;
+    const nextStatus = await saveUpdateStatus(
+      {
+        updateAvailable: true,
+        currentVersion: localMeta.version,
+        currentBuildId: localMeta.buildId,
+        latestVersion: remote.version,
+        latestBuildId: remote.buildId,
+        zipUrl: resolvedZipUrl,
+        zipSha256: remote.zipSha256,
+        notifiedReleaseKey: releaseKey,
+        checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        linkedFolderName: dirInfo.folderName
+      },
+      storageArea
+    );
+    if (shouldNotify) {
+      await emitExtensionNotification({
+        kind: "update",
+        title: `Update available: LM Subs v${remote.version}`,
+        body: dirInfo.linked ? "Click LM Subs in your toolbar to apply the update and reload." : "Open LM Subs to link your folder for one-click auto-updates or download the release.",
+        fireDesktop: true
+      }).catch(() => {
+      });
+    } else {
+      await syncToolbarBadge();
+    }
+    return {
+      ok: true,
+      updateAvailable: true,
+      autoApplied: false,
+      status: nextStatus,
+      folderPermission: dirInfo.permission
+    };
+  }
+  async function runAutomaticBackgroundCloudPoll() {
+    const [settings, profile, token] = await Promise.all([
+      getSettings(storageArea),
+      getCloudSyncProfile(storageArea),
+      getSecretCloudSyncToken(storageArea)
+    ]);
+    if (!settings.autoBackgroundSync || !profile.connected || !token) {
+      return { ok: true, skipped: true };
+    }
+    const syncRes = await runBidirectionalCloudSync({
+      silentNotification: true
+    });
+    try {
+      const notifRes = await callSyncApi(profile.serverUrl, "/api/notifications", {
+        method: "GET",
+        token,
+        timeoutMs: 8e3
+      });
+      if (Array.isArray(notifRes?.notifications) && notifRes.notifications.length > 0) {
+        const existingLocal = await getNotifications(storageArea);
+        const existingIds = new Set(existingLocal.map((n) => n.id));
+        for (const item of [...notifRes.notifications].reverse()) {
+          const cloudKey = `cloud_${item.id}`;
+          if (existingIds.has(cloudKey) || existingIds.has(item.id)) continue;
+          await appendNotification(
+            {
+              id: cloudKey,
+              kind: item.kind || "info",
+              title: item.title || "LM Subs",
+              body: item.body || "",
+              cacheKey: item.cacheKey || null,
+              read: Boolean(item.read),
+              createdAt: item.createdAt
+            },
+            storageArea
+          );
+          if (!item.read && settings.desktopNotifications) {
+            await fireDesktopAlertIfPermitted({
+              id: cloudKey,
+              title: item.title || "LM Subs",
+              body: item.body || ""
+            });
+          }
+        }
+        await syncToolbarBadge();
+      }
+    } catch {
+    }
+    return { ok: true, skipped: false, syncRes };
   }
   async function handleSyncSignup(msg) {
     const serverUrl = normalizeSyncServerUrl(msg?.serverUrl);
@@ -4584,6 +5243,7 @@ function createRuntimeDispatcher({
           },
           storageArea
         );
+        await broadcastUpdatedSubtitlesToTabs([saved]);
         await emitExtensionNotification({
           kind: "edit",
           title: `Saved cue edits: ${saved.title}`,
@@ -4648,6 +5308,63 @@ function createRuntimeDispatcher({
         });
         return { ok: true, notification: created, osDispatched };
       })().then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.GET_UPDATE_STATUS) {
+      Promise.all([
+        getUpdateStatus(storageArea),
+        dirHandleLoader().catch(() => null)
+      ]).then(async ([status, dirHandle]) => {
+        const dirInfo = await inspectLinkedDirPermission(dirHandle);
+        sendResponse({
+          ok: true,
+          status: {
+            ...status,
+            linkedFolderName: dirInfo.folderName || status.linkedFolderName || ""
+          },
+          folderLinked: dirInfo.linked,
+          folderPermission: dirInfo.permission
+        });
+      }).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.CHECK_FOR_UPDATES) {
+      checkExtensionUpdate({
+        attemptAutoApply: msg.attemptAutoApply !== false
+      }).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.APPLY_UNPACKED_UPDATE) {
+      applyUnpackedUpdateNow({
+        zipUrl: msg.zipUrl || "",
+        zipSha256: msg.zipSha256 || "",
+        targetVersion: msg.targetVersion || "",
+        targetBuildId: msg.targetBuildId || ""
+      }).then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({
+          ok: false,
+          code: err?.code || "",
+          error: err?.message || String(err)
+        })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK) {
+      Promise.all([
+        runAutomaticBackgroundCloudPoll().catch((err) => ({
+          ok: false,
+          error: err?.message || String(err)
+        })),
+        msg.includeUpdateCheck ? checkExtensionUpdate({ attemptAutoApply: true }).catch(() => null) : Promise.resolve(null)
+      ]).then(
+        ([syncOut, updateOut]) => sendResponse({ ok: true, sync: syncOut, update: updateOut })
+      ).catch(
         (err) => sendResponse({ ok: false, error: err?.message || String(err) })
       );
       return true;
@@ -4748,7 +5465,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = globalThis.chrome?.runtime?.getManifest?.()?.version || "0.2.1";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.2";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,
@@ -4824,8 +5541,71 @@ function createRuntimeDispatcher({
     return false;
   };
 }
+function installBackgroundAutomation(dispatcher, {
+  alarmsApi = globalThis.chrome?.alarms,
+  runtimeApi = globalThis.chrome?.runtime,
+  notificationsApi = globalThis.chrome?.notifications
+} = {}) {
+  const invoke = (msg) => new Promise((resolve) => {
+    dispatcher(msg, {}, (res) => resolve(res));
+  });
+  const scheduleAlarms = () => {
+    try {
+      alarmsApi?.create?.(ALARM_NAMES.UPDATE_CHECK, {
+        delayInMinutes: 1,
+        periodInMinutes: 15
+      });
+      alarmsApi?.create?.(ALARM_NAMES.CLOUD_SYNC, {
+        delayInMinutes: 1,
+        periodInMinutes: 5
+      });
+    } catch {
+    }
+  };
+  scheduleAlarms();
+  alarmsApi?.onAlarm?.addListener?.((alarm) => {
+    if (!alarm?.name) return;
+    if (alarm.name === ALARM_NAMES.UPDATE_CHECK) {
+      invoke({ type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES }).catch(() => {
+      });
+    } else if (alarm.name === ALARM_NAMES.CLOUD_SYNC) {
+      invoke({ type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK }).catch(() => {
+      });
+    }
+  });
+  runtimeApi?.onStartup?.addListener?.(() => {
+    scheduleAlarms();
+    invoke({
+      type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+      includeUpdateCheck: true
+    }).catch(() => {
+    });
+  });
+  runtimeApi?.onInstalled?.addListener?.(() => {
+    scheduleAlarms();
+    invoke({
+      type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+      includeUpdateCheck: true
+    }).catch(() => {
+    });
+  });
+  runtimeApi?.onUpdateAvailable?.addListener?.(() => {
+    try {
+      runtimeApi.reload?.();
+    } catch {
+    }
+  });
+  notificationsApi?.onClicked?.addListener?.(() => {
+    try {
+      runtimeApi?.openOptionsPage?.();
+    } catch {
+    }
+  });
+}
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
-  chrome.runtime.onMessage.addListener(createRuntimeDispatcher());
+  const liveDispatcher = createRuntimeDispatcher();
+  chrome.runtime.onMessage.addListener(liveDispatcher);
+  installBackgroundAutomation(liveDispatcher);
   chrome.runtime.onConnect?.addListener((port) => {
     if (port?.name !== KEEPALIVE_PORT_NAME) return;
     port.onMessage.addListener(() => {
@@ -4837,5 +5617,6 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   });
 }
 export {
-  createRuntimeDispatcher
+  createRuntimeDispatcher,
+  installBackgroundAutomation
 };

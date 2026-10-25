@@ -83,10 +83,10 @@ test("Security invariant: getApiKey & getSecretApiKeysMap are strictly isolated 
   }
 });
 
-test("Manifest V3 least-privilege invariant: only 'storage' permission, Google CDN redirect coverage, and strict CSP", () => {
+test("Manifest V3 least-privilege invariant: storage/notifications/alarms permissions only, Google CDN redirect coverage, and strict CSP", () => {
   const manifest = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions, ["storage"]);
+  assert.deepEqual(manifest.permissions, ["storage", "notifications", "alarms"]);
   assert.ok(
     manifest.content_security_policy.extension_pages.includes("script-src 'self'")
   );

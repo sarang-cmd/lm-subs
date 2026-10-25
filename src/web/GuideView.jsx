@@ -34,7 +34,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "20px" }}>
             <a
               className="btn btn-primary"
-              href="/releases/lm-subs-v0.2.1.zip"
+              href="/releases/lm-subs-v0.2.2.zip"
               download
             >
               Download Chrome extension (.zip)
@@ -70,7 +70,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               Download and unzip the extension folder
             </h2>
             <p className="section-prose">
-              Click the download button above to save <code>lm-subs-v0.2.1.zip</code> to your computer, then extract it into a regular folder. Keep that folder somewhere permanent such as your Documents folder so Chrome can load it whenever you open your browser.
+              Click the download button above to save <code>lm-subs-v0.2.2.zip</code> to your computer, then extract it into a regular folder. Keep that folder somewhere permanent such as your Documents folder so Chrome can load it whenever you open your browser.
             </p>
           </div>
 
@@ -88,7 +88,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               <Tabs.Content value="mac" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
                   <li>Open your <strong style={{ color: "var(--ink)" }}>Downloads</strong> folder in Finder.</li>
-                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.1.zip</code>. macOS creates an unzipped folder next to the zip file automatically.</li>
+                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.2.zip</code>. macOS creates an unzipped folder next to the zip file automatically.</li>
                   <li>Move that unzipped folder into <strong style={{ color: "var(--ink)" }}>Documents</strong> so you do not delete it later while cleaning Downloads.</li>
                 </ol>
               </Tabs.Content>
@@ -96,7 +96,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               <Tabs.Content value="windows" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
                   <li>Open File Explorer and go to <strong style={{ color: "var(--ink)" }}>Downloads</strong>.</li>
-                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.1.zip</code> and click <strong style={{ color: "var(--ink)" }}>Extract All...</strong>, then click <strong style={{ color: "var(--ink)" }}>Extract</strong>.</li>
+                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.2.zip</code> and click <strong style={{ color: "var(--ink)" }}>Extract All...</strong>, then click <strong style={{ color: "var(--ink)" }}>Extract</strong>.</li>
                   <li>Notice that Windows now shows a regular folder without a zipper icon. Remember where that unzipped folder is saved.</li>
                 </ol>
               </Tabs.Content>

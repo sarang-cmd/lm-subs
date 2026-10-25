@@ -1,6 +1,10 @@
 (() => {
   // src/config/selectors.js
   var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
+  var ALARM_NAMES = Object.freeze({
+    UPDATE_CHECK: "lmsubs-update-check",
+    CLOUD_SYNC: "lmsubs-cloud-sync"
+  });
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
     "notebook.google.com",
@@ -134,7 +138,12 @@
     MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
     CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
     TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
-    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
+    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES",
+    CHECK_FOR_UPDATES: "LM_SUBS_CHECK_FOR_UPDATES",
+    GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
+    APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
+    SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
+    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
   });
 
   // src/lib/audio-extract.js
@@ -428,6 +437,7 @@
     LAST_STATUS: "lastStatus",
     DEBUG_LOGS: "debugLogs",
     NOTIFICATIONS: "notifications",
+    UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
@@ -454,6 +464,8 @@
     badgeAlerts: true,
     notifyOnFailover: true,
     notifyOnSync: true,
+    autoUpdateExtension: true,
+    autoBackgroundSync: true,
     excludePatterns: [],
     rpcOverrides: {}
   });
@@ -530,6 +542,8 @@
       badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
       notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
       notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
+      autoUpdateExtension: typeof saved.autoUpdateExtension === "boolean" ? saved.autoUpdateExtension : DEFAULT_SETTINGS.autoUpdateExtension,
+      autoBackgroundSync: typeof saved.autoBackgroundSync === "boolean" ? saved.autoBackgroundSync : DEFAULT_SETTINGS.autoBackgroundSync,
       excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
       rpcOverrides
     };
@@ -669,6 +683,62 @@
     } catch {
       return [];
     }
+  }
+  async function getUpdateStatus(storageArea) {
+    try {
+      const store = resolveStorage(storageArea);
+      const raw = await store.get(STORAGE_KEYS.UPDATE_STATUS);
+      const saved = raw?.[STORAGE_KEYS.UPDATE_STATUS];
+      if (!saved || typeof saved !== "object") {
+        return {
+          updateAvailable: false,
+          currentVersion: "0.2.2",
+          currentBuildId: "",
+          latestVersion: "0.2.2",
+          latestBuildId: "",
+          zipUrl: "/releases/lm-subs-latest.zip",
+          zipSha256: "",
+          notifiedReleaseKey: "",
+          checkedAt: null,
+          autoAppliedAt: null,
+          linkedFolderName: ""
+        };
+      }
+      return {
+        updateAvailable: Boolean(saved.updateAvailable),
+        currentVersion: String(saved.currentVersion || "0.2.2"),
+        currentBuildId: String(saved.currentBuildId || ""),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+        latestBuildId: String(saved.latestBuildId || ""),
+        zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
+        zipSha256: String(saved.zipSha256 || ""),
+        notifiedReleaseKey: String(saved.notifiedReleaseKey || ""),
+        checkedAt: saved.checkedAt || null,
+        autoAppliedAt: saved.autoAppliedAt || null,
+        linkedFolderName: String(saved.linkedFolderName || "")
+      };
+    } catch {
+      return {
+        updateAvailable: false,
+        currentVersion: "0.2.2",
+        currentBuildId: "",
+        latestVersion: "0.2.2",
+        latestBuildId: "",
+        zipUrl: "/releases/lm-subs-latest.zip",
+        zipSha256: "",
+        notifiedReleaseKey: "",
+        checkedAt: null,
+        autoAppliedAt: null,
+        linkedFolderName: ""
+      };
+    }
+  }
+  async function saveUpdateStatus(partial, storageArea) {
+    const store = resolveStorage(storageArea);
+    const current = await getUpdateStatus(store);
+    const next = { ...current, ...partial || {} };
+    await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+    return next;
   }
 
   // src/lib/subtitles.js
@@ -950,6 +1020,101 @@ ${blocks.join("\n\n")}
     };
   }
 
+  // src/lib/unpacked-updater.js
+  var IDB_NAME = "lmsubs_updater_db";
+  var IDB_STORE = "handles";
+  var IDB_DIR_KEY = "extension_root_dir";
+  var CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) {
+        c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+      }
+      table[i] = c >>> 0;
+    }
+    return table;
+  })();
+  function openHandlesDb() {
+    if (typeof globalThis.indexedDB === "undefined") {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      try {
+        const req = globalThis.indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            db.createObjectStore(IDB_STORE);
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+  async function saveLinkedExtensionDirHandle(dirHandle) {
+    const db = await openHandlesDb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(dirHandle, IDB_DIR_KEY);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+      } catch {
+        db.close();
+        resolve(false);
+      }
+    });
+  }
+  async function loadLinkedExtensionDirHandle() {
+    const db = await openHandlesDb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const req = tx.objectStore(IDB_STORE).get(IDB_DIR_KEY);
+        req.onsuccess = () => {
+          db.close();
+          resolve(req.result || null);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      } catch {
+        db.close();
+        resolve(null);
+      }
+    });
+  }
+  async function inspectLinkedDirPermission(dirHandle) {
+    if (!dirHandle) return { linked: false, permission: "none", folderName: "" };
+    try {
+      const perm = await dirHandle.queryPermission?.({ mode: "readwrite" }) || "granted";
+      return {
+        linked: true,
+        permission: perm,
+        folderName: dirHandle.name || "lm-subs"
+      };
+    } catch {
+      return {
+        linked: true,
+        permission: "prompt",
+        folderName: dirHandle.name || "lm-subs"
+      };
+    }
+  }
+
   // src/ui/brand-icon.js
   var SVG_NS = "http://www.w3.org/2000/svg";
   function createBrandMarkSvg(doc = globalThis.document, size = 28) {
@@ -1093,9 +1258,16 @@ ${blocks.join("\n\n")}
     const popupNotifBadge = document.getElementById("popup-notif-badge");
     const popupNotifSummary = document.getElementById("popup-notif-summary");
     const popupEnableOsNotifBtn = document.getElementById("popup-enable-os-notif-btn");
+    const popupCheckUpdatesBtn = document.getElementById("popup-check-updates-btn");
+    const popupUpdateStatusHint = document.getElementById("popup-update-status-hint");
     const popupMarkReadBtn = document.getElementById("popup-mark-read-btn");
     const popupClearNotifBtn = document.getElementById("popup-clear-notif-btn");
     const popupNotifList = document.getElementById("popup-notif-list");
+    const popupUpdateBanner = document.getElementById("popup-update-banner");
+    const popupUpdateTitle = document.getElementById("popup-update-title");
+    const popupUpdateDetail = document.getElementById("popup-update-detail");
+    const popupApplyUpdateBtn = document.getElementById("popup-apply-update-btn");
+    const popupDownloadUpdateLink = document.getElementById("popup-download-update-link");
     const lastStatusCard = document.getElementById("last-status-card");
     const lastStatusBadge = document.getElementById("last-status-badge");
     const lastStatusTitle = document.getElementById("last-status-title");
@@ -1111,13 +1283,22 @@ ${blocks.join("\n\n")}
       opt.textContent = `${spec.name} (${spec.badge})`;
       providerSelect.appendChild(opt);
     }
-    let [settings, presenceMap, lastStatus, cacheList, syncProfile, notifications] = await Promise.all([
+    let [
+      settings,
+      presenceMap,
+      lastStatus,
+      cacheList,
+      syncProfile,
+      notifications,
+      updateStatus
+    ] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getLastStatus(),
       getSubtitleCacheList(),
       getCloudSyncProfile(),
-      getNotifications()
+      getNotifications(),
+      getUpdateStatus()
     ]);
     let activeTabId = null;
     let activeTabDiagnostics = null;
@@ -1310,14 +1491,31 @@ ${blocks.join("\n\n")}
         }
       );
     }
-    async function inspectOsNotificationPermission() {
-      if (!popupEnableOsNotifBtn || !chrome.permissions?.contains) return;
-      try {
-        const granted = await chrome.permissions.contains({
-          permissions: ["notifications"]
-        });
-        popupEnableOsNotifBtn.textContent = granted ? "Test desktop alert" : "Enable desktop alerts";
-      } catch {
+    async function renderUpdateBanner() {
+      const dirHandle = await loadLinkedExtensionDirHandle();
+      const dirInfo = await inspectLinkedDirPermission(dirHandle);
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.2";
+      if (popupUpdateStatusHint) {
+        const folderPart = dirInfo.linked ? `Folder linked (${dirInfo.folderName})` : "Auto-check active";
+        popupUpdateStatusHint.textContent = updateStatus?.updateAvailable ? `Update v${updateStatus.latestVersion} available \xB7 ${folderPart}` : `Installed v${curVer} \xB7 ${folderPart}`;
+      }
+      if (!popupUpdateBanner) return;
+      if (!updateStatus?.updateAvailable) {
+        popupUpdateBanner.style.display = "none";
+        return;
+      }
+      popupUpdateBanner.style.display = "block";
+      if (popupUpdateTitle) {
+        popupUpdateTitle.textContent = `Update ready: LM Subs v${updateStatus.latestVersion}`;
+      }
+      if (popupUpdateDetail) {
+        popupUpdateDetail.textContent = dirInfo.linked ? `Ready to update ${dirInfo.folderName} and reload automatically.` : "Select your unzipped lm-subs folder once for automatic in-place updates.";
+      }
+      if (popupApplyUpdateBtn) {
+        popupApplyUpdateBtn.textContent = dirInfo.linked ? "Update and reload" : "Link folder and update";
+      }
+      if (popupDownloadUpdateLink && updateStatus.zipUrl) {
+        popupDownloadUpdateLink.href = updateStatus.zipUrl;
       }
     }
     function renderNotifications() {
@@ -1385,9 +1583,14 @@ ${blocks.join("\n\n")}
     renderLastStatus();
     renderExportBar();
     renderNotifications();
-    inspectOsNotificationPermission();
+    renderUpdateBanner();
     inspectGoogleHostPermissions();
     inspectActiveTab();
+    sendRuntime({
+      type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+      includeUpdateCheck: true
+    }).catch(() => {
+    });
     enabledToggle.addEventListener("change", async () => {
       settings = await saveSettings({ enabled: enabledToggle.checked });
     });
@@ -1615,17 +1818,50 @@ ${blocks.join("\n\n")}
     bindExportButton(downloadLatestMdBtn, "md");
     bindExportButton(downloadLatestJsonBtn, "json");
     popupEnableOsNotifBtn?.addEventListener("click", async () => {
-      if (chrome.permissions?.request) {
-        try {
-          await chrome.permissions.request({ permissions: ["notifications"] });
-        } catch {
-        }
-      }
       settings = await saveSettings({ desktopNotifications: true });
       await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
       notifications = await getNotifications();
       renderNotifications();
-      await inspectOsNotificationPermission();
+    });
+    popupCheckUpdatesBtn?.addEventListener("click", async () => {
+      popupCheckUpdatesBtn.disabled = true;
+      popupCheckUpdatesBtn.textContent = "Checking\u2026";
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES });
+      popupCheckUpdatesBtn.disabled = false;
+      popupCheckUpdatesBtn.textContent = "Check updates";
+      updateStatus = res?.status || await getUpdateStatus();
+      notifications = await getNotifications();
+      renderNotifications();
+      await renderUpdateBanner();
+    });
+    popupApplyUpdateBtn?.addEventListener("click", async () => {
+      popupApplyUpdateBtn.disabled = true;
+      try {
+        let dirHandle = await loadLinkedExtensionDirHandle();
+        if (!dirHandle && typeof window.showDirectoryPicker === "function") {
+          dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+          await saveLinkedExtensionDirHandle(dirHandle);
+          await saveUpdateStatus({ linkedFolderName: dirHandle.name || "lm-subs" });
+        }
+        if (dirHandle?.requestPermission) {
+          await dirHandle.requestPermission({ mode: "readwrite" });
+        }
+        popupApplyUpdateBtn.textContent = "Updating\u2026";
+        const res = await sendRuntime({
+          type: RUNTIME_MESSAGE.APPLY_UNPACKED_UPDATE
+        });
+        if (!res?.ok && popupUpdateDetail) {
+          popupUpdateDetail.textContent = res?.error || "Could not apply update automatically. Use Download .zip.";
+        }
+      } catch (err) {
+        if (popupUpdateDetail && err?.name !== "AbortError") {
+          popupUpdateDetail.textContent = err?.message || "Folder selection canceled.";
+        }
+      } finally {
+        popupApplyUpdateBtn.disabled = false;
+        updateStatus = await getUpdateStatus();
+        await renderUpdateBanner();
+      }
     });
     popupMarkReadBtn?.addEventListener("click", async () => {
       const res = await sendRuntime({
@@ -1671,6 +1907,10 @@ ${blocks.join("\n\n")}
         if (changes.notifications) {
           notifications = await getNotifications();
           renderNotifications();
+        }
+        if (changes.updateStatus) {
+          updateStatus = await getUpdateStatus();
+          await renderUpdateBanner();
         }
       });
     } catch {

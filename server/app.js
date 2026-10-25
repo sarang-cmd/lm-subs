@@ -19,6 +19,8 @@
  */
 
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -375,13 +377,38 @@ export function createSyncApp({
     })
   );
 
+  app.get("/api/version", (c) => {
+    let meta = {
+      version: "0.2.2",
+      buildId: "",
+      zipUrl: "/releases/lm-subs-latest.zip",
+      versionedZipUrl: "/releases/lm-subs-v0.2.2.zip",
+      zipSha256: "",
+    };
+    try {
+      const embedded = process.env.LMSUBS_RELEASE_META_JSON;
+      if (embedded && typeof embedded === "string" && embedded.trim().startsWith("{")) {
+        meta = { ...meta, ...JSON.parse(embedded) };
+      } else {
+        const diskPath = path.resolve("docs", "releases", "latest.json");
+        if (fs.existsSync(diskPath)) {
+          meta = { ...meta, ...JSON.parse(fs.readFileSync(diskPath, "utf8")) };
+        }
+      }
+    } catch {
+      // Keep fallback metadata
+    }
+    c.header("Cache-Control", "no-store, max-age=0");
+    return c.json({ ok: true, ...meta });
+  });
+
   app.get("/api/health", async (c) => {
     const db = await resolveDb();
     const ping = await db.query("SELECT NOW() AS server_time");
     return c.json({
       ok: true,
       service: "lm-subs-neon-sync",
-      version: "0.2.1",
+      version: "0.2.2",
       neonProjectId: db.projectId || "falling-cherry-16443194",
       databaseMode: db.mode,
       neonManagedAuth: Boolean(process.env.NEON_AUTH_BASE_URL),

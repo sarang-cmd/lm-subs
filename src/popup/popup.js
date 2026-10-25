@@ -20,11 +20,18 @@ import {
   getSavedKeyPresenceMap,
   getSettings,
   getSubtitleCacheList,
+  getUpdateStatus,
   normalizeSyncServerUrl,
   saveSettings,
+  saveUpdateStatus,
   setApiKey,
 } from "../lib/storage.js";
 import { formatTxt, serializeSubtitles } from "../lib/subtitles.js";
+import {
+  inspectLinkedDirPermission,
+  loadLinkedExtensionDirHandle,
+  saveLinkedExtensionDirHandle,
+} from "../lib/unpacked-updater.js";
 import { createBrandMarkSvg } from "../ui/brand-icon.js";
 
 function sendRuntime(msg) {
@@ -124,9 +131,17 @@ async function initPopup() {
   const popupNotifBadge = document.getElementById("popup-notif-badge");
   const popupNotifSummary = document.getElementById("popup-notif-summary");
   const popupEnableOsNotifBtn = document.getElementById("popup-enable-os-notif-btn");
+  const popupCheckUpdatesBtn = document.getElementById("popup-check-updates-btn");
+  const popupUpdateStatusHint = document.getElementById("popup-update-status-hint");
   const popupMarkReadBtn = document.getElementById("popup-mark-read-btn");
   const popupClearNotifBtn = document.getElementById("popup-clear-notif-btn");
   const popupNotifList = document.getElementById("popup-notif-list");
+
+  const popupUpdateBanner = document.getElementById("popup-update-banner");
+  const popupUpdateTitle = document.getElementById("popup-update-title");
+  const popupUpdateDetail = document.getElementById("popup-update-detail");
+  const popupApplyUpdateBtn = document.getElementById("popup-apply-update-btn");
+  const popupDownloadUpdateLink = document.getElementById("popup-download-update-link");
   const lastStatusCard = document.getElementById("last-status-card");
   const lastStatusBadge = document.getElementById("last-status-badge");
   const lastStatusTitle = document.getElementById("last-status-title");
@@ -144,15 +159,23 @@ async function initPopup() {
     providerSelect.appendChild(opt);
   }
 
-  let [settings, presenceMap, lastStatus, cacheList, syncProfile, notifications] =
-    await Promise.all([
-      getSettings(),
-      getSavedKeyPresenceMap(),
-      getLastStatus(),
-      getSubtitleCacheList(),
-      getCloudSyncProfile(),
-      getNotifications(),
-    ]);
+  let [
+    settings,
+    presenceMap,
+    lastStatus,
+    cacheList,
+    syncProfile,
+    notifications,
+    updateStatus,
+  ] = await Promise.all([
+    getSettings(),
+    getSavedKeyPresenceMap(),
+    getLastStatus(),
+    getSubtitleCacheList(),
+    getCloudSyncProfile(),
+    getNotifications(),
+    getUpdateStatus(),
+  ]);
 
   let activeTabId = null;
   let activeTabDiagnostics = null;
@@ -382,17 +405,45 @@ async function initPopup() {
     );
   }
 
-  async function inspectOsNotificationPermission() {
-    if (!popupEnableOsNotifBtn || !chrome.permissions?.contains) return;
-    try {
-      const granted = await chrome.permissions.contains({
-        permissions: ["notifications"],
-      });
-      popupEnableOsNotifBtn.textContent = granted
-        ? "Test desktop alert"
-        : "Enable desktop alerts";
-    } catch {
-      // Ignore
+  async function renderUpdateBanner() {
+    const dirHandle = await loadLinkedExtensionDirHandle();
+    const dirInfo = await inspectLinkedDirPermission(dirHandle);
+    const curVer =
+      chrome.runtime?.getManifest?.()?.version ||
+      updateStatus?.currentVersion ||
+      "0.2.2";
+
+    if (popupUpdateStatusHint) {
+      const folderPart = dirInfo.linked
+        ? `Folder linked (${dirInfo.folderName})`
+        : "Auto-check active";
+      popupUpdateStatusHint.textContent = updateStatus?.updateAvailable
+        ? `Update v${updateStatus.latestVersion} available · ${folderPart}`
+        : `Installed v${curVer} · ${folderPart}`;
+    }
+
+    if (!popupUpdateBanner) return;
+    if (!updateStatus?.updateAvailable) {
+      popupUpdateBanner.style.display = "none";
+      return;
+    }
+
+    popupUpdateBanner.style.display = "block";
+    if (popupUpdateTitle) {
+      popupUpdateTitle.textContent = `Update ready: LM Subs v${updateStatus.latestVersion}`;
+    }
+    if (popupUpdateDetail) {
+      popupUpdateDetail.textContent = dirInfo.linked
+        ? `Ready to update ${dirInfo.folderName} and reload automatically.`
+        : "Select your unzipped lm-subs folder once for automatic in-place updates.";
+    }
+    if (popupApplyUpdateBtn) {
+      popupApplyUpdateBtn.textContent = dirInfo.linked
+        ? "Update and reload"
+        : "Link folder and update";
+    }
+    if (popupDownloadUpdateLink && updateStatus.zipUrl) {
+      popupDownloadUpdateLink.href = updateStatus.zipUrl;
     }
   }
 
@@ -481,9 +532,15 @@ async function initPopup() {
   renderLastStatus();
   renderExportBar();
   renderNotifications();
-  inspectOsNotificationPermission();
+  renderUpdateBanner();
   inspectGoogleHostPermissions();
   inspectActiveTab();
+
+  // Trigger non-blocking background sync + release check when popup opens
+  sendRuntime({
+    type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+    includeUpdateCheck: true,
+  }).catch(() => {});
 
   enabledToggle.addEventListener("change", async () => {
     settings = await saveSettings({ enabled: enabledToggle.checked });
@@ -743,18 +800,54 @@ async function initPopup() {
   bindExportButton(downloadLatestJsonBtn, "json");
 
   popupEnableOsNotifBtn?.addEventListener("click", async () => {
-    if (chrome.permissions?.request) {
-      try {
-        await chrome.permissions.request({ permissions: ["notifications"] });
-      } catch {
-        // Ignore
-      }
-    }
     settings = await saveSettings({ desktopNotifications: true });
     await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
     notifications = await getNotifications();
     renderNotifications();
-    await inspectOsNotificationPermission();
+  });
+
+  popupCheckUpdatesBtn?.addEventListener("click", async () => {
+    popupCheckUpdatesBtn.disabled = true;
+    popupCheckUpdatesBtn.textContent = "Checking…";
+    const res = await sendRuntime({ type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES });
+    popupCheckUpdatesBtn.disabled = false;
+    popupCheckUpdatesBtn.textContent = "Check updates";
+    updateStatus = res?.status || (await getUpdateStatus());
+    notifications = await getNotifications();
+    renderNotifications();
+    await renderUpdateBanner();
+  });
+
+  popupApplyUpdateBtn?.addEventListener("click", async () => {
+    popupApplyUpdateBtn.disabled = true;
+    try {
+      let dirHandle = await loadLinkedExtensionDirHandle();
+      if (!dirHandle && typeof window.showDirectoryPicker === "function") {
+        dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        await saveLinkedExtensionDirHandle(dirHandle);
+        await saveUpdateStatus({ linkedFolderName: dirHandle.name || "lm-subs" });
+      }
+      if (dirHandle?.requestPermission) {
+        await dirHandle.requestPermission({ mode: "readwrite" });
+      }
+      popupApplyUpdateBtn.textContent = "Updating…";
+      const res = await sendRuntime({
+        type: RUNTIME_MESSAGE.APPLY_UNPACKED_UPDATE,
+      });
+      if (!res?.ok && popupUpdateDetail) {
+        popupUpdateDetail.textContent =
+          res?.error || "Could not apply update automatically. Use Download .zip.";
+      }
+    } catch (err) {
+      if (popupUpdateDetail && err?.name !== "AbortError") {
+        popupUpdateDetail.textContent =
+          err?.message || "Folder selection canceled.";
+      }
+    } finally {
+      popupApplyUpdateBtn.disabled = false;
+      updateStatus = await getUpdateStatus();
+      await renderUpdateBanner();
+    }
   });
 
   popupMarkReadBtn?.addEventListener("click", async () => {
@@ -804,6 +897,10 @@ async function initPopup() {
       if (changes.notifications) {
         notifications = await getNotifications();
         renderNotifications();
+      }
+      if (changes.updateStatus) {
+        updateStatus = await getUpdateStatus();
+        await renderUpdateBanner();
       }
     });
   } catch {

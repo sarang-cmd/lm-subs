@@ -4,6 +4,17 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `v0.2.2` (2026-10-25)
+
+Adds automatic out-of-the-box extension notifications, scheduled background release checks, SHA-256 verified in-place unpacked folder auto-updates, and automatic background cloud sync with live player hot-reload.
+
+### Added
+* **Automatic out-of-the-box notifications and MV3 background alarms (`extension/manifest.json`, `src/background/service-worker.js`):** Promoted `"notifications"` and `"alarms"` into manifest `permissions` (`["storage", "notifications", "alarms"]`) so native OS desktop alerts with the LM Subs logo and periodic background checks (`lmsubs-update-check` every 15 minutes and `lmsubs-cloud-sync` every 5 minutes) run automatically on load without a manual permission prompt.
+* **Automatic release detection and SHA-256 verified unpacked folder auto-updater (`src/lib/unpacked-updater.js`, `scripts/package-zip.mjs`, `scripts/vercel-build.mjs`, `GET /api/version`):** Every build stamps a deterministic 12-character content `buildId` (`extension/build-meta.json` and `docs/releases/latest.json`) and SHA-256 digest (`docs/releases/lm-subs-latest.zip`). When a newer version or build is deployed to `lm-subs.vercel.app`, the extension notifies you automatically (`UPD` toolbar badge, OS desktop alert, and popup banner) and, once your unpacked `lm-subs` folder is linked via `FileSystemDirectoryHandle`, verifies SHA-256 and CRC-32, writes the updated files directly to disk, and reloads the extension automatically.
+* **Automatic background cloud polling and live player hot-reload (`src/background/service-worker.js`, `src/content/content.js`):** Background cloud sync pulls new transcripts, edited cues, and unread cloud notifications automatically, fires OS desktop alerts, and broadcasts `LM_SUBS_SUBTITLES_UPDATED` to open NotebookLM tabs so active `<video>` captions update immediately without refreshing the page.
+
+---
+
 ## `v0.2.1` (2026-10-25)
 
  Unifies the hosted cloud experience, editorial Chrome extension parity, faster media download and pure-audio extraction, always-open local sign-in code inputs, collapsible provider controls, and accurate avoided video upload telemetry across PRs #5 through #14.
