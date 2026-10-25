@@ -1,12 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "buildCommand": "npm run build",
   "outputDirectory": "docs",
   "cleanUrls": true,
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "db/**"
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/[...route]"
+      "source": "/api",
+      "destination": "/api/index?__lms_path="
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index?__lms_path=:path*"
     },
     {
       "source": "/guide",

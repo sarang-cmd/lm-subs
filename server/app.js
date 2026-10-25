@@ -2,7 +2,7 @@
  * LM Subs Hosted Cloud API (`server/app.js`).
  *
  * Portable Fetch-standard Hono application operated by the LM Subs maintainer on:
- * - Vercel Serverless / Fluid Compute (`api/[...route].js`)
+ * - Vercel Serverless / Fluid Compute (`api/index.js`)
  * - Neon Functions (`server/neon-function.js`)
  * - Node HTTP server (`serve-docs.mjs`)
  *
@@ -74,16 +74,39 @@ function estimateSpokenSeconds(cues) {
   return Math.max(0, Math.round(maxEnd));
 }
 
-function resolveRequestOrigin(c) {
-  const proto =
-    c.req.header("x-forwarded-proto") ||
-    new URL(c.req.url).protocol.replace(":", "") ||
-    "https";
-  const host =
+export function resolveRequestOrigin(c) {
+  const reqUrl = new URL(c.req.url);
+  const rawHost = (
     c.req.header("x-forwarded-host") ||
     c.req.header("host") ||
-    new URL(c.req.url).host;
-  return `${proto}://${host}`;
+    reqUrl.host ||
+    ""
+  )
+    .split(",")[0]
+    .trim();
+  const isLocalHost =
+    rawHost.startsWith("localhost") || rawHost.startsWith("127.0.0.1");
+
+  if (!isLocalHost && process.env.PUBLIC_APP_URL) {
+    try {
+      const configured = new URL(process.env.PUBLIC_APP_URL.trim());
+      if (configured.host === rawHost || !rawHost) {
+        return configured.origin;
+      }
+    } catch {
+      // Fall back to forwarded headers below
+    }
+  }
+
+  const rawProto = (
+    c.req.header("x-forwarded-proto") ||
+    reqUrl.protocol.replace(":", "") ||
+    "https"
+  )
+    .split(",")[0]
+    .trim();
+
+  return `${rawProto}://${rawHost || reqUrl.host}`;
 }
 
 function sanitizeRelativeRedirect(raw) {
@@ -396,7 +419,9 @@ export function createSyncApp({
 
     const resendKey = process.env.RESEND_API_KEY || "";
     const fromEmail =
-      process.env.AUTH_FROM_EMAIL || "LM Subs <signin@lmsubs.app>";
+      process.env.AUTH_EMAIL_FROM ||
+      process.env.AUTH_FROM_EMAIL ||
+      "LM Subs <onboarding@resend.dev>";
 
     if (resendKey) {
       const sendRes = await fetchImpl("https://api.resend.com/emails", {
@@ -1618,6 +1643,17 @@ export function createSyncApp({
         savedAt: r.updated_at,
       })),
     });
+  });
+
+  app.onError((err, c) => {
+    console.error("[LM Subs API Error]", err?.message || err);
+    return c.json(
+      {
+        ok: false,
+        error: "Server error while processing request. Check server logs.",
+      },
+      500
+    );
   });
 
   return app;

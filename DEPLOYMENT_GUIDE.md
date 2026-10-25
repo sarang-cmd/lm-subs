@@ -74,7 +74,7 @@ That difference comes down to **who owns the cloud platform**:
 
 * In **Firebase** and **Supabase**, your frontend JavaScript holds a public `anon` key and queries the database directly from the browser, relying on Security Rules or Postgres Row-Level Security (`auth.uid() = user_id`) to block cross-user reads.
 * In **LM Subs**, the browser and Chrome extension **never** talk directly to Postgres and never hold a database credential:
-  1. Only your Vercel Serverless Function (`api/[...route].js`) sees `DATABASE_URL` and `LM_SUBS_ENCRYPTION_SECRET`.
+  1. Only your Vercel Serverless Function (`api/index.js`) sees `DATABASE_URL` and `LM_SUBS_ENCRYPTION_SECRET`.
   2. Every API route authenticates the `lms_...` session token via SHA-256 hash lookup (`lmsubs_sessions`) and scopes every SQL query by `WHERE user_id = $1`.
   3. Before any user's Groq or Mistral API key is written to `lmsubs_user_api_keys`, `server/crypto.js` derives a per-user key via `HKDF-SHA256(LM_SUBS_ENCRYPTION_SECRET, userId)` and encrypts the key with `AES-256-GCM`. Even if someone read a raw database backup, user API keys remain encrypted ciphertext.
 
@@ -159,8 +159,11 @@ Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for ex
 
 ### Step 4: Add Environment Variables in Vercel and Redeploy
 
-1. Open your project on [vercel.com/dashboard](https://vercel.com/dashboard) -> **Settings** -> **Environment Variables**.
-2. Add the variables below for **Production** (and **Preview** if desired):
+1. Open your project on [vercel.com/dashboard](https://vercel.com/dashboard) -> **Settings** -> **Build and Deployment**:
+   * **Root Directory:** Leave empty (`.` repository root). Do **not** set Root Directory to `docs`, because `api/index.js`, `server/`, `package.json`, and `vercel.json` live at the repository root while `vercel.json` already sets `"outputDirectory": "docs"` for static files.
+   * **Build Command:** `npm run build`
+   * **Output Directory:** `docs`
+2. Open **Settings** -> **Environment Variables** and add the variables below for **Production** (and **Preview** if desired):
 
 | Variable | Required | Value |
 | :--- | :--- | :--- |
