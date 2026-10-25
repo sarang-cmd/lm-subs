@@ -7,156 +7,214 @@
     <link rel="stylesheet" href="ui.css" />
   </head>
   <body class="popup-body">
-    <header class="header">
+    <header class="popup-topbar">
       <div class="brand">
         <span id="brand-icon-slot"></span>
         <div>
           <h1 class="brand-title">LM Subs</h1>
-          <p class="brand-sub">NotebookLM captions and transcripts</p>
         </div>
       </div>
-      <label class="switch" title="Enable automatic captions on NotebookLM">
-        <span style="font-size: 11.5px; color: var(--text-muted)">Auto</span>
-        <input id="enabled-toggle" type="checkbox" checked />
-      </label>
+      <div class="row">
+        <label class="switch" title="Automatically generate subtitles on Video Overviews">
+          <input id="enabled-toggle" type="checkbox" checked />
+          <span>Auto</span>
+        </label>
+        <button id="open-options-btn" type="button" class="btn btn-sm">
+          Settings
+        </button>
+      </div>
     </header>
 
-    <section id="permission-warning-card" class="card" style="display: none; border-color: var(--red)">
+    <!-- Host Permission Warning (only shown if Chrome withheld Google CDN origins) -->
+    <section
+      id="permission-warning-card"
+      class="popup-section"
+      style="display: none; background: var(--status-err-bg)"
+    >
       <div class="section-head" style="margin-bottom: 4px">
-        <h2 class="section-title" style="color: var(--red)">Media access required</h2>
-        <span class="badge badge-err">Withheld</span>
+        <h2 class="section-title" style="color: var(--status-err)">Google media access needed</h2>
+        <span class="badge badge-err">Action</span>
       </div>
-      <div class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Grant Google media access so LM Subs can read Video Overview audio streams.
+      <div class="hint" style="margin: 0 0 8px">
+        Grant access to Google NotebookLM media hosts so audio tracks can be extracted locally.
       </div>
       <button id="grant-google-perms-btn" type="button" class="btn btn-primary" style="width: 100%">
         Grant Google media access
       </button>
     </section>
 
-    <div id="queue-summary" class="queue-pill">
-      <span>Queue: <strong id="queue-summary-text">None configured</strong></span>
-      <button id="open-queue-btn" type="button" class="btn btn-sm">Order</button>
-    </div>
+    <!-- Active NotebookLM Tab & Subtitle Export -->
+    <section class="popup-section popup-section-sheet">
+      <div class="section-head">
+        <h2 class="section-title">Active NotebookLM tab</h2>
+        <span id="tab-badge" class="badge">Standby</span>
+      </div>
+      <div id="tab-description" class="hint" style="margin: 0 0 10px">
+        Open a notebook on <code>notebooklm.google.com</code> to caption Video Overviews.
+      </div>
+      <button id="generate-now-btn" type="button" class="btn btn-primary" style="width: 100%" disabled>
+        Generate subtitles
+      </button>
 
-    <details id="beginner-guide-details" class="card" style="padding: 10px 12px">
-      <summary style="cursor: pointer; font-weight: 600; font-size: 12px; color: var(--accent); user-select: none">
-        New here? Set up your free key in 60 seconds
-      </summary>
-      <ol style="margin: 8px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--text-muted); line-height: 1.5; display: grid; gap: 4px">
-        <li>Click <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="link">console.groq.com/keys</a> and sign in with Google (free, no credit card).</li>
-        <li>Click <strong style="color: var(--text)">Create API Key</strong>, type any name like <code style="font-family: var(--mono)">LM Subs</code>, and copy the <code style="font-family: var(--mono)">gsk_...</code> code.</li>
-        <li>Paste that code into the <strong style="color: var(--text)">API key</strong> box below and click <strong style="color: var(--text)">Save</strong>.</li>
-        <li>Open any Video Overview on <strong style="color: var(--text)">notebooklm.google.com</strong>. Captions appear automatically at the bottom of the player.</li>
-      </ol>
-    </details>
-
-    <section class="card">
-      <div class="field">
-        <label class="field-label" for="provider-select">
-          <span>Speech-to-text provider</span>
-          <span id="key-presence-badge" class="badge">Not set</span>
-        </label>
-        <select id="provider-select"></select>
-        <div id="provider-tier-hint" class="hint"></div>
+      <div
+        id="popup-export-bar"
+        style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-hairline)"
+      >
+        <div class="row" style="justify-content: space-between">
+          <span style="font-size: 11.5px; font-weight: 600; color: var(--ink-secondary)">Export transcript</span>
+          <span
+            id="popup-export-source"
+            style="font-size: 11px; color: var(--ink-tertiary); max-width: 215px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+          ></span>
+        </div>
+        <div class="export-strip">
+          <button id="download-latest-srt-btn" type="button" class="btn btn-sm">.SRT</button>
+          <button id="download-latest-vtt-btn" type="button" class="btn btn-sm">.VTT</button>
+          <button id="download-latest-txt-btn" type="button" class="btn btn-sm">.TXT</button>
+          <button id="download-latest-json-btn" type="button" class="btn btn-sm">.JSON</button>
+          <button id="copy-latest-txt-btn" type="button" class="btn btn-sm btn-ink">Copy</button>
+        </div>
       </div>
 
-      <div id="custom-url-field" class="field" style="display: none">
-        <label class="field-label" for="custom-url-input">Local or custom endpoint</label>
-        <input
-          id="custom-url-input"
-          type="url"
-          placeholder="http://localhost:8000/v1"
-          autocomplete="off"
-          spellcheck="false"
-        />
+      <div
+        id="last-status-card"
+        style="display: none; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-hairline)"
+      >
+        <div class="row" style="justify-content: space-between">
+          <span
+            id="last-status-title"
+            style="font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px"
+          ></span>
+          <span id="last-status-badge" class="badge"></span>
+        </div>
+        <div id="last-status-meta" class="hint" style="margin-top: 2px"></div>
+      </div>
+    </section>
+
+    <!-- Account, Sync & Always-Open Local Code Box -->
+    <section class="popup-section">
+      <div class="section-head" style="margin-bottom: 6px">
+        <div class="row">
+          <h2 class="section-title">Account and sync</h2>
+          <span id="popup-sync-badge" class="badge">Signed out</span>
+        </div>
+        <div class="row">
+          <button id="popup-sync-now-btn" type="button" class="btn btn-sm" style="display: none">
+            Sync
+          </button>
+          <button id="popup-get-code-btn" type="button" class="btn btn-sm">
+            Get code
+          </button>
+          <button id="popup-open-sync-btn" type="button" class="btn btn-sm">
+            Account
+          </button>
+        </div>
       </div>
 
-      <div class="field">
-        <label class="field-label" for="api-key-input">
-          <span id="key-label-text">API key</span>
-          <a id="get-key-link" class="link" href="#" target="_blank" rel="noopener noreferrer">Get free key</a>
+      <div id="popup-sync-summary" class="hint" style="margin-top: 0; margin-bottom: 8px">
+        Paste your local code below or sign in to sync encrypted keys and transcripts.
+      </div>
+
+      <!-- Always-open local code input right in the popup -->
+      <div id="popup-local-code-row" class="local-code-box">
+        <label
+          for="popup-local-code-input"
+          style="display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 5px; color: var(--ink-primary)"
+        >
+          Local sign-in code
         </label>
         <div class="row">
           <input
-            id="api-key-input"
-            type="password"
-            placeholder="gsk_..."
-            autocomplete="off"
+            id="popup-local-code-input"
+            type="text"
+            class="mono-input"
+            placeholder="Paste lms_... local code"
+            autocomplete="one-time-code"
             spellcheck="false"
           />
-          <button id="save-key-btn" type="button" class="btn btn-primary">Save</button>
-          <button id="test-key-btn" type="button" class="btn">Test</button>
-        </div>
-        <div id="key-feedback" class="status-line" aria-live="polite"></div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head" style="margin-bottom: 6px">
-        <h2 class="section-title">Account and cloud sync</h2>
-        <span id="popup-sync-badge" class="badge">Signed out</span>
-      </div>
-      <div id="popup-sync-summary" class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Sign in with Google, GitHub, or email to sync encrypted keys and transcripts.
-      </div>
-      <div class="row">
-        <button id="popup-sync-now-btn" type="button" class="btn btn-sm btn-primary" style="display: none">
-          Sync now
-        </button>
-        <button id="popup-open-sync-btn" type="button" class="btn btn-sm" style="flex: 1">
-          Account and sync options
-        </button>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head" style="margin-bottom: 6px">
-        <h2 class="section-title">Active tab</h2>
-        <span id="tab-badge" class="badge">Checking</span>
-      </div>
-      <div id="tab-description" class="hint" style="margin-top: 0; margin-bottom: 8px">
-        Open a NotebookLM notebook to generate or export Video Overview captions.
-      </div>
-      <div class="row">
-        <button id="generate-now-btn" type="button" class="btn btn-ink" style="flex: 1" disabled>
-          Generate captions
-        </button>
-      </div>
-      <div id="popup-export-bar" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border)">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px">
-          <span style="font-size: 11.5px; font-weight: 500; color: var(--text-muted)">Export captions</span>
-          <span id="popup-export-source" style="font-family: var(--mono); font-size: 10.5px; color: var(--text-muted); max-width: 195px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"></span>
-        </div>
-        <div class="row" style="gap: 4px; flex-wrap: wrap">
-          <button id="download-latest-srt-btn" type="button" class="btn btn-sm" style="flex: 1">.srt</button>
-          <button id="download-latest-vtt-btn" type="button" class="btn btn-sm" style="flex: 1">.vtt</button>
-          <button id="download-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">.txt</button>
-          <button id="download-latest-json-btn" type="button" class="btn btn-sm" style="flex: 1">.json</button>
-          <button id="copy-latest-txt-btn" type="button" class="btn btn-sm" style="flex: 1">Copy</button>
+          <button id="popup-connect-code-btn" type="button" class="btn btn-sm btn-primary">
+            Connect
+          </button>
         </div>
       </div>
+      <div id="popup-sync-feedback" class="status-line" aria-live="polite"></div>
     </section>
 
-    <section id="last-status-card" class="card" style="display: none">
-      <div class="section-head" style="margin-bottom: 4px">
-        <h2 class="section-title">Latest run</h2>
-        <span id="last-status-badge" class="badge">Idle</span>
-      </div>
-      <div id="last-status-title" style="font-weight: 600; font-size: 12.5px"></div>
-      <div id="last-status-meta" class="hint"></div>
+    <!-- Collapsible Speech-to-Text Providers & API Keys -->
+    <section class="popup-section">
+      <details id="popup-providers-disclosure" class="compact-disclosure">
+        <summary>
+          <span>Providers and API keys</span>
+          <div class="row">
+            <span
+              id="queue-summary-text"
+              style="font-size: 11.5px; font-weight: 500; color: var(--ink-secondary); max-width: 175px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+            >
+              Add Groq or Mistral key
+            </span>
+            <span class="disclosure-chevron" aria-hidden="true">▾</span>
+          </div>
+        </summary>
+        <div class="compact-disclosure-body">
+          <div class="field" style="margin-bottom: 8px">
+            <label class="field-label" for="provider-select">
+              <span>Primary provider</span>
+              <span id="key-presence-badge" class="badge">Not set</span>
+            </label>
+            <select id="provider-select"></select>
+            <div id="provider-tier-hint" class="hint"></div>
+          </div>
+
+          <div id="custom-url-field" class="field" style="display: none; margin-bottom: 8px">
+            <label class="field-label" for="custom-url-input">OpenAI-compatible base URL</label>
+            <input id="custom-url-input" type="url" placeholder="http://localhost:8000/v1" />
+          </div>
+
+          <div class="field" style="margin-bottom: 8px">
+            <label class="field-label" for="api-key-input">
+              <span>API key</span>
+              <a id="get-key-link" class="link" href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">
+                Get free key
+              </a>
+            </label>
+            <input id="api-key-input" type="password" placeholder="gsk_..." autocomplete="off" spellcheck="false" />
+          </div>
+
+          <div class="row">
+            <button id="save-key-btn" type="button" class="btn btn-sm btn-primary" style="flex: 1">
+              Save key
+            </button>
+            <button id="test-key-btn" type="button" class="btn btn-sm">
+              Test
+            </button>
+            <button id="open-queue-btn" type="button" class="btn btn-sm">
+              All 12
+            </button>
+          </div>
+          <div id="key-feedback" class="status-line" aria-live="polite"></div>
+
+          <details id="beginner-guide-details" style="margin-top: 8px">
+            <summary class="hint" style="cursor: pointer; user-select: none; margin: 0">
+              Need a free Groq or Mistral key?
+            </summary>
+            <div class="hint" style="margin-top: 5px">
+              Open <a class="link" href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq Console</a> or <a class="link" href="https://console.mistral.ai/api-keys/" target="_blank" rel="noopener noreferrer">Mistral La Plateforme</a>, create an API key, and paste it above.
+            </div>
+          </details>
+        </div>
+      </details>
     </section>
 
-    <footer class="footer-bar">
-      <label class="switch" title="Show live diagnostic monitor on NotebookLM">
-        <input id="debug-mode-toggle" type="checkbox" />
-        <span>Diagnostics</span>
-      </label>
-      <div class="row">
-        <button id="copy-debug-btn" type="button" class="btn btn-sm" title="Copy redacted pipeline report">
-          Copy report
+    <!-- Footer Bar -->
+    <footer class="popup-section" style="padding-top: 9px; padding-bottom: 9px">
+      <div class="row" style="justify-content: space-between">
+        <label class="switch" style="font-size: 12px; color: var(--ink-secondary)">
+          <input id="debug-mode-toggle" type="checkbox" />
+          <span>Pipeline monitor</span>
+        </label>
+        <button id="copy-debug-btn" type="button" class="btn btn-sm">
+          Report
         </button>
-        <button id="open-options-btn" type="button" class="btn btn-sm">Settings</button>
       </div>
     </footer>
 

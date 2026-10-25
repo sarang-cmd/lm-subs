@@ -1403,8 +1403,8 @@ ${blocks.join("\n\n")}
     gap: 3px;
     padding: 4px 6px;
     border-radius: 7px;
-    background: rgba(17, 19, 21, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(23, 26, 31, 0.95);
+    border: 1px solid #272b33;
     pointer-events: auto;
     opacity: 0.96;
     font-variant-numeric: tabular-nums;
@@ -1444,15 +1444,15 @@ ${blocks.join("\n\n")}
     outline-offset: 1px;
   }
   button[data-active="true"] {
-    background: #2563eb;
+    background: #0055d4;
     color: #fdfdfe;
   }
   button[data-primary="true"] {
-    background: #2563eb;
+    background: #0055d4;
     color: #fdfdfe;
   }
   button[data-primary="true"]:hover {
-    background: #1d4ed8;
+    background: #0044aa;
   }
   button:disabled {
     opacity: 0.55;

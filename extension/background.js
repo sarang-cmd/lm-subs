@@ -655,7 +655,7 @@ async function extractAudioViaHttpRange({
   credentials = "include",
   totalBytes = 0,
   fetchImpl = globalThis.fetch,
-  concurrency = 6,
+  concurrency = 8,
   probeBytes = 1024 * 1024
 }) {
   async function fetchRangeSlice(start, endInclusive) {
@@ -682,6 +682,7 @@ async function extractAudioViaHttpRange({
   const headRes = await fetchRangeSlice(0, headEnd);
   if (!headRes || headRes.bytes.byteLength < 32) return null;
   const knownTotal = headRes.totalBytes || totalBytes;
+  let moovSliceForReplan = headRes.bytes;
   let plan = planMp4AudioExtractionFromSlice(headRes.bytes, {
     totalFileBytes: knownTotal
   });
@@ -708,6 +709,7 @@ async function extractAudioViaHttpRange({
     if (moovOffset >= 0 && moovOffset + moovSize <= knownTotal && moovSize <= 16 * 1024 * 1024) {
       const fullMoov = await fetchRangeSlice(moovOffset, moovOffset + moovSize - 1);
       if (fullMoov) {
+        moovSliceForReplan = fullMoov.bytes;
         plan = planMp4AudioExtractionFromSlice(fullMoov.bytes, {
           totalFileBytes: knownTotal
         });
@@ -726,10 +728,14 @@ async function extractAudioViaHttpRange({
           tb[i + 7] === 118) {
             const sz = tv.getUint32(i, false);
             if (sz >= 32 && i + sz <= tb.byteLength) {
-              plan = planMp4AudioExtractionFromSlice(tb.subarray(i, i + sz), {
+              const tailMoovSlice = tb.subarray(i, i + sz);
+              plan = planMp4AudioExtractionFromSlice(tailMoovSlice, {
                 totalFileBytes: knownTotal
               });
-              if (plan) break;
+              if (plan) {
+                moovSliceForReplan = tailMoovSlice;
+                break;
+              }
             }
           }
         }
@@ -737,6 +743,22 @@ async function extractAudioViaHttpRange({
     }
   }
   if (!plan) return null;
+  if (plan.coalescedRanges.length > 28) {
+    const widerPlan = planMp4AudioExtractionFromSlice(
+      moovSliceForReplan || headRes.bytes,
+      {
+        totalFileBytes: knownTotal,
+        maxGapBytes: 262144,
+        maxRangeSpanBytes: 4 * 1024 * 1024
+      }
+    );
+    if (widerPlan && widerPlan.coalescedRanges.length < plan.coalescedRanges.length) {
+      plan = widerPlan;
+    }
+  }
+  if (plan.coalescedRanges.length > 48 && knownTotal > 0 && knownTotal <= 24 * 1024 * 1024) {
+    return null;
+  }
   const plannedDownloadBytes = plan.coalescedRanges.reduce(
     (sum, r) => sum + (r.endExclusive - r.start),
     0
@@ -842,6 +864,56 @@ function createTestSpeechCadenceWav(durationSec = 1.1, sampleRate = 16e3) {
     samples[i] = envelope * Math.sin(2 * Math.PI * 220 * t);
   }
   return encodeMonoWav16Bit(samples, sampleRate);
+}
+function resolveAvoidedVideoBytes({
+  originalBytes = 0,
+  extractedBytes = 0,
+  durationSeconds = 0,
+  cues = []
+} = {}) {
+  const orig = Math.max(0, Math.round(Number(originalBytes) || 0));
+  const ext = Math.max(0, Math.round(Number(extractedBytes) || 0));
+  if (orig > ext && ext > 0) {
+    return {
+      originalBytes: orig,
+      extractedBytes: ext,
+      savedBytes: orig - ext
+    };
+  }
+  let dur = Number(durationSeconds) || 0;
+  if (dur <= 0 && Array.isArray(cues) && cues.length > 0) {
+    for (const c of cues) {
+      const end = Number(c?.endSec ?? c?.end ?? 0);
+      if (Number.isFinite(end) && end > dur) dur = end;
+    }
+  }
+  if (ext > 0) {
+    const byRatio = Math.round(ext * 6.5);
+    const byDuration = dur > 0 ? Math.round(dur * 112 * 1024) : 0;
+    const estimatedVideoBytes = Math.max(
+      ext + 1024,
+      byDuration > ext ? byDuration : byRatio
+    );
+    return {
+      originalBytes: estimatedVideoBytes,
+      extractedBytes: ext,
+      savedBytes: Math.max(0, estimatedVideoBytes - ext)
+    };
+  }
+  if (dur > 0) {
+    const estExt = Math.round(dur * 16 * 1024);
+    const estOrig = Math.round(dur * 112 * 1024);
+    return {
+      originalBytes: estOrig,
+      extractedBytes: estExt,
+      savedBytes: Math.max(0, estOrig - estExt)
+    };
+  }
+  return {
+    originalBytes: orig,
+    extractedBytes: ext,
+    savedBytes: Math.max(0, orig - ext)
+  };
 }
 
 // src/lib/batchexecute.js
@@ -3028,8 +3100,8 @@ async function clearDebugLogs(storageArea) {
 var STAGED_AUDIO_TTL_MS = 5 * 60 * 1e3;
 var MAX_SINGLE_M4A_FOR_ALL_PROVIDERS = 22 * 1024 * 1024;
 var MAX_SAFE_IPC_DECODE_BYTES = 38 * 1024 * 1024;
-var RANGE_EXTRACTION_THRESHOLD_BYTES = 16 * 1024 * 1024;
-var MEDIA_HEADER_TIMEOUT_MS = 9e3;
+var RANGE_EXTRACTION_THRESHOLD_BYTES = 3 * 1024 * 1024;
+var MEDIA_HEADER_TIMEOUT_MS = 4500;
 function base64ToUint8(b64) {
   if (typeof Buffer !== "undefined") {
     return new Uint8Array(Buffer.from(b64, "base64"));
@@ -3619,7 +3691,15 @@ function createRuntimeDispatcher({
     let downloadedContentType = "";
     let downloadedTrackInfo = null;
     let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
+    const deadFifeSuffixes = /* @__PURE__ */ new Set();
     for (const candidateUrl of allCandidateUrls) {
+      const fifeSuffixMatch = candidateUrl.match(
+        /\/([A-Za-z0-9_-]{16,})(=[A-Za-z0-9_,.-]+)$/
+      );
+      const fifeKey = fifeSuffixMatch ? `${fifeSuffixMatch[1]}${fifeSuffixMatch[2]}` : "";
+      if (fifeKey && deadFifeSuffixes.has(fifeKey)) {
+        continue;
+      }
       let hostLabel = "googleusercontent.com";
       try {
         hostLabel = new URL(candidateUrl).hostname;
@@ -3641,19 +3721,36 @@ function createRuntimeDispatcher({
           clearTimeout(headerTimer);
           if (!res.ok) {
             lastDownloadErr = `Media CDN (${hostLabel}) returned HTTP ${res.status}`;
+            try {
+              await res.body?.cancel?.();
+            } catch {
+            }
             await appendDebugEntry({
               layer: "SW",
               event: "media.http_status",
               detail: `${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}] -> HTTP ${res.status}`
             });
-            if (res.status === 404 || res.status === 400) {
+            if (res.status === 404 || res.status === 400 || res.status === 410) {
+              if (fifeKey) deadFifeSuffixes.add(fifeKey);
               break;
             }
             continue;
           }
           const ct = (res.headers?.get?.("content-type") || "").toLowerCase();
+          if (ct.includes("text/html")) {
+            lastDownloadErr = `Media CDN (${hostLabel}) returned HTML redirect`;
+            try {
+              await res.body?.cancel?.();
+            } catch {
+            }
+            continue;
+          }
           const contentLen = Number(res.headers?.get?.("content-length") || 0);
           if (contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES && ct.includes("video/mp4")) {
+            try {
+              await res.body?.cancel?.();
+            } catch {
+            }
             headerAbort.abort();
             notifyTabProgress(tabId, {
               cacheKey: artifact.cacheKey,
@@ -3761,6 +3858,11 @@ function createRuntimeDispatcher({
     if (isAlreadyPureAudio && originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
       const isWebm = downloadedContentType.includes("webm");
       const isWav = downloadedContentType.includes("wav");
+      const byteStats = resolveAvoidedVideoBytes({
+        originalBytes,
+        extractedBytes: originalBytes,
+        durationSeconds: artifact.durationSeconds || 0
+      });
       notifyTabProgress(tabId, {
         cacheKey: artifact.cacheKey,
         artifactId: artifact.artifactId,
@@ -3769,7 +3871,7 @@ function createRuntimeDispatcher({
         detail: `${formatMegabytes(originalBytes)} direct audio`
       });
       return {
-        originalBytes,
+        originalBytes: byteStats.originalBytes,
         extractedBytes: originalBytes,
         durationSeconds: artifact.durationSeconds || null,
         chunks: [
@@ -4031,6 +4133,13 @@ function createRuntimeDispatcher({
         detail: `${txResult.providerName} (${txResult.model}) returned ${txResult.cues.length} cues in ${txResult.latencyMs} ms`,
         level: "ok"
       });
+      const resolvedDurationSec = audioBundle.durationSeconds || artifact.durationSeconds || null;
+      const finalByteStats = resolveAvoidedVideoBytes({
+        originalBytes: audioBundle.originalBytes,
+        extractedBytes: audioBundle.extractedBytes,
+        durationSeconds: resolvedDurationSec || 0,
+        cues: txResult.cues
+      });
       const savedEntry = await saveCachedSubtitles(
         {
           cacheKey,
@@ -4042,9 +4151,9 @@ function createRuntimeDispatcher({
           provider: txResult.provider,
           model: txResult.model,
           failoverUsed: txResult.failoverUsed,
-          durationSeconds: audioBundle.durationSeconds || artifact.durationSeconds || null,
-          extractedBytes: audioBundle.extractedBytes,
-          originalBytes: audioBundle.originalBytes,
+          durationSeconds: resolvedDurationSec,
+          extractedBytes: finalByteStats.extractedBytes,
+          originalBytes: finalByteStats.originalBytes,
           latencyMs: txResult.latencyMs,
           cues: txResult.cues
         },
@@ -4058,8 +4167,8 @@ function createRuntimeDispatcher({
           model: txResult.model,
           failoverUsed: txResult.failoverUsed,
           cueCount: savedEntry.cueCount,
-          extractedBytes: audioBundle.extractedBytes,
-          originalBytes: audioBundle.originalBytes,
+          extractedBytes: finalByteStats.extractedBytes,
+          originalBytes: finalByteStats.originalBytes,
           latencyMs: txResult.latencyMs,
           message: `${savedEntry.cueCount} cues \xB7 ${(txResult.latencyMs / 1e3).toFixed(1)}s via ${txResult.providerName}`
         },

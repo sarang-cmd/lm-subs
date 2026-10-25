@@ -1,5 +1,5 @@
 /**
- * Full Settings, Neon Cloud Sync & Provider Failover Queue (`src/options/options.js`).
+ * Full Settings, Cloud Sync & Collapsible Provider Failover Queue (`src/options/options.js`).
  *
  * Security invariants:
  * - Never accesses raw API keys or raw sync bearer tokens (`getSavedKeyPresenceMap` returns booleans only).
@@ -7,6 +7,7 @@
  */
 
 import { RUNTIME_MESSAGE } from "../config/selectors.js";
+import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
 import {
   getProviderOriginPattern,
   getProviderSpec,
@@ -71,13 +72,26 @@ function downloadFile(content, filename, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
+function formatMegabytesLabel(bytes) {
+  const b = Math.max(0, Number(bytes) || 0);
+  if (b >= 1073741824) {
+    return `${(b / 1073741824).toFixed(2)} GB`;
+  }
+  return `${(b / 1048576).toFixed(1)} MB`;
+}
+
 async function initOptions() {
   document
     .getElementById("brand-icon-slot")
-    ?.appendChild(createBrandMarkSvg(document, 32));
+    ?.appendChild(createBrandMarkSvg(document, 26));
 
   const optEnabled = document.getElementById("opt-enabled");
+  const queueWrap = document.getElementById("provider-queue-wrap");
   const queueContainer = document.getElementById("provider-queue-list");
+  const queueSummary = document.getElementById("provider-queue-summary");
+  const collapseAllBtn = document.getElementById("provider-collapse-all-btn");
+  const toggleSectionBtn = document.getElementById("provider-section-toggle-btn");
+
   const optAutoGenerate = document.getElementById("opt-auto-generate");
   const optAutoExisting = document.getElementById("opt-auto-existing");
   const optShowToast = document.getElementById("opt-show-toast");
@@ -97,11 +111,14 @@ async function initOptions() {
   const syncGithubBtn = document.getElementById("sync-github-btn");
   const syncEmailInput = document.getElementById("sync-email-input");
   const syncSendCodeBtn = document.getElementById("sync-send-code-btn");
-  const syncCodeStep = document.getElementById("sync-code-step");
   const syncCodeInput = document.getElementById("sync-code-input");
   const syncVerifyCodeBtn = document.getElementById("sync-verify-code-btn");
   const syncTokenInput = document.getElementById("sync-token-input");
   const syncTokenBtn = document.getElementById("sync-token-btn");
+  const syncGetWebCodeBtn = document.getElementById("sync-get-web-code-btn");
+  const syncLocalCodePreview = document.getElementById("sync-local-code-preview");
+  const syncLocalCodeDigits = document.getElementById("sync-local-code-digits");
+  const syncCopyLocalCodeBtn = document.getElementById("sync-copy-local-code-btn");
   const syncAccountLabel = document.getElementById("sync-account-label");
   const syncMetaLabel = document.getElementById("sync-meta-label");
   const syncOpenWebStatsBtn = document.getElementById("sync-open-web-stats-btn");
@@ -149,7 +166,19 @@ async function initOptions() {
     getCloudSyncProfile(),
   ]);
 
+  // Collapsible provider rows: start compact (all collapsed) if any key exists;
+  // expand only the first provider if zero keys exist yet.
+  const hasAnySavedKey = () =>
+    settings.queueOrder.some((id) =>
+      id === "custom" ? Boolean(settings.customEnabled) : Boolean(presenceMap[id])
+    );
+  const expandedProviders = new Set(
+    hasAnySavedKey() ? [] : [settings.queueOrder[0] || "groq"]
+  );
+  let providerListHidden = false;
+
   function flashSavedPill() {
+    if (!savedPill) return;
     savedPill.style.display = "inline-flex";
     setTimeout(() => {
       savedPill.style.display = "none";
@@ -169,9 +198,12 @@ async function initOptions() {
       syncSettings: true,
     };
     if (syncPrefKeys) syncPrefKeys.checked = Boolean(prefs.syncApiKeys);
-    if (syncPrefTranscripts)
+    if (syncPrefTranscripts) {
       syncPrefTranscripts.checked = Boolean(prefs.syncTranscripts);
-    if (syncPrefSettings) syncPrefSettings.checked = Boolean(prefs.syncSettings);
+    }
+    if (syncPrefSettings) {
+      syncPrefSettings.checked = Boolean(prefs.syncSettings);
+    }
 
     if (syncProfile?.connected && syncProfile.user?.email) {
       optSyncBadge.textContent = "Synced";
@@ -206,43 +238,62 @@ async function initOptions() {
     }
   }
 
-  async function renderStatisticsPanel() {
-    if (!statVideos) return;
-    if (syncProfile?.connected) {
-      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
-      if (res?.ok && res.totals) {
-        const t = res.totals;
-        statVideos.textContent = String(t.videosCaptioned || 0);
-        statCues.textContent = String(t.totalCues || 0);
-        const savedMb = ((t.bandwidthSavedBytes || 0) / 1048576).toFixed(1);
-        statSaved.textContent = `${savedMb} MB`;
-        statLatency.textContent = t.medianLatencyMs
-          ? `${(t.medianLatencyMs / 1000).toFixed(1)}s`
-          : "n/a";
-        if (statsSummaryNote) {
-          statsSummaryNote.textContent = `Live account metrics (${t.spokenMinutes || 0} spoken minutes across ${t.videosCaptioned || 0} videos).`;
-        }
-        return;
-      }
-    }
-
-    // Fallback to local cache metrics when signed out
+  function computeLocalFallbackStats() {
     let cues = 0;
     let savedBytes = 0;
     const lats = [];
     for (const item of cacheList) {
       cues += Number(item.cueCount || item.cues?.length || 0);
-      const orig = Number(item.originalBytes || 0);
-      const ext = Number(item.extractedBytes || 0);
-      if (orig > ext) savedBytes += orig - ext;
+      const byteStats = resolveAvoidedVideoBytes({
+        originalBytes: item.originalBytes,
+        extractedBytes: item.extractedBytes,
+        durationSeconds: item.durationSeconds,
+        cues: item.cues,
+      });
+      savedBytes += byteStats.savedBytes;
       if (Number(item.latencyMs) > 0) lats.push(Number(item.latencyMs));
     }
     lats.sort((a, b) => a - b);
     const med = lats.length > 0 ? lats[Math.floor(lats.length / 2)] : null;
-    statVideos.textContent = String(cacheList.length);
-    statCues.textContent = String(cues);
-    statSaved.textContent = `${(savedBytes / 1048576).toFixed(1)} MB`;
-    statLatency.textContent = med ? `${(med / 1000).toFixed(1)}s` : "n/a";
+    return {
+      videos: cacheList.length,
+      cues,
+      savedBytes,
+      medianLatencyMs: med,
+    };
+  }
+
+  async function renderStatisticsPanel() {
+    if (!statVideos) return;
+    const localStats = computeLocalFallbackStats();
+
+    if (syncProfile?.connected) {
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
+      if (res?.ok && res.totals) {
+        const t = res.totals;
+        const cloudSaved = Number(t.bandwidthSavedBytes) || 0;
+        const bestSaved = Math.max(cloudSaved, localStats.savedBytes);
+        const bestVideos = Math.max(Number(t.videosCaptioned) || 0, localStats.videos);
+        const bestCues = Math.max(Number(t.totalCues) || 0, localStats.cues);
+        const medMs = t.medianLatencyMs || localStats.medianLatencyMs;
+
+        statVideos.textContent = String(bestVideos);
+        statCues.textContent = String(bestCues);
+        statSaved.textContent = formatMegabytesLabel(bestSaved);
+        statLatency.textContent = medMs ? `${(medMs / 1000).toFixed(1)}s` : "n/a";
+        if (statsSummaryNote) {
+          statsSummaryNote.textContent = `Live account metrics (${t.spokenMinutes || 0} spoken minutes across ${bestVideos} captioned videos).`;
+        }
+        return;
+      }
+    }
+
+    statVideos.textContent = String(localStats.videos);
+    statCues.textContent = String(localStats.cues);
+    statSaved.textContent = formatMegabytesLabel(localStats.savedBytes);
+    statLatency.textContent = localStats.medianLatencyMs
+      ? `${(localStats.medianLatencyMs / 1000).toFixed(1)}s`
+      : "n/a";
     if (statsSummaryNote) {
       statsSummaryNote.textContent =
         "Computed from transcripts cached in this browser. Sign in above to include cross-device statistics.";
@@ -303,7 +354,36 @@ async function initOptions() {
     });
   }
 
+  function renderProviderSummaryAndControls() {
+    const activeIds = settings.queueOrder.filter((id) =>
+      id === "custom" ? Boolean(settings.customEnabled) : Boolean(presenceMap[id])
+    );
+    if (queueSummary) {
+      if (activeIds.length > 0) {
+        const chain = activeIds
+          .slice(0, 4)
+          .map((id, i) => `#${i + 1} ${getProviderSpec(id).name.split(" ")[0]}`)
+          .join(" -> ");
+        queueSummary.textContent = `${activeIds.length} active in failover queue (${chain}). Click any row to edit its API key or model.`;
+      } else {
+        queueSummary.textContent =
+          "No API keys saved yet. Paste a free-tier Groq or Mistral key below; unused providers stay collapsed.";
+      }
+    }
+    if (collapseAllBtn) {
+      collapseAllBtn.textContent =
+        expandedProviders.size > 0 ? "Collapse rows" : "Expand configured";
+    }
+    if (toggleSectionBtn && queueWrap) {
+      queueWrap.style.display = providerListHidden ? "none" : "block";
+      toggleSectionBtn.textContent = providerListHidden
+        ? `Show providers (${settings.queueOrder.length})`
+        : "Hide list";
+    }
+  }
+
   function renderProviderQueue() {
+    renderProviderSummaryAndControls();
     queueContainer.textContent = "";
 
     settings.queueOrder.forEach((providerId, idx) => {
@@ -312,27 +392,28 @@ async function initOptions() {
         spec.id === "custom"
           ? Boolean(settings.customEnabled)
           : Boolean(presenceMap[providerId]);
+      const isExpanded = expandedProviders.has(providerId);
 
-      const row = document.createElement("div");
-      row.className = "provider-row";
+      const item = document.createElement("div");
+      item.className = "provider-item";
 
-      const top = document.createElement("div");
-      top.className = "provider-row-top";
+      const bar = document.createElement("div");
+      bar.className = "provider-item-bar";
 
       const leftInfo = document.createElement("div");
-      leftInfo.className = "row";
-      leftInfo.style.flexWrap = "wrap";
+      leftInfo.className = "provider-item-left";
 
       const rank = document.createElement("span");
       rank.className = "provider-rank";
       rank.textContent = String(idx + 1).padStart(2, "0");
 
-      const name = document.createElement("strong");
+      const name = document.createElement("span");
+      name.className = "provider-name";
       name.textContent = spec.name;
 
-      const tierBadge = document.createElement("span");
-      tierBadge.className = "badge";
-      tierBadge.textContent = spec.badge;
+      const tier = document.createElement("span");
+      tier.className = "provider-tier";
+      tier.textContent = spec.badge;
 
       const cloudHint = syncProfile?.keyHints?.[providerId];
       const keyStatus = document.createElement("span");
@@ -345,17 +426,10 @@ async function initOptions() {
             : "Saved"
         : "Unset";
 
-      leftInfo.append(rank, name, tierBadge, keyStatus);
+      leftInfo.append(rank, name, tier, keyStatus);
 
       const rightControls = document.createElement("div");
-      rightControls.className = "row";
-
-      const keyLink = document.createElement("a");
-      keyLink.className = "link";
-      keyLink.href = spec.keyUrl;
-      keyLink.target = "_blank";
-      keyLink.rel = "noopener noreferrer";
-      keyLink.textContent = spec.id === "custom" ? "Docs" : "Get key";
+      rightControls.className = "provider-item-right";
 
       const upBtn = document.createElement("button");
       upBtn.type = "button";
@@ -363,7 +437,10 @@ async function initOptions() {
       upBtn.textContent = "Up";
       upBtn.title = "Move higher in failover queue";
       upBtn.disabled = idx === 0;
-      upBtn.addEventListener("click", () => moveProviderInQueue(idx, -1));
+      upBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        moveProviderInQueue(idx, -1);
+      });
 
       const downBtn = document.createElement("button");
       downBtn.type = "button";
@@ -371,150 +448,220 @@ async function initOptions() {
       downBtn.textContent = "Down";
       downBtn.title = "Move lower in failover queue";
       downBtn.disabled = idx === settings.queueOrder.length - 1;
-      downBtn.addEventListener("click", () => moveProviderInQueue(idx, 1));
+      downBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        moveProviderInQueue(idx, 1);
+      });
 
-      rightControls.append(keyLink, upBtn, downBtn);
-      top.append(leftInfo, rightControls);
+      const expandBtn = document.createElement("button");
+      expandBtn.type = "button";
+      expandBtn.className = "btn btn-sm";
+      expandBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+      expandBtn.textContent = isExpanded
+        ? "Close"
+        : isSaved
+          ? "Edit key"
+          : "Add key";
 
-      const desc = document.createElement("div");
-      desc.className = "hint";
-      desc.style.marginBottom = "8px";
-      desc.textContent = spec.freeTierSummary;
+      const toggleRow = () => {
+        if (expandedProviders.has(providerId)) {
+          expandedProviders.delete(providerId);
+        } else {
+          expandedProviders.add(providerId);
+        }
+        renderProviderQueue();
+      };
 
-      const grid = document.createElement("div");
-      grid.className = "provider-grid";
+      expandBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleRow();
+      });
+      bar.addEventListener("click", toggleRow);
 
-      const keyOrUrlWrap = document.createElement("div");
-      keyOrUrlWrap.className = "row";
+      rightControls.append(upBtn, downBtn, expandBtn);
+      bar.append(leftInfo, rightControls);
+      item.appendChild(bar);
 
-      let urlInput = null;
-      if (spec.id === "custom") {
-        urlInput = document.createElement("input");
-        urlInput.type = "url";
-        urlInput.placeholder = "http://localhost:8000/v1";
-        urlInput.value = settings.customBaseUrl || "";
-        keyOrUrlWrap.appendChild(urlInput);
-      }
+      if (isExpanded) {
+        const drawer = document.createElement("div");
+        drawer.className = "provider-item-drawer";
 
-      const keyInput = document.createElement("input");
-      keyInput.type = "password";
-      keyInput.placeholder = isSaved
-        ? "Saved · enter new key to replace"
-        : spec.keyPlaceholder;
-      keyInput.autocomplete = "off";
-      keyInput.spellcheck = false;
-      keyOrUrlWrap.appendChild(keyInput);
+        const descRow = document.createElement("div");
+        descRow.className = "row";
+        descRow.style.justifyContent = "space-between";
+        descRow.style.flexWrap = "wrap";
 
-      const modelInput = document.createElement("input");
-      modelInput.type = "text";
-      modelInput.className = "mono-input";
-      modelInput.value = getModelForProvider(settings, providerId);
-      modelInput.title = `Model ID (default: ${spec.defaultModel})`;
-      modelInput.placeholder = spec.defaultModel;
+        const desc = document.createElement("span");
+        desc.className = "hint";
+        desc.style.marginTop = "0";
+        desc.textContent = spec.freeTierSummary;
 
-      const actions = document.createElement("div");
-      actions.className = "row";
+        const keyLink = document.createElement("a");
+        keyLink.className = "link";
+        keyLink.href = spec.keyUrl;
+        keyLink.target = "_blank";
+        keyLink.rel = "noopener noreferrer";
+        keyLink.textContent = spec.id === "custom" ? "Server docs" : "Get API key";
 
-      const statusLine = document.createElement("div");
-      statusLine.className = "status-line";
+        descRow.append(desc, keyLink);
 
-      const saveBtn = document.createElement("button");
-      saveBtn.type = "button";
-      saveBtn.className = "btn btn-sm btn-primary";
-      saveBtn.textContent = "Save";
-      saveBtn.addEventListener("click", async () => {
-        const customUrl = urlInput ? urlInput.value.trim() : settings.customBaseUrl;
-        const granted = await requestProviderOrigin(providerId, customUrl);
-        if (!granted) {
-          statusLine.dataset.kind = "err";
-          statusLine.textContent = `Host permission denied for ${spec.name}.`;
-          return;
+        const grid = document.createElement("div");
+        grid.className = "provider-drawer-grid";
+
+        const keyOrUrlWrap = document.createElement("div");
+        keyOrUrlWrap.className = "row";
+
+        let urlInput = null;
+        if (spec.id === "custom") {
+          urlInput = document.createElement("input");
+          urlInput.type = "url";
+          urlInput.placeholder = "http://localhost:8000/v1";
+          urlInput.value = settings.customBaseUrl || "";
+          keyOrUrlWrap.appendChild(urlInput);
         }
 
-        const nextModels = {
-          ...settings.providerModels,
-          [providerId]: modelInput.value.trim() || spec.defaultModel,
-        };
+        const keyInput = document.createElement("input");
+        keyInput.type = "password";
+        keyInput.placeholder = isSaved
+          ? "Saved (paste new key to replace)"
+          : spec.keyPlaceholder;
+        keyInput.autocomplete = "off";
+        keyInput.spellcheck = false;
+        keyOrUrlWrap.appendChild(keyInput);
 
-        if (providerId === "custom") {
-          settings = await saveSettings({
-            customBaseUrl: customUrl || "http://localhost:8000/v1",
-            customEnabled: true,
-            providerModels: nextModels,
-          });
-          if (keyInput.value.trim()) {
-            await setApiKey("custom", keyInput.value.trim());
-          }
-        } else {
-          if (keyInput.value.trim()) {
-            await setApiKey(providerId, keyInput.value.trim());
-          } else if (!presenceMap[providerId]) {
+        const modelInput = document.createElement("input");
+        modelInput.type = "text";
+        modelInput.className = "mono-input";
+        modelInput.value = getModelForProvider(settings, providerId);
+        modelInput.title = `Model ID (default: ${spec.defaultModel})`;
+        modelInput.placeholder = spec.defaultModel;
+
+        const actions = document.createElement("div");
+        actions.className = "row";
+
+        const statusLine = document.createElement("div");
+        statusLine.className = "status-line";
+
+        const saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.className = "btn btn-sm btn-primary";
+        saveBtn.textContent = "Save";
+        saveBtn.addEventListener("click", async () => {
+          const customUrl = urlInput ? urlInput.value.trim() : settings.customBaseUrl;
+          const granted = await requestProviderOrigin(providerId, customUrl);
+          if (!granted) {
             statusLine.dataset.kind = "err";
-            statusLine.textContent = `Paste a ${spec.name} key first.`;
+            statusLine.textContent = `Host permission denied for ${spec.name}.`;
             return;
           }
-          settings = await saveSettings({ providerModels: nextModels });
-        }
 
-        keyInput.value = "";
-        presenceMap = await getSavedKeyPresenceMap();
-        await triggerAutoSyncIfConnected();
-        renderProviderQueue();
-      });
+          const nextModels = {
+            ...settings.providerModels,
+            [providerId]: modelInput.value.trim() || spec.defaultModel,
+          };
 
-      const testBtn = document.createElement("button");
-      testBtn.type = "button";
-      testBtn.className = "btn btn-sm";
-      testBtn.textContent = "Test";
-      testBtn.addEventListener("click", async () => {
-        const customUrl = urlInput ? urlInput.value.trim() : settings.customBaseUrl;
-        await requestProviderOrigin(providerId, customUrl);
-        testBtn.disabled = true;
-        statusLine.dataset.kind = "";
-        statusLine.textContent = "Testing endpoint…";
-
-        const res = await sendRuntime({
-          type: RUNTIME_MESSAGE.TEST_PROVIDER,
-          providerId,
-          model: modelInput.value.trim() || spec.defaultModel,
-          unsavedApiKey: keyInput.value.trim(),
-          customBaseUrl: customUrl,
-        });
-
-        testBtn.disabled = false;
-        if (res?.ok) {
-          statusLine.dataset.kind = "ok";
-          statusLine.textContent = `Verified ${res.providerName} (${res.model}) in ${res.latencyMs} ms.`;
-        } else {
-          statusLine.dataset.kind = "err";
-          statusLine.textContent = res?.error || "Test failed.";
-        }
-      });
-
-      actions.append(saveBtn, testBtn);
-
-      if (isSaved) {
-        const clearBtn = document.createElement("button");
-        clearBtn.type = "button";
-        clearBtn.className = "btn btn-sm btn-danger";
-        clearBtn.textContent = spec.id === "custom" ? "Disable" : "Clear";
-        clearBtn.addEventListener("click", async () => {
-          if (spec.id === "custom") {
-            settings = await saveSettings({ customEnabled: false });
+          if (providerId === "custom") {
+            settings = await saveSettings({
+              customBaseUrl: customUrl || "http://localhost:8000/v1",
+              customEnabled: true,
+              providerModels: nextModels,
+            });
+            if (keyInput.value.trim()) {
+              await setApiKey("custom", keyInput.value.trim());
+            }
+          } else {
+            if (keyInput.value.trim()) {
+              await setApiKey(providerId, keyInput.value.trim());
+            } else if (!presenceMap[providerId]) {
+              statusLine.dataset.kind = "err";
+              statusLine.textContent = `Paste a ${spec.name} key first.`;
+              return;
+            }
+            settings = await saveSettings({ providerModels: nextModels });
           }
-          await clearApiKey(providerId);
+
+          keyInput.value = "";
           presenceMap = await getSavedKeyPresenceMap();
-          await triggerAutoSyncIfConnected({ deletedProviders: [providerId] });
+          expandedProviders.delete(providerId);
+          await triggerAutoSyncIfConnected();
           renderProviderQueue();
         });
-        actions.appendChild(clearBtn);
+
+        const testBtn = document.createElement("button");
+        testBtn.type = "button";
+        testBtn.className = "btn btn-sm";
+        testBtn.textContent = "Test";
+        testBtn.addEventListener("click", async () => {
+          const customUrl = urlInput ? urlInput.value.trim() : settings.customBaseUrl;
+          await requestProviderOrigin(providerId, customUrl);
+          testBtn.disabled = true;
+          statusLine.dataset.kind = "";
+          statusLine.textContent = "Testing endpoint…";
+
+          const res = await sendRuntime({
+            type: RUNTIME_MESSAGE.TEST_PROVIDER,
+            providerId,
+            model: modelInput.value.trim() || spec.defaultModel,
+            unsavedApiKey: keyInput.value.trim(),
+            customBaseUrl: customUrl,
+          });
+
+          testBtn.disabled = false;
+          if (res?.ok) {
+            statusLine.dataset.kind = "ok";
+            statusLine.textContent = `Verified ${res.providerName} (${res.model}) in ${res.latencyMs} ms.`;
+          } else {
+            statusLine.dataset.kind = "err";
+            statusLine.textContent = res?.error || "Test failed.";
+          }
+        });
+
+        actions.append(saveBtn, testBtn);
+
+        if (isSaved) {
+          const clearBtn = document.createElement("button");
+          clearBtn.type = "button";
+          clearBtn.className = "btn btn-sm btn-danger";
+          clearBtn.textContent = spec.id === "custom" ? "Disable" : "Clear";
+          clearBtn.addEventListener("click", async () => {
+            if (spec.id === "custom") {
+              settings = await saveSettings({ customEnabled: false });
+            }
+            await clearApiKey(providerId);
+            presenceMap = await getSavedKeyPresenceMap();
+            await triggerAutoSyncIfConnected({ deletedProviders: [providerId] });
+            renderProviderQueue();
+          });
+          actions.appendChild(clearBtn);
+        }
+
+        grid.append(keyOrUrlWrap, modelInput, actions);
+        drawer.append(descRow, grid, statusLine);
+        item.appendChild(drawer);
       }
 
-      grid.append(keyOrUrlWrap, modelInput, actions);
-      row.append(top, desc, grid, statusLine);
-      queueContainer.appendChild(row);
+      queueContainer.appendChild(item);
     });
   }
+
+  collapseAllBtn?.addEventListener("click", () => {
+    if (expandedProviders.size > 0) {
+      expandedProviders.clear();
+    } else {
+      const configured = settings.queueOrder.filter((id) =>
+        id === "custom" ? Boolean(settings.customEnabled) : Boolean(presenceMap[id])
+      );
+      const targets = configured.length > 0 ? configured : [settings.queueOrder[0] || "groq"];
+      for (const id of targets) expandedProviders.add(id);
+    }
+    providerListHidden = false;
+    renderProviderQueue();
+  });
+
+  toggleSectionBtn?.addEventListener("click", () => {
+    providerListHidden = !providerListHidden;
+    renderProviderSummaryAndControls();
+  });
 
   function renderCacheTable() {
     cacheTbody.textContent = "";
@@ -567,21 +714,27 @@ async function initOptions() {
       tdProv.appendChild(badge);
 
       const tdSlim = document.createElement("td");
-      tdSlim.style.fontFamily = "var(--mono)";
-      tdSlim.style.fontSize = "11px";
-      if (item.originalBytes && item.extractedBytes) {
+      tdSlim.style.fontFamily = "var(--font-mono)";
+      tdSlim.style.fontSize = "11.5px";
+      const byteStats = resolveAvoidedVideoBytes({
+        originalBytes: item.originalBytes,
+        extractedBytes: item.extractedBytes,
+        durationSeconds: item.durationSeconds,
+        cues: item.cues,
+      });
+      if (byteStats.originalBytes > 0 && byteStats.extractedBytes > 0) {
         const savedPct = Math.max(
           0,
-          Math.round((1 - item.extractedBytes / item.originalBytes) * 100)
+          Math.round((1 - byteStats.extractedBytes / byteStats.originalBytes) * 100)
         );
-        const speedStr = item.latencyMs ? ` · ${(item.latencyMs / 1000).toFixed(1)}s` : "";
-        tdSlim.textContent = `${(item.extractedBytes / 1048576).toFixed(1)} MB (-${savedPct}%)${speedStr}`;
+        const speedStr = item.latencyMs ? `, ${(item.latencyMs / 1000).toFixed(1)}s` : "";
+        tdSlim.textContent = `${(byteStats.extractedBytes / 1048576).toFixed(1)} MB (-${savedPct}%)${speedStr}`;
       } else {
-        tdSlim.textContent = "—";
+        tdSlim.textContent = "n/a";
       }
 
       const tdCues = document.createElement("td");
-      tdCues.style.fontFamily = "var(--mono)";
+      tdCues.style.fontFamily = "var(--font-mono)";
       tdCues.textContent = String(item.cueCount || item.cues?.length || 0);
 
       const tdActions = document.createElement("td");
@@ -628,6 +781,7 @@ async function initOptions() {
         cacheList = await getSubtitleCacheList();
         await triggerAutoSyncIfConnected({ deletedCacheKeys: [item.cacheKey] });
         renderCacheTable();
+        renderStatisticsPanel();
       });
 
       actRow.append(srtBtn, vttBtn, txtBtn, jsonBtn, copyBtn, delBtn);
@@ -659,6 +813,20 @@ async function initOptions() {
   renderCacheTable();
   renderStatisticsPanel();
 
+  function openWebLocalCodePage() {
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const url = `${base}/?view=library&ext_connect=1`;
+    if (chrome.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    setSyncFeedback(
+      "Sign in on the opened page, copy the local code at the top, and paste it into the open box above.",
+      ""
+    );
+  }
+
   function openHostedOAuth(provider) {
     const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
     const url = `${base}/api/auth/oauth/${provider}?device=chrome-extension&next=${encodeURIComponent(
@@ -670,30 +838,44 @@ async function initOptions() {
       window.open(url, "_blank", "noopener,noreferrer");
     }
     setSyncFeedback(
-      `Complete ${provider === "google" ? "Google" : "GitHub"} sign-in in the opened tab, then paste your session token if prompted.`,
+      `Complete ${provider === "google" ? "Google" : "GitHub"} sign-in in the opened tab, then copy your local code from the top of the library into the open box above.`,
       ""
     );
   }
 
-  syncGoogleBtn?.addEventListener("click", async () => {
-    await requestSyncServerOrigin(syncProfile?.serverUrl);
-    openHostedOAuth("google");
-  });
+  syncGetWebCodeBtn?.addEventListener("click", openWebLocalCodePage);
+  syncGoogleBtn?.addEventListener("click", () => openHostedOAuth("google"));
+  syncGithubBtn?.addEventListener("click", () => openHostedOAuth("github"));
 
-  syncGithubBtn?.addEventListener("click", async () => {
-    await requestSyncServerOrigin(syncProfile?.serverUrl);
-    openHostedOAuth("github");
+  syncCopyLocalCodeBtn?.addEventListener("click", async () => {
+    const digits = syncLocalCodeDigits?.textContent?.trim() || "";
+    if (!digits) return;
+    try {
+      await navigator.clipboard.writeText(digits);
+      syncCopyLocalCodeBtn.textContent = "Copied";
+      setTimeout(() => {
+        syncCopyLocalCodeBtn.textContent = "Copy";
+      }, 1500);
+    } catch {
+      // Ignore
+    }
   });
 
   syncSendCodeBtn?.addEventListener("click", async () => {
-    const email = syncEmailInput?.value.trim() || "";
-    if (!email || !email.includes("@")) {
-      setSyncFeedback("Enter a valid email address.", "err");
+    const email = (syncEmailInput?.value || "").trim().toLowerCase();
+    if (!email) {
+      setSyncFeedback("Enter your email address first.", "err");
       syncEmailInput?.focus();
       return;
     }
 
-    await requestSyncServerOrigin(syncProfile?.serverUrl);
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const granted = await requestSyncServerOrigin(base);
+    if (!granted) {
+      setSyncFeedback("Permission denied for LM Subs sync service.", "err");
+      return;
+    }
+
     syncSendCodeBtn.disabled = true;
     setSyncFeedback("Sending 6-digit verification code…", "");
 
@@ -703,79 +885,123 @@ async function initOptions() {
     });
     syncSendCodeBtn.disabled = false;
 
-    if (res?.ok) {
-      if (syncCodeStep) syncCodeStep.style.display = "block";
-      if (res.delivery === "preview" && res.previewCode) {
-        if (syncCodeInput) syncCodeInput.value = res.previewCode;
-        setSyncFeedback(
-          `Preview mode code generated: ${res.previewCode}. Click Verify and sign in.`,
-          "ok"
-        );
-      } else {
-        setSyncFeedback(
-          `Sent a 6-digit code to ${email}. Check your inbox.`,
-          "ok"
-        );
-      }
-      syncCodeInput?.focus();
-    } else {
+    if (!res?.ok) {
       setSyncFeedback(res?.error || "Could not send verification code.", "err");
-    }
-  });
-
-  syncVerifyCodeBtn?.addEventListener("click", async () => {
-    const email = syncEmailInput?.value.trim() || "";
-    const code = syncCodeInput?.value.trim() || "";
-    if (!email || code.length !== 6) {
-      setSyncFeedback("Enter the 6-digit verification code.", "err");
-      syncCodeInput?.focus();
       return;
     }
 
-    syncVerifyCodeBtn.disabled = true;
-    setSyncFeedback("Verifying code and syncing your account…", "");
-
-    const res = await sendRuntime({
-      type: RUNTIME_MESSAGE.SYNC_EMAIL_VERIFY_CODE,
-      email,
-      code,
-    });
-    syncVerifyCodeBtn.disabled = false;
-
-    if (res?.ok) {
-      if (syncCodeInput) syncCodeInput.value = "";
-      if (syncCodeStep) syncCodeStep.style.display = "none";
-      await reloadAllLocalState();
-      setSyncFeedback("Signed in and synchronized your opted-in categories.", "ok");
+    if (res.delivery === "preview" && res.previewCode) {
+      if (syncLocalCodePreview && syncLocalCodeDigits) {
+        syncLocalCodeDigits.textContent = res.previewCode;
+        syncLocalCodePreview.style.display = "flex";
+      }
+      if (syncCodeInput) syncCodeInput.value = res.previewCode;
+      if (syncTokenInput) syncTokenInput.value = res.previewCode;
+      setSyncFeedback(
+        `Local sign-in code ready: ${res.previewCode}. Click Connect code or Verify to finish signing in.`,
+        "ok"
+      );
     } else {
-      setSyncFeedback(res?.error || "Verification failed.", "err");
+      if (syncLocalCodePreview) syncLocalCodePreview.style.display = "none";
+      setSyncFeedback(
+        `Sent a 6-digit code to ${email}. Enter it in either open code box above.`,
+        "ok"
+      );
     }
+    syncCodeInput?.focus();
   });
 
-  syncTokenBtn?.addEventListener("click", async () => {
-    const token = syncTokenInput?.value.trim() || "";
-    if (!token) {
-      setSyncFeedback("Paste a session token (lms_...) from the web app.", "err");
+  async function verifyCodeOrSessionToken(rawInput, triggerButton) {
+    const cleaned = String(rawInput || "").trim();
+    if (!cleaned) {
+      setSyncFeedback("Paste your lms_ local code or 6-digit email code first.", "err");
       return;
     }
 
-    await requestSyncServerOrigin(syncProfile?.serverUrl);
-    syncTokenBtn.disabled = true;
-    setSyncFeedback("Connecting session token…", "");
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const granted = await requestSyncServerOrigin(base);
+    if (!granted) {
+      setSyncFeedback("Permission denied for LM Subs sync service.", "err");
+      return;
+    }
 
+    // 6-digit numeric email code path
+    const compactDigits = cleaned.replace(/\s+/g, "");
+    if (/^\d{6}$/.test(compactDigits)) {
+      const email = (syncEmailInput?.value || "").trim().toLowerCase();
+      if (!email) {
+        setSyncFeedback("Enter the email address for this 6-digit code.", "err");
+        syncEmailInput?.focus();
+        return;
+      }
+      if (triggerButton) triggerButton.disabled = true;
+      setSyncFeedback("Verifying 6-digit code…", "");
+      const res = await sendRuntime({
+        type: RUNTIME_MESSAGE.SYNC_EMAIL_VERIFY_CODE,
+        email,
+        code: compactDigits,
+        syncPreferences: {
+          syncApiKeys: Boolean(syncPrefKeys?.checked),
+          syncTranscripts: Boolean(syncPrefTranscripts?.checked),
+          syncSettings: Boolean(syncPrefSettings?.checked),
+        },
+      });
+      if (triggerButton) triggerButton.disabled = false;
+
+      if (!res?.ok) {
+        setSyncFeedback(res?.error || "Invalid or expired code.", "err");
+        return;
+      }
+      if (syncCodeInput) syncCodeInput.value = "";
+      if (syncTokenInput) syncTokenInput.value = "";
+      if (syncLocalCodePreview) syncLocalCodePreview.style.display = "none";
+      await reloadAllLocalState();
+      setSyncFeedback("Signed in and synced opted-in categories.", "ok");
+      return;
+    }
+
+    // `lms_...` local extension token path
+    if (triggerButton) triggerButton.disabled = true;
+    setSyncFeedback("Connecting local extension code…", "");
     const res = await sendRuntime({
       type: RUNTIME_MESSAGE.SYNC_SIGNIN,
-      serverUrl: syncProfile?.serverUrl,
-      token,
+      token: cleaned,
+      syncPreferences: {
+        syncApiKeys: Boolean(syncPrefKeys?.checked),
+        syncTranscripts: Boolean(syncPrefTranscripts?.checked),
+        syncSettings: Boolean(syncPrefSettings?.checked),
+      },
     });
+    if (triggerButton) triggerButton.disabled = false;
 
-    syncTokenBtn.disabled = false;
-    if (res?.ok) {
-      syncTokenInput.value = "";
-      await reloadAllLocalState();
-      setSyncFeedback("Connected and synchronized.", "ok");
-    } else {
-      setSyncFeedback(res?.error || "Token verification failed.", "err");
+    if (!res?.ok) {
+      setSyncFeedback(res?.error || "Invalid or expired local code.", "err");
+      return;
+    }
+
+    if (syncTokenInput) syncTokenInput.value = "";
+    if (syncCodeInput) syncCodeInput.value = "";
+    await reloadAllLocalState();
+    setSyncFeedback("Connected Chrome extension and synced your account.", "ok");
+  }
+
+  syncTokenBtn?.addEventListener("click", () => {
+    verifyCodeOrSessionToken(syncTokenInput?.value, syncTokenBtn);
+  });
+  syncTokenInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      verifyCodeOrSessionToken(syncTokenInput.value, syncTokenBtn);
+    }
+  });
+
+  syncVerifyCodeBtn?.addEventListener("click", () => {
+    verifyCodeOrSessionToken(syncCodeInput?.value, syncVerifyCodeBtn);
+  });
+  syncCodeInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      verifyCodeOrSessionToken(syncCodeInput.value, syncVerifyCodeBtn);
     }
   });
 
@@ -870,6 +1096,7 @@ async function initOptions() {
     await clearAllCachedSubtitles();
     cacheList = [];
     renderCacheTable();
+    renderStatisticsPanel();
   });
 
   saveRpcBtn.addEventListener("click", async () => {
@@ -903,7 +1130,7 @@ async function initOptions() {
         optPermBadge.className = "badge badge-saved";
         if (optGrantPermsBtn) optGrantPermsBtn.style.display = "none";
       } else {
-        optPermBadge.textContent = "Permissions Withheld";
+        optPermBadge.textContent = "Permissions withheld";
         optPermBadge.className = "badge badge-err";
         if (optGrantPermsBtn) optGrantPermsBtn.style.display = "inline-flex";
       }
@@ -944,7 +1171,7 @@ async function initOptions() {
       optCopyDebugBtn.textContent = "Failed";
     }
     setTimeout(() => {
-      optCopyDebugBtn.textContent = "Copy Redacted Report";
+      optCopyDebugBtn.textContent = "Copy redacted report";
     }, 1600);
   });
 

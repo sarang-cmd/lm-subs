@@ -527,229 +527,256 @@ const SCREENSHOT_3_POPUP = `<svg xmlns="http://www.w3.org/2000/svg" width="1280"
   <line x1="56" y1="80" x2="1224" y2="80" stroke="#DFE3E8"/>
   <text x="84" y="63" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#525866">Chrome toolbar popup on notebooklm.google.com</text>
 
-  <!-- Centered 384px Popup Card -->
-  <g transform="translate(436, 56)">
-    <rect width="408" height="690" rx="12" fill="#F6F7F8" stroke="#C5CBD4" stroke-width="1.5"/>
+  <!-- Centered 392px Editorial Popup -->
+  <g transform="translate(444, 96)">
+    <rect width="392" height="584" rx="10" fill="#F6F7F8" stroke="#C5CBD4" stroke-width="1.5"/>
 
-    <!-- Header -->
-    <g transform="translate(18, 16)">
-      ${inlineLogoGroup(0, 0, 32)}
-      <text x="42" y="15" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#111315">LM Subs</text>
-      <text x="42" y="30" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">NotebookLM captions and transcripts</text>
-
-      <text x="304" y="21" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Auto</text>
-      <rect x="336" y="8" width="36" height="20" rx="10" fill="#0055D4"/>
-      <circle cx="362" cy="18" r="7" fill="#FFFFFF"/>
-    </g>
-    <line x1="18" y1="60" x2="390" y2="60" stroke="#DFE3E8"/>
-
-    <!-- Queue Strip -->
-    <g transform="translate(18, 70)">
-      <rect width="372" height="34" rx="6" fill="#EDEFF3" stroke="#DFE3E8"/>
-      <text x="12" y="21" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#525866">Queue: <tspan font-weight="700" fill="#111315">#1 Groq -&gt; #2 Mistral</tspan></text>
-      <rect x="312" y="5" width="52" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="338" y="21" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Order</text>
+    <!-- Topbar -->
+    <rect width="392" height="48" rx="10" fill="#FDFDFE"/>
+    <rect y="38" width="392" height="10" fill="#FDFDFE"/>
+    <line x1="0" y1="48" x2="392" y2="48" stroke="#DFE3E8"/>
+    <g transform="translate(16, 12)">
+      ${inlineLogoGroup(0, 0, 24)}
+      <text x="34" y="17" font-family="DejaVu Sans, sans-serif" font-size="14.5" font-weight="700" fill="#111315">LM Subs</text>
+      <rect x="220" y="3" width="34" height="18" rx="9" fill="#0055D4"/>
+      <circle cx="245" cy="12" r="6.5" fill="#FDFDFE"/>
+      <text x="260" y="16" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Auto</text>
+      <rect x="302" y="0" width="58" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="331" y="16" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Settings</text>
     </g>
 
-    <!-- Provider Card -->
-    <g transform="translate(18, 114)">
-      <rect width="372" height="198" rx="8" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="14" y="24" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Speech-to-text provider</text>
-      <rect x="306" y="10" width="52" height="20" rx="4" fill="#E7F5EC" stroke="#B8E1C6"/>
-      <text x="332" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="600" fill="#166534">Saved</text>
+    <!-- Active NotebookLM Tab + Export Section -->
+    <g transform="translate(0, 49)">
+      <rect width="392" height="218" fill="#FDFDFE"/>
+      <line x1="0" y1="218" x2="392" y2="218" stroke="#DFE3E8"/>
+      <text x="16" y="24" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="700" fill="#111315">Active NotebookLM tab</text>
+      <rect x="318" y="10" width="58" height="20" rx="10" fill="#E7F5EC" stroke="#B8E1C6"/>
+      <text x="347" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="600" fill="#166534">1 ready</text>
 
-      <rect x="14" y="36" width="344" height="32" rx="6" fill="#F6F7F8" stroke="#DFE3E8"/>
-      <text x="24" y="56" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Groq (Free tier, 8 hrs/day)</text>
-      <text x="14" y="86" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Free plan without a card: 20 RPM, whisper-large-v3-turbo.</text>
+      <text x="16" y="45" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Video: &quot;Cellular ATP Synthesis&quot;</text>
 
-      <text x="14" y="114" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">API key</text>
-      <text x="358" y="114" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#0055D4">Get free key</text>
+      <rect x="16" y="56" width="360" height="32" rx="6" fill="#0055D4"/>
+      <text x="196" y="76" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#FDFDFE">Generate subtitles</text>
 
-      <rect x="14" y="122" width="218" height="32" rx="6" fill="#F6F7F8" stroke="#DFE3E8"/>
-      <text x="24" y="142" font-family="DejaVu Sans Mono, monospace" font-size="12" fill="#767D89">gsk_••••••••••••9xQ2</text>
+      <line x1="16" y1="100" x2="376" y2="100" stroke="#DFE3E8"/>
+      <text x="16" y="117" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#525866">Export transcript</text>
+      <text x="376" y="117" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#737A87">Cellular ATP Synthesis (74)</text>
 
-      <rect x="238" y="122" width="58" height="32" rx="6" fill="#0055D4"/>
-      <text x="267" y="142" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">Save</text>
+      <rect x="16" y="125" width="66" height="25" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="49" y="141" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.SRT</text>
+      <rect x="88" y="125" width="66" height="25" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="121" y="141" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.VTT</text>
+      <rect x="160" y="125" width="66" height="25" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="193" y="141" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.TXT</text>
+      <rect x="232" y="125" width="70" height="25" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="267" y="141" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.JSON</text>
+      <rect x="308" y="125" width="68" height="25" rx="5" fill="#111315"/>
+      <text x="342" y="141" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#FDFDFE">Copy</text>
 
-      <rect x="302" y="122" width="56" height="32" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="330" y="142" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Test</text>
-
-      <text x="14" y="178" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#166534">Verified and synced to your cloud account (240 ms).</text>
+      <line x1="16" y1="162" x2="376" y2="162" stroke="#DFE3E8"/>
+      <text x="16" y="180" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Cellular ATP Synthesis</text>
+      <rect x="330" y="167" width="46" height="18" rx="9" fill="#E7F5EC" stroke="#B8E1C6"/>
+      <text x="353" y="180" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="600" fill="#166534">groq</text>
+      <text x="16" y="198" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">74 cues, 2.4s, 31.8 MB avoided</text>
     </g>
 
-    <!-- Account & Cloud Sync Card -->
-    <g transform="translate(18, 322)">
-      <rect width="372" height="96" rx="8" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="14" y="24" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Account and cloud sync</text>
-      <rect x="302" y="10" width="56" height="20" rx="4" fill="#E7F5EC" stroke="#B8E1C6"/>
-      <text x="330" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="600" fill="#166534">Synced</text>
+    <!-- Account, Sync & Always-Open Local Code Section -->
+    <g transform="translate(0, 268)">
+      <line x1="0" y1="164" x2="392" y2="164" stroke="#DFE3E8"/>
+      <text x="16" y="24" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="700" fill="#111315">Account and sync</text>
+      <rect x="150" y="10" width="72" height="20" rx="10" fill="#EDEFF3" stroke="#DFE3E8"/>
+      <text x="186" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="600" fill="#525866">Signed out</text>
 
-      <text x="14" y="46" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">sarang@university.edu, 2 keys, 14 transcripts</text>
+      <rect x="242" y="8" width="66" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="275" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#111315">Get code</text>
+      <rect x="314" y="8" width="62" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="345" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#111315">Settings</text>
 
-      <rect x="14" y="58" width="96" height="26" rx="6" fill="#0055D4"/>
-      <text x="62" y="75" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#FFFFFF">Sync now</text>
+      <text x="16" y="46" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Paste your local code below or sign in to sync transcripts.</text>
 
-      <rect x="118" y="58" width="240" height="26" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="238" y="75" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Account and sync options</text>
+      <!-- Always-open Local Code Box -->
+      <rect x="16" y="58" width="360" height="88" rx="8" fill="#E8F0FE" stroke="#0055D4"/>
+      <text x="28" y="79" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="700" fill="#111315">Local sign-in code</text>
+      <rect x="28" y="88" width="256" height="30" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="38" y="107" font-family="DejaVu Sans Mono, monospace" font-size="11.5" fill="#737A87">Paste lms_... local code</text>
+      <rect x="292" y="88" width="72" height="30" rx="5" fill="#0055D4"/>
+      <text x="328" y="107" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#FDFDFE">Connect</text>
     </g>
 
-    <!-- Active Tab + Export -->
-    <g transform="translate(18, 428)">
-      <rect width="372" height="150" rx="8" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="14" y="24" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Active tab</text>
-      <rect x="294" y="10" width="64" height="20" rx="4" fill="#E7F5EC" stroke="#B8E1C6"/>
-      <text x="326" y="24" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="600" fill="#166534">1 ready</text>
-
-      <text x="14" y="46" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Cellular ATP Synthesis (74 cues)</text>
-
-      <rect x="14" y="56" width="344" height="30" rx="6" fill="#111315"/>
-      <text x="186" y="75" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#F6F7F8">Generate captions</text>
-
-      <line x1="14" y1="96" x2="358" y2="96" stroke="#DFE3E8"/>
-      <text x="14" y="112" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#525866">Export captions</text>
-
-      <rect x="14" y="118" width="64" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="46" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.srt</text>
-      <rect x="84" y="118" width="64" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="116" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.vtt</text>
-      <rect x="154" y="118" width="64" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="186" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.txt</text>
-      <rect x="224" y="118" width="66" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="257" y="134" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="600" fill="#111315">.json</text>
-      <rect x="296" y="118" width="62" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
-      <text x="327" y="134" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#111315">Copy</text>
+    <!-- Collapsed Providers & API Keys Bar -->
+    <g transform="translate(0, 441)">
+      <line x1="0" y1="62" x2="392" y2="62" stroke="#DFE3E8"/>
+      <rect x="16" y="12" width="360" height="38" rx="6" fill="#FDFDFE" stroke="#DFE3E8"/>
+      <text x="28" y="35" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#111315">Providers and API keys</text>
+      <text x="348" y="35" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">#1 Groq -&gt; #2 Mistral</text>
+      <text x="364" y="35" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#737A87">v</text>
     </g>
 
     <!-- Footer -->
-    <g transform="translate(18, 592)">
-      <rect width="372" height="54" rx="8" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="14" y="22" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Cellular ATP Synthesis</text>
-      <text x="14" y="40" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#166534">74 cues, 2.4s, 3.4 MB audio (groq)</text>
+    <g transform="translate(16, 518)">
+      <rect y="3" width="34" height="18" rx="9" fill="#C5CBD4"/>
+      <circle cx="11" cy="12" r="6.5" fill="#FDFDFE"/>
+      <text x="42" y="16" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Pipeline monitor</text>
+      <rect x="304" y="0" width="56" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="332" y="16" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Report</text>
     </g>
-
-    <text x="18" y="672" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Diagnostics</text>
-    <text x="390" y="672" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#0055D4">Setup guide  |  Settings</text>
   </g>
 </svg>
 `;
 
-// Screenshot 04: Extension Settings (Account Opt-In Sync + Statistics + Provider Queue)
+// Screenshot 04: Editorial Extension Settings (Sticky Bar + Open Local Code + Stats + Compact Collapsible Providers)
 const SCREENSHOT_4_SETTINGS = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
   <rect width="1280" height="800" fill="#F6F7F8"/>
-  <g transform="translate(110, 32)">
-    <!-- Header -->
-    ${inlineLogoGroup(0, 0, 38)}
-    <text x="52" y="18" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#111315">LM Subs settings</text>
-    <text x="52" y="36" font-family="DejaVu Sans, sans-serif" font-size="12.5" fill="#525866">Account sync, opt-in privacy switches, usage statistics, and speech-to-text queue</text>
-    <line x1="0" y1="52" x2="1060" y2="52" stroke="#DFE3E8"/>
 
-    <!-- Account & Opt-In Sync Card -->
-    <g transform="translate(0, 68)">
-      <rect width="1060" height="206" rx="10" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="22" y="30" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#111315">Account and cloud sync</text>
-      <rect x="966" y="14" width="72" height="22" rx="5" fill="#E7F5EC" stroke="#B8E1C6"/>
-      <text x="1002" y="29" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#166534">Synced</text>
+  <!-- Sticky Website-Matched Top Navigation -->
+  <rect width="1280" height="54" fill="#F6F7F8"/>
+  <line x1="0" y1="54" x2="1280" y2="54" stroke="#DFE3E8"/>
+  <g transform="translate(120, 14)">
+    ${inlineLogoGroup(0, 0, 26)}
+    <text x="36" y="18" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#111315">LM Subs</text>
 
-      <rect x="22" y="46" width="1016" height="62" rx="8" fill="#F6F7F8" stroke="#DFE3E8"/>
-      <text x="38" y="71" font-family="DejaVu Sans, sans-serif" font-size="13.5" font-weight="700" fill="#111315">sarang@university.edu (Signed in with Google)</text>
-      <text x="38" y="92" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#525866">2 encrypted API keys, 25 synced transcripts, hosted Neon Postgres</text>
-
-      <rect x="816" y="61" width="106" height="32" rx="6" fill="#0055D4"/>
-      <text x="869" y="81" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">Sync now</text>
-      <rect x="932" y="61" width="90" height="32" rx="6" fill="#FDFDFE" stroke="#F4BCBC"/>
-      <text x="977" y="81" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#B91C1C">Sign out</text>
-
-      <!-- 3 Opt-In Switches -->
-      <g transform="translate(22, 122)">
-        <rect width="328" height="66" rx="7" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <rect x="14" y="14" width="34" height="18" rx="9" fill="#0055D4"/>
-        <circle cx="39" cy="23" r="6.5" fill="#FFFFFF"/>
-        <text x="58" y="27" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Sync API keys</text>
-        <text x="14" y="49" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#525866">AES-256-GCM encrypted per user</text>
-
-        <rect x="344" width="328" height="66" rx="7" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <rect x="358" y="14" width="34" height="18" rx="9" fill="#0055D4"/>
-        <circle cx="383" cy="23" r="6.5" fill="#FFFFFF"/>
-        <text x="402" y="27" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Sync transcriptions</text>
-        <text x="358" y="49" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#525866">Instant captions on other browsers</text>
-
-        <rect x="688" width="328" height="66" rx="7" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <rect x="702" y="14" width="34" height="18" rx="9" fill="#0055D4"/>
-        <circle cx="727" cy="23" r="6.5" fill="#FFFFFF"/>
-        <text x="746" y="27" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Sync preferences</text>
-        <text x="702" y="49" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#525866">Provider order and caption display</text>
-      </g>
+    <g transform="translate(310, 4)">
+      <text x="0" y="14" font-family="DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#111315">Account</text>
+      <text x="74" y="14" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">Statistics</text>
+      <text x="156" y="14" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">Providers</text>
+      <text x="236" y="14" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">Preferences</text>
+      <text x="332" y="14" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">Library</text>
     </g>
 
-    <!-- Statistics Strip Card -->
-    <g transform="translate(0, 290)">
-      <rect width="1060" height="122" rx="10" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="22" y="28" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#111315">Transcription statistics</text>
-      <line x1="22" y1="42" x2="1038" y2="42" stroke="#DFE3E8"/>
-      <line x1="276" y1="42" x2="276" y2="108" stroke="#DFE3E8"/>
-      <line x1="530" y1="42" x2="530" y2="108" stroke="#DFE3E8"/>
-      <line x1="784" y1="42" x2="784" y2="108" stroke="#DFE3E8"/>
+    <rect x="910" y="3" width="36" height="20" rx="10" fill="#0055D4"/>
+    <circle cx="936" cy="13" r="7" fill="#FDFDFE"/>
+    <text x="956" y="17" font-family="DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#111315">Auto-caption</text>
+  </g>
 
-      <text x="22" y="76" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#111315">25</text>
-      <text x="22" y="96" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Videos captioned</text>
+  <g transform="translate(120, 82)">
+    <!-- Split Section 1: Account & Always-Open Local Code -->
+    <g transform="translate(0, 0)">
+      <text x="0" y="22" font-family="DejaVu Sans, sans-serif" font-size="19" font-weight="700" fill="#111315">Account and sync</text>
+      <rect x="200" y="6" width="76" height="20" rx="10" fill="#EDEFF3" stroke="#DFE3E8"/>
+      <text x="238" y="20" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#525866">Signed out</text>
+      <text x="0" y="48" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">Sign in with Google, GitHub, or email</text>
+      <text x="0" y="68" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">to sync encrypted API keys, or paste</text>
+      <text x="0" y="88" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">your local code into the open box.</text>
 
-      <text x="296" y="76" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#111315">1,710</text>
-      <text x="296" y="96" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Synchronized cues</text>
+      <!-- Right Sheet -->
+      <g transform="translate(336, 0)">
+        <rect width="704" height="236" rx="10" fill="#FDFDFE" stroke="#DFE3E8"/>
 
-      <text x="550" y="76" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#111315">1.14 GB</text>
-      <text x="550" y="96" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Video upload avoided</text>
+        <!-- Always-Open Local Code Box -->
+        <rect x="20" y="18" width="664" height="92" rx="8" fill="#E8F0FE" stroke="#0055D4"/>
+        <text x="34" y="40" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="700" fill="#111315">Local sign-in code (always open)</text>
+        <rect x="520" y="24" width="150" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="595" y="40" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Get local code on web</text>
+        <rect x="34" y="56" width="512" height="36" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="48" y="79" font-family="DejaVu Sans Mono, monospace" font-size="12" fill="#737A87">Paste lms_... code or 6-digit code</text>
+        <rect x="556" y="56" width="114" height="36" rx="6" fill="#0055D4"/>
+        <text x="613" y="79" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#FDFDFE">Connect code</text>
 
-      <text x="804" y="76" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#0055D4">2.6s</text>
-      <text x="804" y="96" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#525866">Median caption speed</text>
+        <!-- OAuth + Email + Always-Open 6-Digit Row -->
+        <rect x="20" y="124" width="326" height="34" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="183" y="146" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Continue with Google</text>
+        <rect x="358" y="124" width="326" height="34" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="521" y="146" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12.5" font-weight="600" fill="#111315">Continue with GitHub</text>
+
+        <rect x="20" y="172" width="234" height="36" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="32" y="195" font-family="DejaVu Sans, sans-serif" font-size="12.5" fill="#737A87">alex@university.edu</text>
+        <rect x="262" y="172" width="84" height="36" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="304" y="195" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Send code</text>
+
+        <rect x="358" y="172" width="240" height="36" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="372" y="195" font-family="DejaVu Sans Mono, monospace" font-size="12.5" fill="#737A87">123456</text>
+        <rect x="606" y="172" width="78" height="36" rx="6" fill="#111315"/>
+        <text x="645" y="195" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#FDFDFE">Verify</text>
+      </g>
+      <line x1="0" y1="262" x2="1040" y2="262" stroke="#DFE3E8"/>
     </g>
 
-    <!-- Speech-to-Text Providers Queue -->
-    <g transform="translate(0, 428)">
-      <rect width="1060" height="304" rx="10" fill="#FDFDFE" stroke="#DFE3E8"/>
-      <text x="22" y="30" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#111315">Speech-to-text providers and API keys</text>
-      <text x="1038" y="30" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#525866">Ordered top to bottom with automatic rate-limit failover</text>
+    <!-- Unboxed 4-Cell KPI Strip -->
+    <g transform="translate(0, 286)">
+      <text x="0" y="20" font-family="DejaVu Sans, sans-serif" font-size="19" font-weight="700" fill="#111315">Statistics and metrics</text>
+      <rect x="968" y="2" width="72" height="28" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="1004" y="20" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Refresh</text>
 
-      <rect x="22" y="46" width="1016" height="238" rx="8" fill="#FDFDFE" stroke="#DFE3E8"/>
+      <line x1="0" y1="38" x2="1040" y2="38" stroke="#DFE3E8"/>
+      <line x1="0" y1="118" x2="1040" y2="118" stroke="#DFE3E8"/>
+      <line x1="260" y1="38" x2="260" y2="118" stroke="#DFE3E8"/>
+      <line x1="520" y1="38" x2="520" y2="118" stroke="#DFE3E8"/>
+      <line x1="780" y1="38" x2="780" y2="118" stroke="#DFE3E8"/>
 
-      <!-- Row 1 -->
-      <g transform="translate(22, 46)">
-        <rect x="16" y="14" width="28" height="20" rx="4" fill="#EDEFF3"/>
-        <text x="30" y="28" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#111315">#1</text>
-        <text x="54" y="29" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="700" fill="#111315">Groq</text>
-        <rect x="104" y="14" width="144" height="20" rx="4" fill="#E7F5EC"/>
-        <text x="176" y="28" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="600" fill="#166534">Saved (gsk_••••9xQ2)</text>
+      <text x="0" y="76" font-family="DejaVu Sans, sans-serif" font-size="25" font-weight="700" fill="#111315">18</text>
+      <text x="0" y="98" font-family="DejaVu Sans, sans-serif" font-size="12.5" fill="#525866">Videos captioned</text>
 
-        <rect x="16" y="46" width="520" height="32" rx="6" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <text x="28" y="66" font-family="DejaVu Sans Mono, monospace" font-size="11.5" fill="#767D89">Key saved, paste new key to replace</text>
-        <rect x="546" y="46" width="256" height="32" rx="6" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <text x="558" y="66" font-family="DejaVu Sans Mono, monospace" font-size="11.5" fill="#111315">whisper-large-v3-turbo</text>
-        <rect x="812" y="46" width="60" height="32" rx="6" fill="#0055D4"/>
-        <text x="842" y="66" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">Save</text>
-        <rect x="878" y="46" width="58" height="32" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
-        <text x="907" y="66" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Test</text>
-        <rect x="942" y="46" width="58" height="32" rx="6" fill="#FDFDFE" stroke="#F4BCBC"/>
-        <text x="971" y="66" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#B91C1C">Clear</text>
-        <line x1="0" y1="94" x2="1016" y2="94" stroke="#DFE3E8"/>
-      </g>
+      <text x="280" y="76" font-family="DejaVu Sans, sans-serif" font-size="25" font-weight="700" fill="#111315">1,340</text>
+      <text x="280" y="98" font-family="DejaVu Sans, sans-serif" font-size="12.5" fill="#525866">Caption cues</text>
 
-      <!-- Row 2 -->
-      <g transform="translate(22, 140)">
-        <rect x="16" y="14" width="28" height="20" rx="4" fill="#EDEFF3"/>
-        <text x="30" y="28" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="11" font-weight="700" fill="#111315">#2</text>
-        <text x="54" y="29" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="700" fill="#111315">Mistral (Voxtral)</text>
-        <rect x="184" y="14" width="148" height="20" rx="4" fill="#E7F5EC"/>
-        <text x="258" y="28" text-anchor="middle" font-family="DejaVu Sans Mono, monospace" font-size="10.5" font-weight="600" fill="#166534">Saved (mst_••••4kP8)</text>
+      <text x="540" y="76" font-family="DejaVu Sans, sans-serif" font-size="25" font-weight="700" fill="#111315">614.8 MB</text>
+      <text x="540" y="98" font-family="DejaVu Sans, sans-serif" font-size="12.5" fill="#525866">Video upload avoided</text>
 
-        <rect x="16" y="46" width="520" height="32" rx="6" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <text x="28" y="66" font-family="DejaVu Sans Mono, monospace" font-size="11.5" fill="#767D89">Key saved, paste new key to replace</text>
-        <rect x="546" y="46" width="256" height="32" rx="6" fill="#F6F7F8" stroke="#DFE3E8"/>
-        <text x="558" y="66" font-family="DejaVu Sans Mono, monospace" font-size="11.5" fill="#111315">voxtral-mini-latest</text>
-        <rect x="812" y="46" width="60" height="32" rx="6" fill="#0055D4"/>
-        <text x="842" y="66" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">Save</text>
-        <rect x="878" y="46" width="58" height="32" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
-        <text x="907" y="66" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Test</text>
-        <rect x="942" y="46" width="58" height="32" rx="6" fill="#FDFDFE" stroke="#F4BCBC"/>
-        <text x="971" y="66" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#B91C1C">Clear</text>
+      <text x="800" y="76" font-family="DejaVu Sans, sans-serif" font-size="25" font-weight="700" fill="#111315">2.4s</text>
+      <text x="800" y="98" font-family="DejaVu Sans, sans-serif" font-size="12.5" fill="#525866">Median speed</text>
+      <line x1="0" y1="140" x2="1040" y2="140" stroke="#DFE3E8"/>
+    </g>
+
+    <!-- Compact Collapsible Speech-to-Text Providers Ledger -->
+    <g transform="translate(0, 452)">
+      <text x="0" y="20" font-family="DejaVu Sans, sans-serif" font-size="19" font-weight="700" fill="#111315">Speech-to-text providers and API keys</text>
+      <text x="0" y="42" font-family="DejaVu Sans, sans-serif" font-size="13" fill="#525866">2 active in failover queue (#1 Groq -&gt; #2 Mistral). Click any row to edit its API key or model.</text>
+
+      <rect x="814" y="4" width="136" height="28" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="882" y="22" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Expand configured</text>
+      <rect x="958" y="4" width="82" height="28" rx="6" fill="#FDFDFE" stroke="#C5CBD4"/>
+      <text x="999" y="22" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#111315">Hide list</text>
+
+      <!-- Clean Compact 1-Line Ledger Sheet -->
+      <g transform="translate(0, 58)">
+        <rect width="1040" height="176" rx="10" fill="#FDFDFE" stroke="#DFE3E8"/>
+
+        <!-- Compact Row 01 -->
+        <text x="18" y="28" font-family="DejaVu Sans Mono, monospace" font-size="11.5" font-weight="700" fill="#737A87">01</text>
+        <text x="48" y="28" font-family="DejaVu Sans, sans-serif" font-size="13.5" font-weight="700" fill="#111315">Groq</text>
+        <text x="104" y="28" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#737A87">Free tier, 8 hrs/day</text>
+        <rect x="236" y="13" width="136" height="20" rx="10" fill="#E7F5EC" stroke="#B8E1C6"/>
+        <text x="304" y="27" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#166534">Synced (gsk_...9xQ2)</text>
+        <rect x="862" y="10" width="40" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="882" y="26" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" fill="#737A87">Up</text>
+        <rect x="908" y="10" width="50" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="933" y="26" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Down</text>
+        <rect x="964" y="10" width="60" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="994" y="26" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Edit key</text>
+        <line x1="0" y1="44" x2="1040" y2="44" stroke="#DFE3E8"/>
+
+        <!-- Compact Row 02 -->
+        <text x="18" y="72" font-family="DejaVu Sans Mono, monospace" font-size="11.5" font-weight="700" fill="#737A87">02</text>
+        <text x="48" y="72" font-family="DejaVu Sans, sans-serif" font-size="13.5" font-weight="700" fill="#111315">Mistral (Voxtral)</text>
+        <text x="190" y="72" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#737A87">Free Studio tier</text>
+        <rect x="304" y="57" width="138" height="20" rx="10" fill="#E7F5EC" stroke="#B8E1C6"/>
+        <text x="373" y="71" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#166534">Synced (mst_...4kP8)</text>
+        <rect x="862" y="54" width="40" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="882" y="70" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Up</text>
+        <rect x="908" y="54" width="50" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="933" y="70" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Down</text>
+        <rect x="964" y="54" width="60" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="994" y="70" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Edit key</text>
+        <line x1="0" y1="88" x2="1040" y2="88" stroke="#DFE3E8"/>
+
+        <!-- Compact Row 03 -->
+        <text x="18" y="116" font-family="DejaVu Sans Mono, monospace" font-size="11.5" font-weight="700" fill="#737A87">03</text>
+        <text x="48" y="116" font-family="DejaVu Sans, sans-serif" font-size="13.5" font-weight="700" fill="#111315">Google Gemini</text>
+        <text x="174" y="116" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#737A87">Free AI Studio tier</text>
+        <rect x="302" y="101" width="52" height="20" rx="10" fill="#EDEFF3" stroke="#DFE3E8"/>
+        <text x="328" y="115" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#525866">Unset</text>
+        <rect x="964" y="98" width="60" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="994" y="114" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Add key</text>
+        <line x1="0" y1="132" x2="1040" y2="132" stroke="#DFE3E8"/>
+
+        <!-- Compact Row 04 -->
+        <text x="18" y="160" font-family="DejaVu Sans Mono, monospace" font-size="11.5" font-weight="700" fill="#737A87">04</text>
+        <text x="48" y="160" font-family="DejaVu Sans, sans-serif" font-size="13.5" font-weight="700" fill="#111315">Deepgram Nova-3</text>
+        <text x="198" y="160" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#737A87">$200 free credit</text>
+        <rect x="312" y="145" width="52" height="20" rx="10" fill="#EDEFF3" stroke="#DFE3E8"/>
+        <text x="338" y="159" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="600" fill="#525866">Unset</text>
+        <rect x="964" y="142" width="60" height="24" rx="5" fill="#FDFDFE" stroke="#C5CBD4"/>
+        <text x="994" y="158" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11.5" font-weight="600" fill="#111315">Add key</text>
       </g>
     </g>
   </g>
@@ -765,8 +792,8 @@ const screenshots = [
 
 const forceWireframe = process.argv.includes("--wireframe");
 for (const [filename, svg] of screenshots) {
-  const docTarget = path.join(ROOT, `docs/assets/screenshots/${filename}`);
-  const storeTarget = path.join(ROOT, `store-assets/${filename}`);
+  const docTarget = path.resolve(`docs/assets/screenshots/${filename}`);
+  const storeTarget = path.resolve(`store-assets/${filename}`);
   if (forceWireframe || !fs.existsSync(docTarget)) {
     renderSvgToPng(svg, `docs/assets/screenshots/${filename}`, 1280);
   }

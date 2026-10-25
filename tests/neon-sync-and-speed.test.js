@@ -641,3 +641,107 @@ test("Neon Sync API /api/sync/export and /api/sync/export-all stream .srt/.vtt/.
     await db.close();
   }
 });
+
+test("Regression: pure-audio =m140 reports non-zero avoided video upload bytes and skips dead mirror FIFE variants", async () => {
+  const store = createMemoryStorage();
+  await setApiKey("groq", "gsk_avoided_bytes_test_1234", store);
+
+  const attemptedUrls = [];
+  const sw = createRuntimeDispatcher({
+    storageArea: store,
+    fetchImpl: async (url) => {
+      const u = String(url);
+      if (u.includes("api.groq.com")) {
+        return new Response(
+          JSON.stringify({
+            segments: [
+              { start: 0.0, end: 180.0, text: "Three minutes of spoken overview." },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      attemptedUrls.push(u);
+      // Simulate =m140 returning 404 on googleusercontent.com, =m140-dv succeeding with 2.8 MB audio/mp4
+      if (u.endsWith("=m140")) {
+        return new Response("Not Found", { status: 404 });
+      }
+      if (u.endsWith("=m140-dv")) {
+        const audioPayload = new Uint8Array(2_800_000);
+        audioPayload.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70], 0);
+        return new Response(audioPayload, {
+          status: 200,
+          headers: { "content-type": "audio/mp4" },
+        });
+      }
+      throw new Error(`Unexpected CDN URL probed: ${u}`);
+    },
+  });
+
+  const res = await invokeDispatcher(sw, {
+    type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
+    artifact: {
+      cacheKey: "artifact:avoided-zero-fix",
+      artifactId: "avoided-zero-fix",
+      title: "Avoided Bandwidth Telemetry Check",
+      durationSeconds: 180,
+      mediaUrl:
+        "https://lh3.googleusercontent.com/notebooklm/ANd9GcAvoidedZeroFixToken123456=m22-dv",
+    },
+  });
+
+  assert.equal(res.ok, true);
+  // Dead `=m140` 404 must execute only once (not retried with `omit`, and `lh3.google.com/...=m140` skipped)
+  assert.equal(
+    attemptedUrls.filter((u) => u.endsWith("=m140")).length,
+    1,
+    "404 on =m140 must not retry credentials=omit or duplicate mirror hosts"
+  );
+  // `originalBytes` must reflect the bypassed full video container (>15 MB), never equal `extractedBytes` (0.0 MB saved)
+  assert.equal(res.entry.extractedBytes, 2_800_000);
+  assert.ok(
+    res.entry.originalBytes > res.entry.extractedBytes + 12 * 1024 * 1024,
+    `Expected avoided video upload >12 MB, got original=${res.entry.originalBytes} extracted=${res.entry.extractedBytes}`
+  );
+
+  // Also verify `/api/stats` upgrades legacy rows where `original_bytes === extracted_bytes` so `/stats` never shows 0.0 MB
+  const db = await createDatabaseClient({ inMemory: true });
+  try {
+    const app = createSyncApp({
+      dbPromise: Promise.resolve(db),
+      encryptionSecret: "avoided-test-secret-material-for-lm-subs",
+    });
+    const signup = await (
+      await app.request("http://localhost/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "avoided-stats@lmsubs.dev",
+          password: "password-12345",
+        }),
+      })
+    ).json();
+
+    // Insert a legacy row directly into `lmsubs_subtitles` where `original_bytes = extracted_bytes`
+    await db.query(
+      `INSERT INTO lmsubs_subtitles
+         (user_id, cache_key, title, language, provider, cue_count, spoken_seconds, original_bytes, extracted_bytes, cues_json)
+       VALUES ($1, 'artifact:legacy-m140', 'Legacy Direct Audio', 'en', 'groq', 12, 240, 3400000, 3400000, '[]'::jsonb)`,
+      [signup.user.id]
+    );
+
+    const statsRes = await (
+      await app.request("http://localhost/api/stats", {
+        headers: { Authorization: `Bearer ${signup.token}` },
+      })
+    ).json();
+    assert.equal(statsRes.ok, true);
+    assert.ok(
+      statsRes.totals.bandwidthSavedBytes > 15 * 1024 * 1024,
+      `Expected /api/stats bandwidthSavedBytes >15 MB for 4-min overview, got ${statsRes.totals.bandwidthSavedBytes}`
+    );
+  } finally {
+    await db.close();
+  }
+});
+

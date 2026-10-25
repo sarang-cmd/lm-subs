@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Dialog, DropdownMenu, Switch } from "radix-ui";
+import React, { useEffect, useMemo, useState } from "react";
+import { Collapsible, Dialog, DropdownMenu, Switch } from "radix-ui";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import { formatTxt, serializeSubtitles } from "../lib/subtitles.js";
 import { AuthCard } from "./AuthDialog.jsx";
@@ -86,6 +86,7 @@ export function LibraryView({
   cloudState,
   loadingCloud,
   oauthNotice,
+  extConnectRequested = false,
   onAuthenticated,
   onSignOut,
   onRefreshCloud,
@@ -100,6 +101,8 @@ export function LibraryView({
 
   const [extTokenText, setExtTokenText] = useState("");
   const [extTokenCopied, setExtTokenCopied] = useState(false);
+  const [mintingExtToken, setMintingExtToken] = useState(false);
+  const [keysCollapsibleOpen, setKeysCollapsibleOpen] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedKey, setExpandedKey] = useState(null);
@@ -107,6 +110,33 @@ export function LibraryView({
 
   const [confirmDisableModal, setConfirmDisableModal] = useState(null);
   const [confirmDeleteTranscript, setConfirmDeleteTranscript] = useState(null);
+
+  // Automatically mint a dedicated Chrome extension local code whenever signed in
+  useEffect(() => {
+    if (!token || !user) {
+      setExtTokenText("");
+      return;
+    }
+    let cancelled = false;
+    setMintingExtToken(true);
+    fetch("/api/auth/extension-token", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!cancelled && ok && d?.token) {
+          setExtTokenText(d.token);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setMintingExtToken(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, user?.id]);
 
   const syncPrefs = cloudState?.syncPreferences || {
     syncApiKeys: true,
@@ -145,7 +175,9 @@ export function LibraryView({
           </p>
           <AuthCard
             oauthNotice={oauthNotice}
-            redirectAfter="/library"
+            redirectAfter={
+              extConnectRequested ? "/?view=library&ext_connect=1" : "/library"
+            }
             onAuthenticated={onAuthenticated}
           />
         </div>
@@ -227,20 +259,37 @@ export function LibraryView({
   }
 
   async function handleMintExtensionToken() {
-    const res = await fetch("/api/auth/extension-token", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    if (res.ok && data?.token) {
-      setExtTokenText(data.token);
-      try {
-        await navigator.clipboard.writeText(data.token);
-        setExtTokenCopied(true);
-        window.setTimeout(() => setExtTokenCopied(false), 2000);
-      } catch {
-        // Fallback displays the token input for manual copy
+    setMintingExtToken(true);
+    try {
+      const res = await fetch("/api/auth/extension-token", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data?.token) {
+        setExtTokenText(data.token);
+        try {
+          await navigator.clipboard.writeText(data.token);
+          setExtTokenCopied(true);
+          window.setTimeout(() => setExtTokenCopied(false), 2000);
+        } catch {
+          // Fallback displays the token input for manual copy
+        }
       }
+    } finally {
+      setMintingExtToken(false);
+    }
+  }
+
+  async function handleCopyDisplayedExtensionCode() {
+    const activeCode = extTokenText || token;
+    if (!activeCode) return;
+    try {
+      await navigator.clipboard.writeText(activeCode);
+      setExtTokenCopied(true);
+      window.setTimeout(() => setExtTokenCopied(false), 2000);
+    } catch {
+      // Ignore clipboard failure
     }
   }
 
@@ -347,15 +396,6 @@ export function LibraryView({
             <button
               type="button"
               className="btn btn-sm"
-              onClick={handleMintExtensionToken}
-            >
-              {extTokenCopied
-                ? "Copied extension token"
-                : "Link Chrome extension"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm"
               onClick={onRefreshCloud}
               disabled={loadingCloud}
             >
@@ -371,12 +411,55 @@ export function LibraryView({
           </div>
         </div>
 
-        {extTokenText ? (
-          <div className="notice-banner" data-tone="ok" style={{ marginTop: "16px", marginBottom: 0 }}>
-            Extension link token generated. Open LM Subs Settings in Chrome and paste:{" "}
-            <code>{extTokenText}</code>
+        {/* Always-open local extension code box */}
+        <div
+          className="local-code-panel"
+          data-highlight={extConnectRequested ? "true" : "false"}
+        >
+          <div className="local-code-panel-meta">
+            <label
+              className="form-label"
+              htmlFor="library-local-code-input"
+              style={{ marginBottom: "2px" }}
+            >
+              Local code for the Chrome extension
+            </label>
+            <div style={{ fontSize: "13px", color: "var(--ink-secondary)" }}>
+              Copy this local code and paste it into the open local code box in the LM Subs popup or Settings page.
+            </div>
           </div>
-        ) : null}
+          <div className="local-code-panel-controls">
+            <input
+              id="library-local-code-input"
+              type="text"
+              readOnly
+              spellCheck={false}
+              className="form-input form-input-mono"
+              value={
+                extTokenText ||
+                (mintingExtToken ? "Generating local code…" : token)
+              }
+              onFocus={(e) => e.target.select()}
+              aria-label="Local code for the Chrome extension"
+            />
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleCopyDisplayedExtensionCode}
+              disabled={mintingExtToken && !extTokenText}
+            >
+              {extTokenCopied ? "Copied code" : "Copy local code"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={handleMintExtensionToken}
+              disabled={mintingExtToken}
+            >
+              New code
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* Granular Sync Opt-In Controls */}
@@ -395,120 +478,154 @@ export function LibraryView({
         </div>
       </section>
 
-      {/* Encrypted BYOK API Keys */}
+      {/* Collapsible Encrypted BYOK API Keys */}
       <section className="section-block">
-        <div className="split-section">
-          <div>
-            <h2 className="section-heading">Encrypted API keys</h2>
-            <p className="section-prose">
-              Bring your own free-tier or paid API keys from Groq, Mistral, Gemini, Deepgram, OpenAI, and more. Keys are encrypted per user with AES-256-GCM; only masked hints appear here.
-            </p>
-
-            {keyEntries.length > 0 ? (
-              <div className="data-table-wrap" style={{ marginTop: "18px" }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Stored hint</th>
-                      <th style={{ textAlign: "right" }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {keyEntries.map(([provId, hint]) => (
-                      <tr key={provId}>
-                        <td style={{ fontWeight: 600 }}>{provId}</td>
-                        <td>
-                          <code>{hint}</code>
-                        </td>
-                        <td style={{ textAlign: "right" }}>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-danger"
-                            onClick={() => handleRemoveKey(provId)}
-                            disabled={keyBusy}
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p style={{ fontSize: "14px", color: "var(--ink-tertiary)" }}>
-                {syncPrefs.syncApiKeys
-                  ? "No API keys stored in your cloud account yet."
-                  : "API key sync is turned off."}
+        <Collapsible.Root
+          open={keysCollapsibleOpen}
+          onOpenChange={setKeysCollapsibleOpen}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "12px",
+            }}
+          >
+            <div>
+              <h2 className="section-heading" style={{ marginBottom: "4px" }}>
+                Speech-to-text providers and API keys
+              </h2>
+              <p className="section-prose" style={{ marginBottom: 0 }}>
+                {keyEntries.length > 0
+                  ? `${keyEntries.length} encrypted key(s) stored (${keyEntries
+                      .map(([provId, hint]) => `${provId} ${hint}`)
+                      .join(", ")}).`
+                  : "No cloud API keys stored yet. Expand to add a free-tier Groq or Mistral key."}
               </p>
-            )}
+            </div>
+            <Collapsible.Trigger asChild>
+              <button type="button" className="btn btn-sm">
+                {keysCollapsibleOpen ? "Collapse keys" : "Manage API keys"}
+              </button>
+            </Collapsible.Trigger>
           </div>
 
-          <form onSubmit={handleSaveKey} noValidate>
-            <div className="form-field">
-              <label className="form-label" htmlFor="vault-provider-select">
-                Speech-to-text provider
-              </label>
-              <select
-                id="vault-provider-select"
-                className="form-select"
-                value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value)}
-              >
-                {PROVIDERS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.badge})
-                  </option>
-                ))}
-              </select>
-            </div>
+          <Collapsible.Content style={{ marginTop: "24px" }}>
+            <div className="split-section">
+              <div>
+                <p className="section-prose" style={{ marginTop: 0 }}>
+                  Bring your own free-tier or paid API keys from Groq, Mistral, Gemini, Deepgram, OpenAI, and more. Keys are encrypted per user with AES-256-GCM; only masked hints appear here.
+                </p>
 
-            <div className="form-field">
-              <label className="form-label" htmlFor="vault-key-input">
-                API key
-              </label>
-              <input
-                id="vault-key-input"
-                type="password"
-                className="form-input form-input-mono"
-                placeholder={
-                  PROVIDERS.find((p) => p.id === selectedProvider)
-                    ?.keyPlaceholder || "Paste API key"
-                }
-                autoComplete="off"
-                spellCheck={false}
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-              />
-              {keyError ? (
-                <div className="field-error" role="alert">
-                  {keyError}
+                {keyEntries.length > 0 ? (
+                  <div className="data-table-wrap" style={{ marginTop: "18px" }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Provider</th>
+                          <th>Stored hint</th>
+                          <th style={{ textAlign: "right" }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {keyEntries.map(([provId, hint]) => (
+                          <tr key={provId}>
+                            <td style={{ fontWeight: 600 }}>{provId}</td>
+                            <td>
+                              <code>{hint}</code>
+                            </td>
+                            <td style={{ textAlign: "right" }}>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleRemoveKey(provId)}
+                                disabled={keyBusy}
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: "14px", color: "var(--ink-tertiary)" }}>
+                    {syncPrefs.syncApiKeys
+                      ? "No API keys stored in your cloud account yet."
+                      : "API key sync is turned off."}
+                  </p>
+                )}
+              </div>
+
+              <form onSubmit={handleSaveKey} noValidate>
+                <div className="form-field">
+                  <label className="form-label" htmlFor="vault-provider-select">
+                    Speech-to-text provider
+                  </label>
+                  <select
+                    id="vault-provider-select"
+                    className="form-select"
+                    value={selectedProvider}
+                    onChange={(e) => setSelectedProvider(e.target.value)}
+                  >
+                    {PROVIDERS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.badge})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : null}
-              {keyNotice ? (
-                <div
-                  style={{
-                    marginTop: "6px",
-                    fontSize: "13px",
-                    color: "var(--status-ok)",
-                  }}
-                  role="status"
+
+                <div className="form-field">
+                  <label className="form-label" htmlFor="vault-key-input">
+                    API key
+                  </label>
+                  <input
+                    id="vault-key-input"
+                    type="password"
+                    className="form-input form-input-mono"
+                    placeholder={
+                      PROVIDERS.find((p) => p.id === selectedProvider)
+                        ?.keyPlaceholder || "Paste API key"
+                    }
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                  />
+                  {keyError ? (
+                    <div className="field-error" role="alert">
+                      {keyError}
+                    </div>
+                  ) : null}
+                  {keyNotice ? (
+                    <div
+                      style={{
+                        marginTop: "6px",
+                        fontSize: "13px",
+                        color: "var(--status-ok)",
+                      }}
+                      role="status"
+                    >
+                      {keyNotice}
+                    </div>
+                  ) : null}
+                </div>
+
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={keyBusy || !syncPrefs.syncApiKeys}
                 >
-                  {keyNotice}
-                </div>
-              ) : null}
+                  {keyBusy ? "Encrypting and saving…" : "Encrypt and save key"}
+                </button>
+              </form>
             </div>
-
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={keyBusy || !syncPrefs.syncApiKeys}
-            >
-              {keyBusy ? "Encrypting and saving…" : "Encrypt and save key"}
-            </button>
-          </form>
-        </div>
+          </Collapsible.Content>
+        </Collapsible.Root>
       </section>
 
       {/* Synced Transcripts Table */}

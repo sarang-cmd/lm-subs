@@ -23,6 +23,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { serializeSubtitles } from "../src/lib/subtitles.js";
+import { resolveAvoidedVideoBytes } from "../src/lib/audio-extract.js";
 import {
   decryptApiKeyForUser,
   encryptApiKeyForUser,
@@ -1191,12 +1192,20 @@ export function createSyncApp({
         const spokenSecs = Number.isFinite(Number(sub.spokenSeconds))
           ? Math.round(Number(sub.spokenSeconds))
           : estimateSpokenSeconds(sub.cues);
-        const origBytes = Number.isFinite(Number(sub.originalBytes))
+        const rawOrigBytes = Number.isFinite(Number(sub.originalBytes))
           ? Number(sub.originalBytes)
-          : null;
-        const extBytes = Number.isFinite(Number(sub.extractedBytes))
+          : 0;
+        const rawExtBytes = Number.isFinite(Number(sub.extractedBytes))
           ? Number(sub.extractedBytes)
-          : null;
+          : 0;
+        const byteStats = resolveAvoidedVideoBytes({
+          originalBytes: rawOrigBytes,
+          extractedBytes: rawExtBytes,
+          durationSeconds: spokenSecs,
+          cues: sub.cues,
+        });
+        const origBytes = byteStats.originalBytes > 0 ? byteStats.originalBytes : null;
+        const extBytes = byteStats.extractedBytes > 0 ? byteStats.extractedBytes : null;
         const latMs = Number.isFinite(Number(sub.latencyMs))
           ? Math.round(Number(sub.latencyMs))
           : null;
@@ -1532,9 +1541,15 @@ export function createSyncApp({
       const cues = Array.isArray(r.cues_json) ? r.cues_json : [];
       const cueCount = Number(r.cue_count) || cues.length;
       const spokenSec = Number(r.spoken_seconds) || estimateSpokenSeconds(cues);
-      const origB = Math.max(0, Number(r.original_bytes) || 0);
-      const extB = Math.max(0, Number(r.extracted_bytes) || 0);
-      const savedB = origB > extB ? origB - extB : 0;
+      const byteStats = resolveAvoidedVideoBytes({
+        originalBytes: Number(r.original_bytes) || 0,
+        extractedBytes: Number(r.extracted_bytes) || 0,
+        durationSeconds: spokenSec,
+        cues,
+      });
+      const origB = byteStats.originalBytes;
+      const extB = byteStats.extractedBytes;
+      const savedB = byteStats.savedBytes;
       const lat = Number(r.latency_ms);
 
       totalCues += cueCount;
