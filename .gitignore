@@ -9,3 +9,5 @@ Unselected files/
 .env.local
 .env.*.local
 .data/
+.vercel
+docs/.vercel

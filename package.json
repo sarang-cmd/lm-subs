@@ -34,6 +34,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
+    "build:vercel": "node scripts/vercel-build.mjs",
     "start": "node serve-docs.mjs",
     "site": "node serve-docs.mjs",
     "db:migrate": "node scripts/migrate-db.mjs",

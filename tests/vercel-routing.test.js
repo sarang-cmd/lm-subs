@@ -72,6 +72,35 @@ test("Vercel serverless routing: /api/auth/oauth/google?next=%2Flibrary resolves
       normalized.url,
       "https://lm-subs.vercel.app/api/auth/oauth/google?next=%2Flibrary"
     );
+
+    // Mode C: Node.js (IncomingMessage, ServerResponse) launcher invocation
+    let capturedStatus = 0;
+    const capturedHeaders = {};
+    let ended = false;
+    await dispatch(
+      {
+        method: "GET",
+        url: "/api/index?next=%2Flibrary&__lms_path=auth%2Foauth%2Fgoogle",
+        headers: {
+          host: "lm-subs.vercel.app",
+          "x-forwarded-proto": "https",
+        },
+      },
+      {
+        set statusCode(code) {
+          capturedStatus = code;
+        },
+        setHeader(k, v) {
+          capturedHeaders[k.toLowerCase()] = v;
+        },
+        end() {
+          ended = true;
+        },
+      }
+    );
+    assert.equal(capturedStatus, 302);
+    assert.equal(ended, true);
+    assert.ok(String(capturedHeaders.location || "").startsWith("https://accounts.google.com/"));
   } finally {
     if (prevId === undefined) delete process.env.GOOGLE_CLIENT_ID;
     else process.env.GOOGLE_CLIENT_ID = prevId;
