@@ -121,7 +121,7 @@ Save the output string for Vercel as `LM_SUBS_ENCRYPTION_SECRET`. *(Keep this se
 
 ### Step 3: Create your Sign-In Provider Credentials
 
-Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for example `https://notebooklm-subtitles.vercel.app` or your custom domain).
+Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for example `https://lm-subs.vercel.app`).
 
 #### 3A. Google Sign-In (`GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`)
 1. Open [Google Cloud Console -> Credentials](https://console.cloud.google.com/apis/credentials) (create a new project named `LM Subs` if you do not have one).
@@ -175,7 +175,7 @@ Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for ex
 | `AUTH_EMAIL_FROM` | For Email OTP | e.g. `LM Subs <login@yourdomain.com>` |
 
 3. Go to **Deployments** in Vercel and click **Redeploy** on the latest deployment so the new environment variables take effect.
-4. *(If your production URL differs from `https://notebooklm-subtitles.vercel.app`)* Update `DEFAULT_HOSTED_APP_URL` in `src/config/defaults.js` and run `npm run zip` before publishing the Chrome extension so the extension automatically points at your domain.
+4. *(If your production URL differs from `https://lm-subs.vercel.app`)* Update `HOSTED_CLOUD_URL` in `src/config/selectors.js` and run `npm run zip` before publishing the Chrome extension so the extension automatically points at your domain.
 
 ---
 

@@ -50,7 +50,8 @@
     "https://api.elevenlabs.io/*",
     "https://router.huggingface.co/*",
     "https://openrouter.ai/*",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://lm-subs.vercel.app/*"
   ],
   "optional_host_permissions": [
     "http://localhost/*",

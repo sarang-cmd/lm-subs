@@ -148,7 +148,7 @@ export function AboutView({ onNavigate }) {
 
         <figure className="product-figure">
           <img
-            src="/assets/architecture.svg?v=3"
+            src="/assets/architecture.svg?v=4"
             alt="Four-plane architecture diagram of LM Subs showing Page Main World, Isolated Content Script, Service Worker, and Hosted Neon Postgres Cloud"
             width="1120"
             height="460"

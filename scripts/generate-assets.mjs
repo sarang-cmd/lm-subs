@@ -47,15 +47,20 @@ function writeText(outPath, content) {
   fs.writeFileSync(outPath, content, "utf8");
 }
 
-// 1. Fresh LM Subs Optical Screening-Aperture Brand Mark + Favicons + Extension Icons
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+// 1. Brand-New LM Subs Logo Mark (Perspective Folded Notebook Page + 3 Acoustic Wave Bars + Cobalt Caption Bracket)
+const LOGO_INNER_SHAPES = `
   <rect width="128" height="128" rx="28" fill="#111315"/>
-  <rect x="2" y="2" width="124" height="124" rx="26" stroke="#262B35" stroke-width="2"/>
-  <rect x="18" y="22" width="92" height="84" rx="14" fill="#181C22" stroke="#363D4A" stroke-width="2"/>
-  <path d="M52 39.5C52 37.9 53.75 36.92 55.12 37.75L77.4 51.25C78.72 52.05 78.72 53.95 77.4 54.75L55.12 68.25C53.75 69.08 52 68.1 52 66.5V39.5Z" fill="#F6F7F8"/>
-  <rect x="28" y="82" width="44" height="10" rx="5" fill="#3B82F6"/>
-  <rect x="78" y="82" width="22" height="10" rx="5" fill="#F6F7F8"/>
-</svg>
+  <!-- Perspective folded notebook page with bottom fold cutout -->
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M45.8 21.5C48.2 20.4 51 22.2 51 24.9V103.5C51 106.5 47.5 108.2 45.1 106.4L22.6 89.2C20.1 87.3 18.6 84.3 18.6 81.1V41.6C18.6 37.3 21.1 33.4 25 31.6L45.8 21.5ZM24.5 81.8L42.6 95.6C43.7 96.4 45.2 95.6 45.2 94.3V83.1C45.2 81.7 44 80.5 42.6 80.5H25.1C23.8 80.5 23.4 81 24.5 81.8Z" fill="#F6F7F8"/>
+  <!-- Three vertical acoustic soundwave bars -->
+  <rect x="56.5" y="49.5" width="8" height="29" rx="4" fill="#F6F7F8"/>
+  <rect x="68.5" y="37" width="8.5" height="54" rx="4.25" fill="#F6F7F8"/>
+  <rect x="81" y="49.5" width="8" height="29" rx="4" fill="#F6F7F8"/>
+  <!-- Bold Optical Cobalt right caption bracket -->
+  <path d="M84.5 27H98.5C104.851 27 110 32.1487 110 38.5V89.5C110 95.8513 104.851 101 98.5 101H84.5C81.7386 101 79.5 98.7614 79.5 96C79.5 93.2386 81.7386 91 84.5 91H97C98.3807 91 99.5 89.8807 99.5 88.5V39.5C99.5 38.1193 98.3807 37 97 37H84.5C81.7386 37 79.5 34.7614 79.5 32C79.5 29.2386 81.7386 27 84.5 27Z" fill="#1D5CF6"/>
+`;
+
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">${LOGO_INNER_SHAPES}</svg>
 `;
 
 writeText("docs/assets/logo.svg", LOGO_SVG);
@@ -63,6 +68,7 @@ writeText("docs/favicon.svg", LOGO_SVG);
 renderSvgToPng(LOGO_SVG, "docs/favicon.png", 32);
 renderSvgToPng(LOGO_SVG, "docs/apple-touch-icon.png", 180);
 renderSvgToPng(LOGO_SVG, "docs/assets/icon-128.png", 128);
+renderSvgToPng(LOGO_SVG, "docs/assets/icon-512.png", 512);
 
 // Also write a standards-compliant multi-browser /favicon.ico wrapping the 32x32 PNG
 {
@@ -89,14 +95,7 @@ for (const size of [16, 32, 48, 128]) {
 // Helper: inline brand mark group scaled cleanly inside larger SVG illustrations
 function inlineLogoGroup(x, y, size) {
   const scale = (size / 128).toFixed(4);
-  return `<g transform="translate(${x}, ${y}) scale(${scale})">
-    <rect width="128" height="128" rx="28" fill="#111315"/>
-    <rect x="2" y="2" width="124" height="124" rx="26" stroke="#262B35" stroke-width="2"/>
-    <rect x="18" y="22" width="92" height="84" rx="14" fill="#181C22" stroke="#363D4A" stroke-width="2"/>
-    <path d="M52 39.5C52 37.9 53.75 36.92 55.12 37.75L77.4 51.25C78.72 52.05 78.72 53.95 77.4 54.75L55.12 68.25C53.75 69.08 52 68.1 52 66.5V39.5Z" fill="#F6F7F8"/>
-    <rect x="28" y="82" width="44" height="10" rx="5" fill="#3B82F6"/>
-    <rect x="78" y="82" width="22" height="10" rx="5" fill="#F6F7F8"/>
-  </g>`;
+  return `<g transform="translate(${x}, ${y}) scale(${scale})">${LOGO_INNER_SHAPES}</g>`;
 }
 
 // 2. Clean Specification Badges for README (Graphite + Cobalt / Forest, 4px radius)

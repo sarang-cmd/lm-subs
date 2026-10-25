@@ -2,7 +2,7 @@
   // src/config/selectors.js
   var MESSAGE_NAMESPACE = "NOTEBOOKLM_SUBTITLES_";
   var KEEPALIVE_PORT_NAME = "NOTEBOOKLM_SUBTITLES_KEEPALIVE";
-  var HOSTED_CLOUD_URL = "https://notebooklm-subtitles.vercel.app";
+  var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
   var NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
