@@ -22,8 +22,10 @@ import {
   getSavedKeyPresenceMap,
   getSettings,
   getSubtitleCacheList,
+  getUpdateStatus,
   normalizeSyncServerUrl,
   saveSettings,
+  saveUpdateStatus,
   setApiKey,
 } from "../lib/storage.js";
 import {
@@ -33,6 +35,11 @@ import {
   searchCues,
   serializeSubtitles,
 } from "../lib/subtitles.js";
+import {
+  inspectLinkedDirPermission,
+  loadLinkedExtensionDirHandle,
+  saveLinkedExtensionDirHandle,
+} from "../lib/unpacked-updater.js";
 import { createBrandMarkSvg } from "../ui/brand-icon.js";
 
 function sendRuntime(msg) {
@@ -111,8 +118,10 @@ async function initOptions() {
   const saveBehaviorBtn = document.getElementById("save-behavior-btn");
   const savedPill = document.getElementById("settings-saved-pill");
 
-  // Notifications & Desktop Alerts elements
+  // Notifications, Auto-Updates & Desktop Alerts elements
   const optNotifUnreadBadge = document.getElementById("opt-notif-unread-badge");
+  const optAutoUpdate = document.getElementById("opt-auto-update");
+  const optAutoBgSync = document.getElementById("opt-auto-bg-sync");
   const optDesktopNotifications = document.getElementById("opt-desktop-notifications");
   const optBadgeAlerts = document.getElementById("opt-badge-alerts");
   const optSoundAlerts = document.getElementById("opt-sound-alerts");
@@ -122,6 +131,14 @@ async function initOptions() {
   const optMarkNotifReadBtn = document.getElementById("opt-mark-notif-read-btn");
   const optClearNotifBtn = document.getElementById("opt-clear-notif-btn");
   const optNotifList = document.getElementById("opt-notif-list");
+
+  const optUpdateCard = document.getElementById("opt-update-card");
+  const optUpdateBadge = document.getElementById("opt-update-badge");
+  const optUpdateSummary = document.getElementById("opt-update-summary");
+  const optCheckUpdatesBtn = document.getElementById("opt-check-updates-btn");
+  const optLinkFolderBtn = document.getElementById("opt-link-folder-btn");
+  const optApplyUpdateBtn = document.getElementById("opt-apply-update-btn");
+  const optUpdateFeedback = document.getElementById("opt-update-feedback");
 
   // Account & Cloud Sync elements
   const optSyncBadge = document.getElementById("opt-sync-badge");
@@ -182,13 +199,15 @@ async function initOptions() {
   let cacheFilterQuery = "";
   let editingCacheKey = null;
 
-  let [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
-    getSettings(),
-    getSavedKeyPresenceMap(),
-    getSubtitleCacheList(),
-    getCloudSyncProfile(),
-    getNotifications(),
-  ]);
+  let [settings, presenceMap, cacheList, syncProfile, notifications, updateStatus] =
+    await Promise.all([
+      getSettings(),
+      getSavedKeyPresenceMap(),
+      getSubtitleCacheList(),
+      getCloudSyncProfile(),
+      getNotifications(),
+      getUpdateStatus(),
+    ]);
 
   // Collapsible provider rows: start compact (all collapsed) if any key exists;
   // expand only the first provider if zero keys exist yet.
@@ -325,17 +344,20 @@ async function initOptions() {
   }
 
   async function reloadAllLocalState() {
-    [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
-      getSettings(),
-      getSavedKeyPresenceMap(),
-      getSubtitleCacheList(),
-      getCloudSyncProfile(),
-      getNotifications(),
-    ]);
+    [settings, presenceMap, cacheList, syncProfile, notifications, updateStatus] =
+      await Promise.all([
+        getSettings(),
+        getSavedKeyPresenceMap(),
+        getSubtitleCacheList(),
+        getCloudSyncProfile(),
+        getNotifications(),
+        getUpdateStatus(),
+      ]);
     populateForm();
     renderSyncPanel();
     renderProviderQueue();
     renderNotificationsPanel();
+    await renderUpdatePanel();
     renderCacheTable();
     await renderStatisticsPanel();
   }
@@ -358,6 +380,8 @@ async function initOptions() {
     optAutoGenerate.checked = settings.autoOnGenerate;
     optAutoExisting.checked = settings.autoOnExistingVideos;
     optShowToast.checked = settings.showToast;
+    if (optAutoUpdate) optAutoUpdate.checked = Boolean(settings.autoUpdateExtension);
+    if (optAutoBgSync) optAutoBgSync.checked = Boolean(settings.autoBackgroundSync);
     if (optDesktopNotifications) {
       optDesktopNotifications.checked = Boolean(settings.desktopNotifications);
     }
@@ -375,6 +399,48 @@ async function initOptions() {
     optExcludePatterns.value = (settings.excludePatterns || []).join("\n");
     rpcCreateInput.value = settings.rpcOverrides?.CREATE_STUDIO || "";
     rpcPollInput.value = settings.rpcOverrides?.POLL_STUDIO || "";
+  }
+
+  async function renderUpdatePanel() {
+    if (!optUpdateCard) return;
+    const dirHandle = await loadLinkedExtensionDirHandle();
+    const dirInfo = await inspectLinkedDirPermission(dirHandle);
+    const curVer =
+      chrome.runtime?.getManifest?.()?.version ||
+      updateStatus?.currentVersion ||
+      "0.2.2";
+
+    const avail = Boolean(updateStatus?.updateAvailable);
+    optUpdateCard.dataset.available = avail ? "true" : "false";
+
+    if (optUpdateBadge) {
+      optUpdateBadge.textContent = avail
+        ? `Update v${updateStatus.latestVersion}`
+        : `v${curVer} current`;
+      optUpdateBadge.className = avail ? "badge badge-saved" : "badge";
+    }
+    if (optLinkFolderBtn) {
+      optLinkFolderBtn.textContent = dirInfo.linked
+        ? `Linked folder: ${dirInfo.folderName}`
+        : "Link unpacked folder";
+    }
+    if (optApplyUpdateBtn) {
+      optApplyUpdateBtn.style.display = avail ? "inline-flex" : "none";
+      optApplyUpdateBtn.textContent = dirInfo.linked
+        ? "Update and reload"
+        : "Link folder and update";
+    }
+    if (optUpdateSummary) {
+      if (avail) {
+        optUpdateSummary.textContent = dirInfo.linked
+          ? `LM Subs v${updateStatus.latestVersion} is ready to write into ${dirInfo.folderName} and reload.`
+          : `LM Subs v${updateStatus.latestVersion} is available. Link your unzipped lm-subs folder to update in place.`;
+      } else {
+        optUpdateSummary.textContent = dirInfo.linked
+          ? `Installed v${curVer}. Linked to ${dirInfo.folderName} for automatic in-place updates.`
+          : `Installed v${curVer}. Link your unzipped lm-subs folder once so updates write directly without manual zip extraction.`;
+      }
+    }
   }
 
   function renderNotificationsPanel() {
@@ -1090,8 +1156,14 @@ async function initOptions() {
   renderSyncPanel();
   renderProviderQueue();
   renderNotificationsPanel();
+  renderUpdatePanel();
   renderCacheTable();
   renderStatisticsPanel();
+
+  sendRuntime({
+    type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+    includeUpdateCheck: true,
+  }).catch(() => {});
 
   cacheSearchInput?.addEventListener("input", () => {
     cacheFilterQuery = cacheSearchInput.value || "";
@@ -1100,6 +1172,12 @@ async function initOptions() {
 
   async function saveNotificationToggles() {
     settings = await saveSettings({
+      autoUpdateExtension: optAutoUpdate
+        ? Boolean(optAutoUpdate.checked)
+        : settings.autoUpdateExtension,
+      autoBackgroundSync: optAutoBgSync
+        ? Boolean(optAutoBgSync.checked)
+        : settings.autoBackgroundSync,
       desktopNotifications: Boolean(optDesktopNotifications?.checked),
       badgeAlerts: Boolean(optBadgeAlerts?.checked),
       soundAlerts: Boolean(optSoundAlerts?.checked),
@@ -1110,29 +1188,97 @@ async function initOptions() {
     await sendRuntime({ type: RUNTIME_MESSAGE.GET_NOTIFICATIONS });
   }
 
-  optDesktopNotifications?.addEventListener("change", async () => {
-    if (optDesktopNotifications.checked && chrome.permissions?.request) {
-      try {
-        await chrome.permissions.request({ permissions: ["notifications"] });
-      } catch {
-        // Ignore
-      }
-    }
-    await saveNotificationToggles();
-  });
+  optAutoUpdate?.addEventListener("change", saveNotificationToggles);
+  optAutoBgSync?.addEventListener("change", saveNotificationToggles);
+  optDesktopNotifications?.addEventListener("change", saveNotificationToggles);
   optBadgeAlerts?.addEventListener("change", saveNotificationToggles);
   optSoundAlerts?.addEventListener("change", saveNotificationToggles);
   optNotifyFailover?.addEventListener("change", saveNotificationToggles);
   optNotifySync?.addEventListener("change", saveNotificationToggles);
 
-  optTestNotifBtn?.addEventListener("click", async () => {
-    if (chrome.permissions?.request) {
-      try {
-        await chrome.permissions.request({ permissions: ["notifications"] });
-      } catch {
-        // Ignore
+  optCheckUpdatesBtn?.addEventListener("click", async () => {
+    optCheckUpdatesBtn.disabled = true;
+    optCheckUpdatesBtn.textContent = "Checking…";
+    const res = await sendRuntime({ type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES });
+    optCheckUpdatesBtn.disabled = false;
+    optCheckUpdatesBtn.textContent = "Check for updates";
+    updateStatus = res?.status || (await getUpdateStatus());
+    notifications = await getNotifications();
+    renderNotificationsPanel();
+    await renderUpdatePanel();
+    if (optUpdateFeedback) {
+      optUpdateFeedback.dataset.kind = res?.ok ? "ok" : "err";
+      optUpdateFeedback.textContent = res?.ok
+        ? res.autoApplied
+          ? "Updated automatically and reloading…"
+          : res.updateAvailable
+            ? `New version v${updateStatus.latestVersion} is ready.`
+            : "You are running the latest build."
+        : res?.error || "Could not check for updates.";
+    }
+  });
+
+  async function pickAndSaveExtensionFolder() {
+    if (typeof window.showDirectoryPicker !== "function") {
+      throw new Error("Folder linking requires Chrome, Brave, Edge, or Arc.");
+    }
+    const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    await dirHandle.requestPermission?.({ mode: "readwrite" });
+    await saveLinkedExtensionDirHandle(dirHandle);
+    updateStatus = await saveUpdateStatus({
+      linkedFolderName: dirHandle.name || "lm-subs",
+    });
+    await renderUpdatePanel();
+    return dirHandle;
+  }
+
+  optLinkFolderBtn?.addEventListener("click", async () => {
+    try {
+      const dirHandle = await pickAndSaveExtensionFolder();
+      if (optUpdateFeedback) {
+        optUpdateFeedback.dataset.kind = "ok";
+        optUpdateFeedback.textContent = `Linked ${dirHandle.name || "lm-subs"} for automatic updates.`;
+      }
+    } catch (err) {
+      if (optUpdateFeedback && err?.name !== "AbortError") {
+        optUpdateFeedback.dataset.kind = "err";
+        optUpdateFeedback.textContent = err?.message || "Folder linking canceled.";
       }
     }
+  });
+
+  optApplyUpdateBtn?.addEventListener("click", async () => {
+    optApplyUpdateBtn.disabled = true;
+    try {
+      let dirHandle = await loadLinkedExtensionDirHandle();
+      if (!dirHandle) {
+        dirHandle = await pickAndSaveExtensionFolder();
+      } else {
+        await dirHandle.requestPermission?.({ mode: "readwrite" });
+      }
+      optApplyUpdateBtn.textContent = "Updating…";
+      const res = await sendRuntime({
+        type: RUNTIME_MESSAGE.APPLY_UNPACKED_UPDATE,
+      });
+      if (!res?.ok && optUpdateFeedback) {
+        optUpdateFeedback.dataset.kind = "err";
+        optUpdateFeedback.textContent =
+          res?.error || "Could not write update files.";
+      }
+    } catch (err) {
+      if (optUpdateFeedback && err?.name !== "AbortError") {
+        optUpdateFeedback.dataset.kind = "err";
+        optUpdateFeedback.textContent =
+          err?.message || "Update canceled.";
+      }
+    } finally {
+      optApplyUpdateBtn.disabled = false;
+      updateStatus = await getUpdateStatus();
+      await renderUpdatePanel();
+    }
+  });
+
+  optTestNotifBtn?.addEventListener("click", async () => {
     if (optDesktopNotifications) optDesktopNotifications.checked = true;
     settings = await saveSettings({ desktopNotifications: true });
     await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
@@ -1528,6 +1674,10 @@ async function initOptions() {
       if (changes.notifications) {
         notifications = await getNotifications();
         renderNotificationsPanel();
+      }
+      if (changes.updateStatus) {
+        updateStatus = await getUpdateStatus();
+        await renderUpdatePanel();
       }
       if (changes.subtitleCache) {
         cacheList = await getSubtitleCacheList();

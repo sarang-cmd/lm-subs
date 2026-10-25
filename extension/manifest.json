@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "LM Subs",
   "short_name": "LM Subs",
-  "version": "0.2.1",
-  "description": "Sub-5s synchronized captions, .SRT/.VTT/.TXT/.JSON export & encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
+  "version": "0.2.2",
+  "description": "Sub-5s synchronized captions, .SRT/.VTT/.TXT/.MD/.JSON export & encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -28,8 +28,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage"],
-  "optional_permissions": ["notifications"],
+  "permissions": ["storage", "notifications", "alarms"],
   "host_permissions": [
     "https://notebooklm.google.com/*",
     "https://notebook.google.com/*",

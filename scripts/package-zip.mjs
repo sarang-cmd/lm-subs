@@ -6,6 +6,7 @@
  * using Node's built-in `node:zlib` (`deflateRawSync`) with zero external CLI deps.
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -114,9 +115,29 @@ function createZipBuffer(files) {
 }
 
 const manifest = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8"));
-const version = manifest.version || "0.2.1";
+const version = manifest.version || "0.2.2";
+
+// Compute deterministic content buildId over all extension files (excluding build-meta.json)
+const sourceFilesForHash = collectFiles("extension", "").filter(
+  (f) => f.rel !== "build-meta.json"
+);
+const buildHasher = crypto.createHash("sha256");
+for (const file of sourceFilesForHash) {
+  buildHasher.update(file.rel);
+  buildHasher.update("\0");
+  buildHasher.update(fs.readFileSync(file.abs));
+  buildHasher.update("\0");
+}
+const buildId = buildHasher.digest("hex").slice(0, 12);
+
+fs.writeFileSync(
+  path.join("extension", "build-meta.json"),
+  `${JSON.stringify({ version, buildId }, null, 2)}\n`
+);
+
 const files = collectFiles("extension", "lm-subs");
 const zipBuf = createZipBuffer(files);
+const zipSha256 = crypto.createHash("sha256").update(zipBuf).digest("hex");
 
 fs.mkdirSync("docs/releases", { recursive: true });
 for (const existing of fs.readdirSync("docs/releases")) {
@@ -125,7 +146,25 @@ for (const existing of fs.readdirSync("docs/releases")) {
   }
 }
 const outFile = `docs/releases/lm-subs-v${version}.zip`;
+const latestZipFile = "docs/releases/lm-subs-latest.zip";
 fs.writeFileSync(outFile, zipBuf);
+fs.writeFileSync(latestZipFile, zipBuf);
+
+const latestManifest = {
+  version,
+  buildId,
+  zipUrl: "/releases/lm-subs-latest.zip",
+  versionedZipUrl: `/releases/lm-subs-v${version}.zip`,
+  zipSha256,
+  fileCount: files.length,
+};
+fs.writeFileSync(
+  "docs/releases/latest.json",
+  `${JSON.stringify(latestManifest, null, 2)}\n`
+);
+
 console.log(
-  `Packaged ${files.length} files -> ${outFile} (${(zipBuf.length / 1024).toFixed(1)} KB)`
+  `Packaged ${files.length} files (build ${buildId}) -> ${outFile} & ${latestZipFile} (${(
+    zipBuf.length / 1024
+  ).toFixed(1)} KB)`
 );

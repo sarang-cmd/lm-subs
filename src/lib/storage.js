@@ -19,6 +19,7 @@ export const STORAGE_KEYS = Object.freeze({
   LAST_STATUS: "lastStatus",
   DEBUG_LOGS: "debugLogs",
   NOTIFICATIONS: "notifications",
+  UPDATE_STATUS: "updateStatus",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret",
 });
@@ -49,6 +50,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   badgeAlerts: true,
   notifyOnFailover: true,
   notifyOnSync: true,
+  autoUpdateExtension: true,
+  autoBackgroundSync: true,
   excludePatterns: [],
   rpcOverrides: {},
 });
@@ -179,6 +182,14 @@ export async function getSettings(storageArea) {
       typeof saved.notifyOnSync === "boolean"
         ? saved.notifyOnSync
         : DEFAULT_SETTINGS.notifyOnSync,
+    autoUpdateExtension:
+      typeof saved.autoUpdateExtension === "boolean"
+        ? saved.autoUpdateExtension
+        : DEFAULT_SETTINGS.autoUpdateExtension,
+    autoBackgroundSync:
+      typeof saved.autoBackgroundSync === "boolean"
+        ? saved.autoBackgroundSync
+        : DEFAULT_SETTINGS.autoBackgroundSync,
     excludePatterns: Array.isArray(saved.excludePatterns)
       ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean)
       : [],
@@ -602,7 +613,9 @@ export async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
  * Merges subtitle transcripts pulled from Neon Lakebase Postgres into local cache & history.
  */
 export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
-  if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) return;
+  if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) {
+    return { addedEntries: [], updatedEntries: [] };
+  }
   const store = resolveStorage(storageArea);
   const [localCache, localHistory] = await Promise.all([
     getSubtitleCacheList(store),
@@ -614,13 +627,16 @@ export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) 
     if (item?.cacheKey) byKey.set(item.cacheKey, item);
   }
 
+  const addedEntries = [];
+  const updatedEntries = [];
+
   for (const sub of cloudSubtitles) {
     if (!sub?.cacheKey || !Array.isArray(sub.cues) || sub.cues.length === 0) continue;
     const prev = byKey.get(sub.cacheKey);
     const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
     const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
     if (!prev || (incomingTime && prevTime && incomingTime > prevTime)) {
-      byKey.set(sub.cacheKey, {
+      const mergedEntry = {
         cacheKey: sub.cacheKey,
         artifactId: sub.artifactId || prev?.artifactId || null,
         notebookId: sub.notebookId || prev?.notebookId || null,
@@ -637,7 +653,10 @@ export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) 
         latencyMs: sub.latencyMs || prev?.latencyMs || null,
         cues: sub.cues,
         createdAt: sub.savedAt || new Date().toISOString(),
-      });
+      };
+      byKey.set(sub.cacheKey, mergedEntry);
+      if (!prev) addedEntries.push(mergedEntry);
+      else updatedEntries.push(mergedEntry);
     }
   }
 
@@ -671,6 +690,7 @@ export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) 
     [STORAGE_KEYS.SUBTITLE_CACHE]: nextCache,
     [STORAGE_KEYS.HISTORY]: nextHistory,
   });
+  return { addedEntries, updatedEntries };
 }
 
 export async function getDebugLogs(storageArea) {
@@ -755,5 +775,66 @@ export async function clearNotifications(storageArea) {
   const store = resolveStorage(storageArea);
   await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: [] });
   return [];
+}
+
+/**
+ * Extension auto-update status (`chrome.storage.local.updateStatus`).
+ */
+export async function getUpdateStatus(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.UPDATE_STATUS);
+    const saved = raw?.[STORAGE_KEYS.UPDATE_STATUS];
+    if (!saved || typeof saved !== "object") {
+      return {
+        updateAvailable: false,
+        currentVersion: "0.2.2",
+        currentBuildId: "",
+        latestVersion: "0.2.2",
+        latestBuildId: "",
+        zipUrl: "/releases/lm-subs-latest.zip",
+        zipSha256: "",
+        notifiedReleaseKey: "",
+        checkedAt: null,
+        autoAppliedAt: null,
+        linkedFolderName: "",
+      };
+    }
+    return {
+      updateAvailable: Boolean(saved.updateAvailable),
+      currentVersion: String(saved.currentVersion || "0.2.2"),
+      currentBuildId: String(saved.currentBuildId || ""),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+      latestBuildId: String(saved.latestBuildId || ""),
+      zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
+      zipSha256: String(saved.zipSha256 || ""),
+      notifiedReleaseKey: String(saved.notifiedReleaseKey || ""),
+      checkedAt: saved.checkedAt || null,
+      autoAppliedAt: saved.autoAppliedAt || null,
+      linkedFolderName: String(saved.linkedFolderName || ""),
+    };
+  } catch {
+    return {
+      updateAvailable: false,
+      currentVersion: "0.2.2",
+      currentBuildId: "",
+      latestVersion: "0.2.2",
+      latestBuildId: "",
+      zipUrl: "/releases/lm-subs-latest.zip",
+      zipSha256: "",
+      notifiedReleaseKey: "",
+      checkedAt: null,
+      autoAppliedAt: null,
+      linkedFolderName: "",
+    };
+  }
+}
+
+export async function saveUpdateStatus(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getUpdateStatus(store);
+  const next = { ...current, ...(partial || {}) };
+  await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+  return next;
 }
 

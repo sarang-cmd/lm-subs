@@ -3,6 +3,10 @@
   var MESSAGE_NAMESPACE = "LM_SUBS_";
   var KEEPALIVE_PORT_NAME = "LM_SUBS_KEEPALIVE";
   var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
+  var ALARM_NAMES = Object.freeze({
+    UPDATE_CHECK: "lmsubs-update-check",
+    CLOUD_SYNC: "lmsubs-cloud-sync"
+  });
   var NOTEBOOK_URL_ID_REGEX = /\/notebook\/([A-Za-z0-9_-]{8,})/;
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
@@ -137,7 +141,12 @@
     MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
     CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
     TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
-    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
+    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES",
+    CHECK_FOR_UPDATES: "LM_SUBS_CHECK_FOR_UPDATES",
+    GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
+    APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
+    SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
+    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
   });
 
   // src/lib/audio-extract.js
@@ -670,6 +679,7 @@
     LAST_STATUS: "lastStatus",
     DEBUG_LOGS: "debugLogs",
     NOTIFICATIONS: "notifications",
+    UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
@@ -696,6 +706,8 @@
     badgeAlerts: true,
     notifyOnFailover: true,
     notifyOnSync: true,
+    autoUpdateExtension: true,
+    autoBackgroundSync: true,
     excludePatterns: [],
     rpcOverrides: {}
   });
@@ -772,6 +784,8 @@
       badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
       notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
       notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
+      autoUpdateExtension: typeof saved.autoUpdateExtension === "boolean" ? saved.autoUpdateExtension : DEFAULT_SETTINGS.autoUpdateExtension,
+      autoBackgroundSync: typeof saved.autoBackgroundSync === "boolean" ? saved.autoBackgroundSync : DEFAULT_SETTINGS.autoBackgroundSync,
       excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
       rpcOverrides
     };
@@ -3912,9 +3926,44 @@ ${blocks.join("\n\n")}
         active.controller.toggleShortcutsHelp();
       }
     });
+    let lastBgTickMs = 0;
+    doc.addEventListener?.("visibilitychange", () => {
+      if (doc.hidden) return;
+      const now = Date.now();
+      if (now - lastBgTickMs < 45e3) return;
+      lastBgTickMs = now;
+      sendRuntimeMessage({ type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK }).catch(
+        () => {
+        }
+      );
+    });
     runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
       if (!msg || typeof msg.type !== "string") return false;
       if (!msg.type.startsWith(MESSAGE_NAMESPACE)) return false;
+      if (msg.type === RUNTIME_MESSAGE.SUBTITLES_UPDATED && Array.isArray(msg.entries)) {
+        for (const updated of msg.entries) {
+          if (!updated?.cues?.length) continue;
+          for (const [, vEntry] of boundVideos.entries()) {
+            if (updated.cacheKey && vEntry.activeCacheKey === updated.cacheKey || updated.artifactId && vEntry.artifactId === updated.artifactId || updated.mediaToken && vEntry.mediaToken === updated.mediaToken) {
+              vEntry.controller.setCues(updated.cues, {
+                title: updated.title || vEntry.controller.title || "Video Overview",
+                language: updated.language || "en"
+              });
+              showToast(
+                `Captions updated (${updated.cues.length} cues)`,
+                updated.title || "Synced automatically",
+                "success",
+                3800,
+                {
+                  actionLabel: "Transcript",
+                  onAction: () => vEntry.controller.toggleTranscriptDrawer(true)
+                }
+              );
+            }
+          }
+        }
+        return false;
+      }
       if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY) {
         playCompletionChime();
         fireTabDesktopNotification(

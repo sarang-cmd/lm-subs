@@ -21,11 +21,23 @@ const OUT_DIR = path.join(CWD, ".vercel", "output");
 const STATIC_OUT = path.join(OUT_DIR, "static");
 const FUNC_OUT = path.join(OUT_DIR, "functions", "api", "index.func");
 
-// 1. Run standard extension + web bundle build at repository root
+// 1. Run standard extension + web bundle build AND release zip/manifest packager at repository root
 execFileSync(process.execPath, [path.join(REPO_ROOT, "build.mjs")], {
   cwd: REPO_ROOT,
   stdio: "inherit",
 });
+execFileSync(
+  process.execPath,
+  [path.join(REPO_ROOT, "scripts", "package-zip.mjs")],
+  {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+  }
+);
+
+const latestMetaJson = fs.existsSync(path.join(DOCS_DIR, "releases", "latest.json"))
+  ? fs.readFileSync(path.join(DOCS_DIR, "releases", "latest.json"), "utf8")
+  : "";
 
 // 2. Clean any previous .vercel/output directory
 fs.rmSync(OUT_DIR, { recursive: true, force: true });
@@ -70,6 +82,9 @@ await build({
   sourcemap: false,
   legalComments: "none",
   external: ["@electric-sql/pglite", "pg-native"],
+  define: {
+    "process.env.LMSUBS_RELEASE_META_JSON": JSON.stringify(latestMetaJson),
+  },
   banner: {
     js: "import { createRequire as __lmsCreateRequire } from 'node:module'; const require = __lmsCreateRequire(import.meta.url);",
   },

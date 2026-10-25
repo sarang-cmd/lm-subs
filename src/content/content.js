@@ -1321,10 +1321,50 @@ export async function initContentCoordinator({
     }
   });
 
+  let lastBgTickMs = 0;
+  doc.addEventListener?.("visibilitychange", () => {
+    if (doc.hidden) return;
+    const now = Date.now();
+    if (now - lastBgTickMs < 45000) return;
+    lastBgTickMs = now;
+    sendRuntimeMessage({ type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK }).catch(
+      () => {}
+    );
+  });
+
   // 4. Listen for Popup / Options / Service Worker runtime messages (`msg.type`)
   runtime.onMessage?.addListener((msg, _sender, sendResponse) => {
     if (!msg || typeof msg.type !== "string") return false;
     if (!msg.type.startsWith(MESSAGE_NAMESPACE)) return false;
+
+    if (msg.type === RUNTIME_MESSAGE.SUBTITLES_UPDATED && Array.isArray(msg.entries)) {
+      for (const updated of msg.entries) {
+        if (!updated?.cues?.length) continue;
+        for (const [, vEntry] of boundVideos.entries()) {
+          if (
+            (updated.cacheKey && vEntry.activeCacheKey === updated.cacheKey) ||
+            (updated.artifactId && vEntry.artifactId === updated.artifactId) ||
+            (updated.mediaToken && vEntry.mediaToken === updated.mediaToken)
+          ) {
+            vEntry.controller.setCues(updated.cues, {
+              title: updated.title || vEntry.controller.title || "Video Overview",
+              language: updated.language || "en",
+            });
+            showToast(
+              `Captions updated (${updated.cues.length} cues)`,
+              updated.title || "Synced automatically",
+              "success",
+              3800,
+              {
+                actionLabel: "Transcript",
+                onAction: () => vEntry.controller.toggleTranscriptDrawer(true),
+              }
+            );
+          }
+        }
+      }
+      return false;
+    }
 
     if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY) {
       playCompletionChime();

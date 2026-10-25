@@ -266,21 +266,21 @@
         </div>
       </section>
 
-      <!-- Notifications, Desktop Alerts & Toolbar Badge -->
+      <!-- Notifications, Auto-Updates & Toolbar Badge -->
       <section id="notifications-section" class="ext-section">
         <div class="ext-split">
           <div>
             <div class="row" style="margin-bottom: 8px">
               <img src="icons/icon48.png" alt="" width="22" height="22" class="notif-inline-logo" />
-              <h2 class="section-heading" style="margin: 0">Notifications and alerts</h2>
+              <h2 class="section-heading" style="margin: 0">Notifications and auto-updates</h2>
               <span id="opt-notif-unread-badge" class="badge">0 unread</span>
             </div>
             <p class="section-prose">
-              Control desktop OS alerts when background NotebookLM tabs finish captioning, toolbar badge counters, optional audio chimes, and your recent activity feed.
+              Automatic background update checks, in-place unpacked folder updates, cloud notification sync, OS desktop alerts, and your recent activity feed.
             </p>
-            <div class="row" style="margin-top: 12px">
+            <div class="row" style="margin-top: 12px; flex-wrap: wrap">
               <button id="opt-test-notif-btn" type="button" class="btn btn-sm btn-primary">
-                Enable and test desktop alert
+                Send test desktop alert
               </button>
               <button id="opt-mark-notif-read-btn" type="button" class="btn btn-sm">
                 Mark all read
@@ -292,11 +292,55 @@
           </div>
 
           <div class="sheet">
+            <div id="opt-update-card" class="update-card" data-available="false">
+              <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px">
+                <div style="font-size: 13px; font-weight: 600" id="opt-update-heading">
+                  Extension updates
+                </div>
+                <span id="opt-update-badge" class="badge">Up to date</span>
+              </div>
+              <div id="opt-update-summary" class="hint" style="margin: 0 0 10px">
+                Link your unzipped lm-subs folder once so new releases write directly to disk and reload automatically.
+              </div>
+              <div class="row" style="flex-wrap: wrap">
+                <button id="opt-check-updates-btn" type="button" class="btn btn-sm">
+                  Check for updates
+                </button>
+                <button id="opt-link-folder-btn" type="button" class="btn btn-sm">
+                  Link unpacked folder
+                </button>
+                <button id="opt-apply-update-btn" type="button" class="btn btn-sm btn-primary" style="display: none">
+                  Update and reload
+                </button>
+              </div>
+              <div id="opt-update-feedback" class="status-line" aria-live="polite"></div>
+            </div>
+
             <div class="switch-row-list" style="border-top: 0; margin-bottom: 14px">
               <div class="switch-row-item" style="padding-top: 0">
                 <div>
+                  <div style="font-size: 13px; font-weight: 600">Automatic extension updates</div>
+                  <div class="hint" style="margin-top: 2px">Checks for new builds in the background and updates your linked folder automatically when permitted.</div>
+                </div>
+                <label class="switch" aria-label="Automatic extension updates">
+                  <input id="opt-auto-update" type="checkbox" checked />
+                </label>
+              </div>
+
+              <div class="switch-row-item">
+                <div>
+                  <div style="font-size: 13px; font-weight: 600">Automatic background cloud sync</div>
+                  <div class="hint" style="margin-top: 2px">Polls synced captions, cue edits, and alerts automatically when signed in.</div>
+                </div>
+                <label class="switch" aria-label="Automatic background cloud sync">
+                  <input id="opt-auto-bg-sync" type="checkbox" checked />
+                </label>
+              </div>
+
+              <div class="switch-row-item">
+                <div>
                   <div style="font-size: 13px; font-weight: 600">Desktop OS notifications</div>
-                  <div class="hint" style="margin-top: 2px">Sends an OS alert when a Video Overview finishes transcribing.</div>
+                  <div class="hint" style="margin-top: 2px">Sends an OS alert with the LM Subs icon when captions finish or updates arrive.</div>
                 </div>
                 <label class="switch" aria-label="Desktop OS notifications">
                   <input id="opt-desktop-notifications" type="checkbox" checked />

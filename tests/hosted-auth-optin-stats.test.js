@@ -4,11 +4,15 @@ import path from "node:path";
 import test from "node:test";
 import { createSyncApp } from "../server/app.js";
 import { createDatabaseClient } from "../server/db.js";
-import { createRuntimeDispatcher } from "../src/background/service-worker.js";
-import { RUNTIME_MESSAGE } from "../src/config/selectors.js";
+import {
+  createRuntimeDispatcher,
+  installBackgroundAutomation,
+} from "../src/background/service-worker.js";
+import { ALARM_NAMES, RUNTIME_MESSAGE } from "../src/config/selectors.js";
 import { createToastManager } from "../src/content/toast.js";
 import { LM_SUBS_LOGO_DATA_URI, createBrandLogoElement } from "../src/lib/brand-logo.js";
 import { setApiKey } from "../src/lib/storage.js";
+import { extractZipArchive } from "../src/lib/unpacked-updater.js";
 
 function createMemoryStorage() {
   const db = {};
@@ -432,21 +436,25 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
 
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
   const manifestJson = JSON.parse(fs.readFileSync(path.resolve("extension/manifest.json"), "utf8"));
-  assert.equal(pkgJson.version, "0.2.1");
-  assert.equal(manifestJson.version, "0.2.1");
+  assert.equal(pkgJson.version, "0.2.2");
+  assert.equal(manifestJson.version, "0.2.2");
   assert.equal(pkgJson.repository?.url, "https://github.com/sarang-cmd/lm-subs.git");
   assert.equal(pkgJson.homepage, "https://lm-subs.vercel.app");
-  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.1.zip")));
+  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.2.zip")));
+  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-latest.zip")));
+  assert.ok(fs.existsSync(path.resolve("docs/releases/latest.json")));
+  assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.1.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.0.zip")));
 
   const progressMd = fs.readFileSync(path.resolve("progress.md"), "utf8");
   assert.ok(
-    progressMd.includes("## `v0.2.1`") &&
+    progressMd.includes("## `v0.2.2`") &&
+      progressMd.includes("## `v0.2.1`") &&
       progressMd.includes("## `v0.2.0`") &&
       progressMd.includes("## `v0.1.2`") &&
       progressMd.includes("## `v0.1.1`") &&
       progressMd.includes("## `v0.1.0`"),
-    "progress.md must document versions 0.1.0 through 0.2.1"
+    "progress.md must document versions 0.1.0 through 0.2.2"
   );
   assert.ok(
     !progressMd.includes("—") && !progressMd.includes("–"),
@@ -507,8 +515,7 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
     "LibraryView.jsx must render the open local extension code box and collapsible API keys section"
   );
 
-  assert.deepEqual(manifestJson.permissions, ["storage"]);
-  assert.deepEqual(manifestJson.optional_permissions, ["notifications"]);
+  assert.deepEqual(manifestJson.permissions, ["storage", "notifications", "alarms"]);
 });
 
 test("Notifications Center, Desktop OS Alerts, Toolbar Badge, Inline Cue Editor, and Markdown Study Notes", async () => {
@@ -803,5 +810,242 @@ test("Notifications Center, Desktop OS Alerts, Toolbar Badge, Inline Cue Editor,
   });
   assert.equal(markExtRead.ok, true);
   assert.equal(badgeTexts.at(-1), "", "Toolbar badge should clear when notifications are marked read");
+});
+
+test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-Update, and Background Cloud Hot-Reload", async () => {
+  const dbPromise = createDatabaseClient({ pgliteDataDir: "memory://" });
+  const app = createSyncApp({
+    dbPromise,
+    encryptionSecret: "test-secret-32-chars-minimum-123456",
+  });
+
+  // 1. Verify /api/version and real release .zip extraction + CRC-32 check
+  const verRes = await app.request("http://localhost:4173/api/version");
+  assert.equal(verRes.status, 200);
+  const verJson = await verRes.json();
+  assert.equal(verJson.ok, true);
+  assert.equal(verJson.version, "0.2.2");
+
+  const realZipBytes = new Uint8Array(
+    fs.readFileSync(path.resolve("docs/releases/lm-subs-latest.zip"))
+  );
+  const latestMeta = JSON.parse(
+    fs.readFileSync(path.resolve("docs/releases/latest.json"), "utf8")
+  );
+  assert.equal(latestMeta.version, "0.2.2");
+  assert.match(latestMeta.buildId, /^[0-9a-f]{12}$/);
+  assert.match(latestMeta.zipSha256, /^[0-9a-f]{64}$/);
+
+  const extractedFiles = await extractZipArchive(realZipBytes);
+  assert.ok(extractedFiles.length >= 13);
+  assert.ok(extractedFiles.some((f) => f.path === "manifest.json"));
+  assert.ok(extractedFiles.some((f) => f.path === "icons/icon128.png"));
+
+  // 2. Verify background alarm registration (update-check + cloud-sync)
+  const createdAlarms = [];
+  const extStorage = createMemoryStorage();
+  const badges = [];
+  const desktopAlerts = [];
+  const tabBroadcasts = [];
+  let reloadCalls = 0;
+  let linkedDir = null;
+
+  // Virtual FileSystemDirectoryHandle for testing zero-click unpacked folder auto-updates
+  function createVirtualDir(name = "lm-subs", initialFiles = { "manifest.json": new Uint8Array([123, 125]) }) {
+    const filesMap = new Map(Object.entries(initialFiles));
+    const subDirs = new Map();
+    return {
+      name,
+      filesMap,
+      subDirs,
+      async queryPermission() {
+        return "granted";
+      },
+      async getFileHandle(fileName, { create = false } = {}) {
+        if (!filesMap.has(fileName)) {
+          if (!create) throw new Error(`ENOENT: ${fileName}`);
+          filesMap.set(fileName, new Uint8Array(0));
+        }
+        return {
+          name: fileName,
+          async createWritable() {
+            let pending = new Uint8Array(0);
+            return {
+              async write(data) {
+                pending = data instanceof Uint8Array ? data : new Uint8Array(data);
+              },
+              async close() {
+                filesMap.set(fileName, pending);
+              },
+            };
+          },
+        };
+      },
+      async getDirectoryHandle(dirName, { create = false } = {}) {
+        if (!subDirs.has(dirName)) {
+          if (!create) throw new Error(`ENOENT dir: ${dirName}`);
+          subDirs.set(dirName, createVirtualDir(dirName, {}));
+        }
+        return subDirs.get(dirName);
+      },
+    };
+  }
+
+  const dispatcher = createRuntimeDispatcher({
+    storageArea: extStorage,
+    actionApi: {
+      setBadgeText: async ({ text }) => badges.push(text),
+      setBadgeBackgroundColor: async () => {},
+    },
+    notificationsApi: {
+      create: (id, opts, cb) => {
+        desktopAlerts.push({ id, opts });
+        cb?.(id);
+      },
+    },
+    tabsApi: {
+      query: (_q, cb) => {
+        const list = [{ id: 77 }];
+        cb?.(list);
+        return Promise.resolve(list);
+      },
+      sendMessage: (tabId, payload, cb) => {
+        tabBroadcasts.push({ tabId, payload });
+        cb?.({ ok: true });
+      },
+    },
+    runtimeApi: {
+      getManifest: () => ({ version: "0.2.1" }),
+      getURL: (rel) => `icons/${rel.replace(/^icons\//, "")}`,
+      reload: (/* sync test signature */ _flag) => {
+        reloadCalls += 1;
+      },
+    },
+    dirHandleLoader: async () => linkedDir,
+    fetchImpl: async (url, init) => {
+      const u = String(url);
+      if (u.endsWith("/releases/latest.json")) {
+        return new Response(JSON.stringify(latestMeta), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (u.endsWith("/releases/lm-subs-latest.zip")) {
+        return new Response(realZipBytes, {
+          status: 200,
+          headers: { "content-type": "application/zip" },
+        });
+      }
+      return app.request(u, init);
+    },
+  });
+
+  installBackgroundAutomation(dispatcher, {
+    alarmsApi: {
+      create: (name, opts) => createdAlarms.push({ name, opts }),
+      onAlarm: { addListener: () => {} },
+    },
+    runtimeApi: {
+      onStartup: { addListener: () => {} },
+      onInstalled: { addListener: () => {} },
+      onUpdateAvailable: { addListener: () => {} },
+    },
+    notificationsApi: {
+      onClicked: { addListener: () => {} },
+    },
+  });
+
+  assert.ok(createdAlarms.some((a) => a.name === ALARM_NAMES.UPDATE_CHECK));
+  assert.ok(createdAlarms.some((a) => a.name === ALARM_NAMES.CLOUD_SYNC));
+
+  // 3. Unlinked folder: CHECK_FOR_UPDATES automatically sets 'UPD' badge and fires OS desktop alert with logo
+  const checkUnlinked = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES,
+  });
+  assert.equal(checkUnlinked.ok, true);
+  assert.equal(checkUnlinked.updateAvailable, true);
+  assert.equal(checkUnlinked.autoApplied, false);
+  assert.equal(badges.at(-1), "UPD");
+  assert.equal(desktopAlerts.length, 1);
+  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.2/);
+  assert.equal(desktopAlerts[0].opts.iconUrl, "icons/icon128.png");
+
+  // 4. Linked unpacked folder: CHECK_FOR_UPDATES automatically verifies SHA-256, writes all files, notifies, and reloads!
+  linkedDir = createVirtualDir("lm-subs");
+  const checkLinked = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES,
+  });
+  assert.equal(checkLinked.ok, true);
+  assert.equal(checkLinked.autoApplied, true);
+  assert.equal(checkLinked.updateAvailable, false);
+  assert.equal(reloadCalls, 1, "Extension must reload automatically after writing verified files");
+  assert.ok(linkedDir.filesMap.has("background.js"));
+  assert.ok(linkedDir.subDirs.get("icons")?.filesMap.has("icon128.png"));
+  assert.match(desktopAlerts.at(-1).opts.title, /LM Subs updated automatically/);
+
+  // 5. Sign in and verify BACKGROUND_SYNC_TICK automatically pulls remote captions, fires OS alert, and hot-reloads open NotebookLM tabs
+  const sendRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.SYNC_EMAIL_SEND_CODE,
+    serverUrl: "http://localhost:4173",
+    email: "autoupdate@university.edu",
+  });
+  const verifyRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.SYNC_EMAIL_VERIFY_CODE,
+    serverUrl: "http://localhost:4173",
+    email: "autoupdate@university.edu",
+    code: sendRes.previewCode,
+  });
+  assert.equal(verifyRes.ok, true);
+
+  // Simulate another device pushing a new transcript directly to Cloud API
+  const webSend = await app.request("http://localhost:4173/api/auth/email/send-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "autoupdate@university.edu" }),
+  });
+  const { previewCode: webCode } = await webSend.json();
+  const webVerify = await app.request("http://localhost:4173/api/auth/email/verify-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "autoupdate@university.edu", code: webCode }),
+  });
+  const { token: webToken } = await webVerify.json();
+
+  await app.request("http://localhost:4173/api/sync/push", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${webToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      subtitles: [
+        {
+          cacheKey: "art:remote-auto-1",
+          artifactId: "remote-auto-1",
+          title: "Topology Lecture",
+          cues: [{ startSec: 0.5, endSec: 3.5, text: "Homeomorphisms preserve open sets." }],
+        },
+      ],
+    }),
+  });
+
+  const alertsBeforeTick = desktopAlerts.length;
+  const tickRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+  });
+  assert.equal(tickRes.ok, true);
+  assert.ok(
+    desktopAlerts.length > alertsBeforeTick,
+    "Background cloud tick must automatically fire OS desktop alert for newly synced captions"
+  );
+  assert.ok(
+    tabBroadcasts.some(
+      (b) =>
+        b.tabId === 77 &&
+        b.payload.type === RUNTIME_MESSAGE.SUBTITLES_UPDATED &&
+        b.payload.entries.some((e) => e.cacheKey === "art:remote-auto-1")
+    ),
+    "Background cloud tick must broadcast SUBTITLES_UPDATED to open NotebookLM tabs for live hot-reload"
+  );
 });
 

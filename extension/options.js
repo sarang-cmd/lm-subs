@@ -1,6 +1,10 @@
 (() => {
   // src/config/selectors.js
   var HOSTED_CLOUD_URL = "https://lm-subs.vercel.app";
+  var ALARM_NAMES = Object.freeze({
+    UPDATE_CHECK: "lmsubs-update-check",
+    CLOUD_SYNC: "lmsubs-cloud-sync"
+  });
   var NOTEBOOKLM_HOSTS = Object.freeze([
     "notebooklm.google.com",
     "notebook.google.com",
@@ -134,7 +138,12 @@
     MARK_NOTIFICATIONS_READ: "LM_SUBS_MARK_NOTIFICATIONS_READ",
     CLEAR_NOTIFICATIONS: "LM_SUBS_CLEAR_NOTIFICATIONS",
     TEST_DESKTOP_NOTIFICATION: "LM_SUBS_TEST_DESKTOP_NOTIFICATION",
-    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES"
+    UPDATE_CACHED_SUBTITLES: "LM_SUBS_UPDATE_CACHED_SUBTITLES",
+    CHECK_FOR_UPDATES: "LM_SUBS_CHECK_FOR_UPDATES",
+    GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
+    APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
+    SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
+    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
   });
 
   // src/lib/audio-extract.js
@@ -425,6 +434,7 @@
     LAST_STATUS: "lastStatus",
     DEBUG_LOGS: "debugLogs",
     NOTIFICATIONS: "notifications",
+    UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret"
   });
@@ -451,6 +461,8 @@
     badgeAlerts: true,
     notifyOnFailover: true,
     notifyOnSync: true,
+    autoUpdateExtension: true,
+    autoBackgroundSync: true,
     excludePatterns: [],
     rpcOverrides: {}
   });
@@ -527,6 +539,8 @@
       badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
       notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
       notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
+      autoUpdateExtension: typeof saved.autoUpdateExtension === "boolean" ? saved.autoUpdateExtension : DEFAULT_SETTINGS.autoUpdateExtension,
+      autoBackgroundSync: typeof saved.autoBackgroundSync === "boolean" ? saved.autoBackgroundSync : DEFAULT_SETTINGS.autoBackgroundSync,
       excludePatterns: Array.isArray(saved.excludePatterns) ? saved.excludePatterns.map((s) => String(s).trim()).filter(Boolean) : [],
       rpcOverrides
     };
@@ -693,6 +707,62 @@
     } catch {
       return [];
     }
+  }
+  async function getUpdateStatus(storageArea) {
+    try {
+      const store = resolveStorage(storageArea);
+      const raw = await store.get(STORAGE_KEYS.UPDATE_STATUS);
+      const saved = raw?.[STORAGE_KEYS.UPDATE_STATUS];
+      if (!saved || typeof saved !== "object") {
+        return {
+          updateAvailable: false,
+          currentVersion: "0.2.2",
+          currentBuildId: "",
+          latestVersion: "0.2.2",
+          latestBuildId: "",
+          zipUrl: "/releases/lm-subs-latest.zip",
+          zipSha256: "",
+          notifiedReleaseKey: "",
+          checkedAt: null,
+          autoAppliedAt: null,
+          linkedFolderName: ""
+        };
+      }
+      return {
+        updateAvailable: Boolean(saved.updateAvailable),
+        currentVersion: String(saved.currentVersion || "0.2.2"),
+        currentBuildId: String(saved.currentBuildId || ""),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.2"),
+        latestBuildId: String(saved.latestBuildId || ""),
+        zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
+        zipSha256: String(saved.zipSha256 || ""),
+        notifiedReleaseKey: String(saved.notifiedReleaseKey || ""),
+        checkedAt: saved.checkedAt || null,
+        autoAppliedAt: saved.autoAppliedAt || null,
+        linkedFolderName: String(saved.linkedFolderName || "")
+      };
+    } catch {
+      return {
+        updateAvailable: false,
+        currentVersion: "0.2.2",
+        currentBuildId: "",
+        latestVersion: "0.2.2",
+        latestBuildId: "",
+        zipUrl: "/releases/lm-subs-latest.zip",
+        zipSha256: "",
+        notifiedReleaseKey: "",
+        checkedAt: null,
+        autoAppliedAt: null,
+        linkedFolderName: ""
+      };
+    }
+  }
+  async function saveUpdateStatus(partial, storageArea) {
+    const store = resolveStorage(storageArea);
+    const current = await getUpdateStatus(store);
+    const next = { ...current, ...partial || {} };
+    await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+    return next;
   }
 
   // src/lib/subtitles.js
@@ -1016,6 +1086,101 @@ ${blocks.join("\n\n")}
     };
   }
 
+  // src/lib/unpacked-updater.js
+  var IDB_NAME = "lmsubs_updater_db";
+  var IDB_STORE = "handles";
+  var IDB_DIR_KEY = "extension_root_dir";
+  var CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) {
+        c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+      }
+      table[i] = c >>> 0;
+    }
+    return table;
+  })();
+  function openHandlesDb() {
+    if (typeof globalThis.indexedDB === "undefined") {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      try {
+        const req = globalThis.indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            db.createObjectStore(IDB_STORE);
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+  async function saveLinkedExtensionDirHandle(dirHandle) {
+    const db = await openHandlesDb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(dirHandle, IDB_DIR_KEY);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+      } catch {
+        db.close();
+        resolve(false);
+      }
+    });
+  }
+  async function loadLinkedExtensionDirHandle() {
+    const db = await openHandlesDb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const req = tx.objectStore(IDB_STORE).get(IDB_DIR_KEY);
+        req.onsuccess = () => {
+          db.close();
+          resolve(req.result || null);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      } catch {
+        db.close();
+        resolve(null);
+      }
+    });
+  }
+  async function inspectLinkedDirPermission(dirHandle) {
+    if (!dirHandle) return { linked: false, permission: "none", folderName: "" };
+    try {
+      const perm = await dirHandle.queryPermission?.({ mode: "readwrite" }) || "granted";
+      return {
+        linked: true,
+        permission: perm,
+        folderName: dirHandle.name || "lm-subs"
+      };
+    } catch {
+      return {
+        linked: true,
+        permission: "prompt",
+        folderName: dirHandle.name || "lm-subs"
+      };
+    }
+  }
+
   // src/ui/brand-icon.js
   var SVG_NS = "http://www.w3.org/2000/svg";
   function createBrandMarkSvg(doc = globalThis.document, size = 28) {
@@ -1137,6 +1302,8 @@ ${blocks.join("\n\n")}
     const saveBehaviorBtn = document.getElementById("save-behavior-btn");
     const savedPill = document.getElementById("settings-saved-pill");
     const optNotifUnreadBadge = document.getElementById("opt-notif-unread-badge");
+    const optAutoUpdate = document.getElementById("opt-auto-update");
+    const optAutoBgSync = document.getElementById("opt-auto-bg-sync");
     const optDesktopNotifications = document.getElementById("opt-desktop-notifications");
     const optBadgeAlerts = document.getElementById("opt-badge-alerts");
     const optSoundAlerts = document.getElementById("opt-sound-alerts");
@@ -1146,6 +1313,13 @@ ${blocks.join("\n\n")}
     const optMarkNotifReadBtn = document.getElementById("opt-mark-notif-read-btn");
     const optClearNotifBtn = document.getElementById("opt-clear-notif-btn");
     const optNotifList = document.getElementById("opt-notif-list");
+    const optUpdateCard = document.getElementById("opt-update-card");
+    const optUpdateBadge = document.getElementById("opt-update-badge");
+    const optUpdateSummary = document.getElementById("opt-update-summary");
+    const optCheckUpdatesBtn = document.getElementById("opt-check-updates-btn");
+    const optLinkFolderBtn = document.getElementById("opt-link-folder-btn");
+    const optApplyUpdateBtn = document.getElementById("opt-apply-update-btn");
+    const optUpdateFeedback = document.getElementById("opt-update-feedback");
     const optSyncBadge = document.getElementById("opt-sync-badge");
     const syncLoggedOutPanel = document.getElementById("sync-logged-out-panel");
     const syncLoggedInPanel = document.getElementById("sync-logged-in-panel");
@@ -1196,12 +1370,13 @@ ${blocks.join("\n\n")}
     let missingOriginsForOptions = [];
     let cacheFilterQuery = "";
     let editingCacheKey = null;
-    let [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
+    let [settings, presenceMap, cacheList, syncProfile, notifications, updateStatus] = await Promise.all([
       getSettings(),
       getSavedKeyPresenceMap(),
       getSubtitleCacheList(),
       getCloudSyncProfile(),
-      getNotifications()
+      getNotifications(),
+      getUpdateStatus()
     ]);
     const hasAnySavedKey = () => settings.queueOrder.some(
       (id) => id === "custom" ? Boolean(settings.customEnabled) : Boolean(presenceMap[id])
@@ -1313,17 +1488,19 @@ ${blocks.join("\n\n")}
       }
     }
     async function reloadAllLocalState() {
-      [settings, presenceMap, cacheList, syncProfile, notifications] = await Promise.all([
+      [settings, presenceMap, cacheList, syncProfile, notifications, updateStatus] = await Promise.all([
         getSettings(),
         getSavedKeyPresenceMap(),
         getSubtitleCacheList(),
         getCloudSyncProfile(),
-        getNotifications()
+        getNotifications(),
+        getUpdateStatus()
       ]);
       populateForm();
       renderSyncPanel();
       renderProviderQueue();
       renderNotificationsPanel();
+      await renderUpdatePanel();
       renderCacheTable();
       await renderStatisticsPanel();
     }
@@ -1344,6 +1521,8 @@ ${blocks.join("\n\n")}
       optAutoGenerate.checked = settings.autoOnGenerate;
       optAutoExisting.checked = settings.autoOnExistingVideos;
       optShowToast.checked = settings.showToast;
+      if (optAutoUpdate) optAutoUpdate.checked = Boolean(settings.autoUpdateExtension);
+      if (optAutoBgSync) optAutoBgSync.checked = Boolean(settings.autoBackgroundSync);
       if (optDesktopNotifications) {
         optDesktopNotifications.checked = Boolean(settings.desktopNotifications);
       }
@@ -1361,6 +1540,32 @@ ${blocks.join("\n\n")}
       optExcludePatterns.value = (settings.excludePatterns || []).join("\n");
       rpcCreateInput.value = settings.rpcOverrides?.CREATE_STUDIO || "";
       rpcPollInput.value = settings.rpcOverrides?.POLL_STUDIO || "";
+    }
+    async function renderUpdatePanel() {
+      if (!optUpdateCard) return;
+      const dirHandle = await loadLinkedExtensionDirHandle();
+      const dirInfo = await inspectLinkedDirPermission(dirHandle);
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.2";
+      const avail = Boolean(updateStatus?.updateAvailable);
+      optUpdateCard.dataset.available = avail ? "true" : "false";
+      if (optUpdateBadge) {
+        optUpdateBadge.textContent = avail ? `Update v${updateStatus.latestVersion}` : `v${curVer} current`;
+        optUpdateBadge.className = avail ? "badge badge-saved" : "badge";
+      }
+      if (optLinkFolderBtn) {
+        optLinkFolderBtn.textContent = dirInfo.linked ? `Linked folder: ${dirInfo.folderName}` : "Link unpacked folder";
+      }
+      if (optApplyUpdateBtn) {
+        optApplyUpdateBtn.style.display = avail ? "inline-flex" : "none";
+        optApplyUpdateBtn.textContent = dirInfo.linked ? "Update and reload" : "Link folder and update";
+      }
+      if (optUpdateSummary) {
+        if (avail) {
+          optUpdateSummary.textContent = dirInfo.linked ? `LM Subs v${updateStatus.latestVersion} is ready to write into ${dirInfo.folderName} and reload.` : `LM Subs v${updateStatus.latestVersion} is available. Link your unzipped lm-subs folder to update in place.`;
+        } else {
+          optUpdateSummary.textContent = dirInfo.linked ? `Installed v${curVer}. Linked to ${dirInfo.folderName} for automatic in-place updates.` : `Installed v${curVer}. Link your unzipped lm-subs folder once so updates write directly without manual zip extraction.`;
+        }
+      }
     }
     function renderNotificationsPanel() {
       if (!optNotifList) return;
@@ -1943,14 +2148,22 @@ ${blocks.join("\n\n")}
     renderSyncPanel();
     renderProviderQueue();
     renderNotificationsPanel();
+    renderUpdatePanel();
     renderCacheTable();
     renderStatisticsPanel();
+    sendRuntime({
+      type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+      includeUpdateCheck: true
+    }).catch(() => {
+    });
     cacheSearchInput?.addEventListener("input", () => {
       cacheFilterQuery = cacheSearchInput.value || "";
       renderCacheTable();
     });
     async function saveNotificationToggles() {
       settings = await saveSettings({
+        autoUpdateExtension: optAutoUpdate ? Boolean(optAutoUpdate.checked) : settings.autoUpdateExtension,
+        autoBackgroundSync: optAutoBgSync ? Boolean(optAutoBgSync.checked) : settings.autoBackgroundSync,
         desktopNotifications: Boolean(optDesktopNotifications?.checked),
         badgeAlerts: Boolean(optBadgeAlerts?.checked),
         soundAlerts: Boolean(optSoundAlerts?.checked),
@@ -1960,26 +2173,84 @@ ${blocks.join("\n\n")}
       flashSavedPill();
       await sendRuntime({ type: RUNTIME_MESSAGE.GET_NOTIFICATIONS });
     }
-    optDesktopNotifications?.addEventListener("change", async () => {
-      if (optDesktopNotifications.checked && chrome.permissions?.request) {
-        try {
-          await chrome.permissions.request({ permissions: ["notifications"] });
-        } catch {
-        }
-      }
-      await saveNotificationToggles();
-    });
+    optAutoUpdate?.addEventListener("change", saveNotificationToggles);
+    optAutoBgSync?.addEventListener("change", saveNotificationToggles);
+    optDesktopNotifications?.addEventListener("change", saveNotificationToggles);
     optBadgeAlerts?.addEventListener("change", saveNotificationToggles);
     optSoundAlerts?.addEventListener("change", saveNotificationToggles);
     optNotifyFailover?.addEventListener("change", saveNotificationToggles);
     optNotifySync?.addEventListener("change", saveNotificationToggles);
-    optTestNotifBtn?.addEventListener("click", async () => {
-      if (chrome.permissions?.request) {
-        try {
-          await chrome.permissions.request({ permissions: ["notifications"] });
-        } catch {
+    optCheckUpdatesBtn?.addEventListener("click", async () => {
+      optCheckUpdatesBtn.disabled = true;
+      optCheckUpdatesBtn.textContent = "Checking\u2026";
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.CHECK_FOR_UPDATES });
+      optCheckUpdatesBtn.disabled = false;
+      optCheckUpdatesBtn.textContent = "Check for updates";
+      updateStatus = res?.status || await getUpdateStatus();
+      notifications = await getNotifications();
+      renderNotificationsPanel();
+      await renderUpdatePanel();
+      if (optUpdateFeedback) {
+        optUpdateFeedback.dataset.kind = res?.ok ? "ok" : "err";
+        optUpdateFeedback.textContent = res?.ok ? res.autoApplied ? "Updated automatically and reloading\u2026" : res.updateAvailable ? `New version v${updateStatus.latestVersion} is ready.` : "You are running the latest build." : res?.error || "Could not check for updates.";
+      }
+    });
+    async function pickAndSaveExtensionFolder() {
+      if (typeof window.showDirectoryPicker !== "function") {
+        throw new Error("Folder linking requires Chrome, Brave, Edge, or Arc.");
+      }
+      const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      await dirHandle.requestPermission?.({ mode: "readwrite" });
+      await saveLinkedExtensionDirHandle(dirHandle);
+      updateStatus = await saveUpdateStatus({
+        linkedFolderName: dirHandle.name || "lm-subs"
+      });
+      await renderUpdatePanel();
+      return dirHandle;
+    }
+    optLinkFolderBtn?.addEventListener("click", async () => {
+      try {
+        const dirHandle = await pickAndSaveExtensionFolder();
+        if (optUpdateFeedback) {
+          optUpdateFeedback.dataset.kind = "ok";
+          optUpdateFeedback.textContent = `Linked ${dirHandle.name || "lm-subs"} for automatic updates.`;
+        }
+      } catch (err) {
+        if (optUpdateFeedback && err?.name !== "AbortError") {
+          optUpdateFeedback.dataset.kind = "err";
+          optUpdateFeedback.textContent = err?.message || "Folder linking canceled.";
         }
       }
+    });
+    optApplyUpdateBtn?.addEventListener("click", async () => {
+      optApplyUpdateBtn.disabled = true;
+      try {
+        let dirHandle = await loadLinkedExtensionDirHandle();
+        if (!dirHandle) {
+          dirHandle = await pickAndSaveExtensionFolder();
+        } else {
+          await dirHandle.requestPermission?.({ mode: "readwrite" });
+        }
+        optApplyUpdateBtn.textContent = "Updating\u2026";
+        const res = await sendRuntime({
+          type: RUNTIME_MESSAGE.APPLY_UNPACKED_UPDATE
+        });
+        if (!res?.ok && optUpdateFeedback) {
+          optUpdateFeedback.dataset.kind = "err";
+          optUpdateFeedback.textContent = res?.error || "Could not write update files.";
+        }
+      } catch (err) {
+        if (optUpdateFeedback && err?.name !== "AbortError") {
+          optUpdateFeedback.dataset.kind = "err";
+          optUpdateFeedback.textContent = err?.message || "Update canceled.";
+        }
+      } finally {
+        optApplyUpdateBtn.disabled = false;
+        updateStatus = await getUpdateStatus();
+        await renderUpdatePanel();
+      }
+    });
+    optTestNotifBtn?.addEventListener("click", async () => {
       if (optDesktopNotifications) optDesktopNotifications.checked = true;
       settings = await saveSettings({ desktopNotifications: true });
       await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
@@ -2324,6 +2595,10 @@ ${blocks.join("\n\n")}
         if (changes.notifications) {
           notifications = await getNotifications();
           renderNotificationsPanel();
+        }
+        if (changes.updateStatus) {
+          updateStatus = await getUpdateStatus();
+          await renderUpdatePanel();
         }
         if (changes.subtitleCache) {
           cacheList = await getSubtitleCacheList();

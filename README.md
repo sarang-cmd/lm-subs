@@ -14,7 +14,7 @@
 [![Tests](docs/assets/badges/tests.svg)](#development-and-testing)
 [![License: MIT](docs/assets/badges/license.svg)](LICENSE)
 
-[**Download `lm-subs-v0.2.1.zip`**](docs/releases/lm-subs-v0.2.1.zip) | [**Beginner Setup Guide**](#install-guide-no-coding-or-credit-card-needed) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
+[**Download `lm-subs-v0.2.2.zip`**](docs/releases/lm-subs-v0.2.2.zip) | [**Beginner Setup Guide**](#install-guide-no-coding-or-credit-card-needed) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
 
 <br />
 
@@ -29,10 +29,10 @@
 You do not need terminal commands, developer tools, or a paid subscription to use LM Subs. Follow these four steps in **Google Chrome**, **Brave**, **Microsoft Edge**, or **Arc**:
 
 ### Step 1: Download and unzip the extension folder
-1. Download [**`lm-subs-v0.2.1.zip`**](docs/releases/lm-subs-v0.2.1.zip) to your computer.
+1. Download [**`lm-subs-v0.2.2.zip`**](docs/releases/lm-subs-v0.2.2.zip) to your computer.
 2. **Unzip** it into a normal folder:
-   * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.1.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
-   * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.1.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
+   * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.2.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
+   * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.2.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
 
 ### Step 2: Load the folder in Chrome
 1. Open a new browser tab, type `chrome://extensions` into the address bar, and press **Enter** (`brave://extensions` in Brave, `edge://extensions` in Edge).
@@ -91,7 +91,7 @@ Google NotebookLM generates narrated **Studio Video Overviews**, yet its built-i
 
 Naive transcription tools upload entire 50 to 120 MB HD `.mp4` video files or inflate compressed audio into 40+ MB of uncompressed `.wav` data, hitting API upload limits and turning a 3-minute Video Overview into a multi-minute wait.
 
-| Metric | Full Video / WAV Upload | LM Subs (`v0.2.1`) |
+| Metric | Full Video / WAV Upload | LM Subs (`v0.2.2`) |
 | :--- | :--- | :--- |
 | **Media payload** | 50 to 120 MB `.mp4` + 42 MB `.wav` | **~3.4 MB `=m140` AAC** (or HTTP `206` audio byte ranges) |
 | **Audio prep overhead** | 45 to 90s full download + decode | **0 ms** direct `=m140` passthrough (`<1.2s` Range remux) |
@@ -178,7 +178,7 @@ Configure one key or stack multiple providers in priority order for automatic `H
 npm install          # Install dependencies (0 vulnerabilities)
 npm run assets       # Render SVG/PNG brand marks, favicons, badges, diagram, and 4 screenshots
 npm run build        # Bundle all 5 MV3 extension entrypoints + React web app (docs/app.js)
-npm run zip          # Rebuild bundles and package docs/releases/lm-subs-v0.2.1.zip
+npm run zip          # Rebuild bundles and package docs/releases/lm-subs-v0.2.2.zip
 npm test             # Run unit, security, speed, export, and PGlite Postgres E2E tests
 npm start            # Start unified Web App + /api/* Hono server on http://0.0.0.0:4173
 ```
