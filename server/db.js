@@ -13,15 +13,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { defineConfig } from "@neon/config/v1";
 import { parseEnv } from "@neon/env";
 import { attachDatabasePool } from "@neon/functions";
 import pg from "pg";
-import neonConfig from "../neon.ts";
+import { SCHEMA_SQL } from "./schema-sql.js";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..");
-const SCHEMA_SQL_PATH = path.join(ROOT_DIR, "db", "schema.sql");
+
+const neonRuntimeConfig = defineConfig({
+  auth: true,
+  branch: (branch) => {
+    if (branch.isDefault) return {};
+    if (!branch.exists) return { ttl: "7d" };
+    return {};
+  },
+});
 
 let envFilesLoaded = false;
 
@@ -53,7 +62,7 @@ export function loadLocalEnvFiles() {
 }
 
 export function getSchemaSql() {
-  return fs.readFileSync(SCHEMA_SQL_PATH, "utf8");
+  return SCHEMA_SQL;
 }
 
 let sharedDbPromise = null;
@@ -68,7 +77,7 @@ export async function createDatabaseClient({
   let resolvedUrl = connectionString;
   if (!resolvedUrl && !inMemory && process.env.DATABASE_URL) {
     try {
-      const { postgres } = parseEnv(neonConfig, ["DATABASE_URL"]);
+      const { postgres } = parseEnv(neonRuntimeConfig, ["DATABASE_URL"]);
       resolvedUrl = postgres.databaseUrl;
     } catch {
       resolvedUrl = process.env.DATABASE_URL;
@@ -79,6 +88,7 @@ export async function createDatabaseClient({
     const pool = new Pool({
       connectionString: resolvedUrl,
       max: 5,
+      connectionTimeoutMillis: 10_000,
     });
     attachDatabasePool(pool);
 
@@ -121,7 +131,10 @@ export async function createDatabaseClient({
 
 export function getSharedDatabase(options = {}) {
   if (!sharedDbPromise) {
-    sharedDbPromise = createDatabaseClient(options);
+    sharedDbPromise = createDatabaseClient(options).catch((err) => {
+      sharedDbPromise = null;
+      throw err;
+    });
   }
   return sharedDbPromise;
 }

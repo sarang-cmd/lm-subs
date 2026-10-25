@@ -120,7 +120,7 @@ Naive transcription tools upload entire 50 to 120 MB HD `.mp4` video files or in
 * **Page Main World (`src/content/page-hook.js` at `document_start`):** Observes NotebookLM SSR `AF_initDataCallback` payloads and `batchexecute` RPCs (`R7cb6c`, `gArtLc`) without touching storage or credentials.
 * **Isolated Content Script (`src/content/content.js` + `player-overlay.js`):** Attaches both a native `<track kind="subtitles">` (for OS Picture-in-Picture) and an isolated closed ShadowRoot caption bar inside NotebookLM's `<video>` container.
 * **MV3 Service Worker (`src/background/service-worker.js`):** Sole reader of `secretApiKeys` and `cloudSyncSecret` in `chrome.storage.local`. Executes audio stream extraction, 12-provider failover, and opt-in cloud sync.
-* **Hosted Web App & Neon Postgres API (`src/web/`, `server/`, `api/[...route].js`):** React + Radix UI web application (`/`, `/guide`, `/library`, `/stats`, `/about`) and Hono REST API backed by Neon Serverless PostgreSQL (`db/schema.sql`). Includes Vercel Web Analytics and Vercel Speed Insights.
+* **Hosted Web App & Neon Postgres API (`src/web/`, `server/`, `api/index.js`):** React + Radix UI web application (`/`, `/guide`, `/library`, `/stats`, `/about`) and Hono REST API backed by Neon Serverless PostgreSQL (`db/schema.sql`). Includes Vercel Web Analytics and Vercel Speed Insights.
 
 ---
 
