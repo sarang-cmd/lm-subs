@@ -138,3 +138,11 @@ fs.writeFileSync(
 );
 
 console.log(`Built Vercel Output API v3 bundle -> ${OUT_DIR}`);
+
+// If Vercel ran inside a subdirectory (e.g. rootDirectory="docs"), mirror .vercel/output to REPO_ROOT too
+if (path.resolve(CWD) !== path.resolve(REPO_ROOT)) {
+  const rootOutDir = path.join(REPO_ROOT, ".vercel", "output");
+  fs.rmSync(rootOutDir, { recursive: true, force: true });
+  fs.cpSync(OUT_DIR, rootOutDir, { recursive: true });
+  console.log(`Mirrored Vercel Output API v3 bundle -> ${rootOutDir}`);
+}

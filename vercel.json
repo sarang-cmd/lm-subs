@@ -1,75 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "npm run build",
-  "outputDirectory": "docs",
-  "cleanUrls": true,
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 60,
-      "includeFiles": "db/**"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/api",
-      "destination": "/api/index?__lms_path="
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api/index?__lms_path=:path*"
-    },
-    {
-      "source": "/guide",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/install",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/about",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/library",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/workspace",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/stats",
-      "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/releases/(.*\\.zip)",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/zip"
-        },
-        {
-          "key": "Content-Disposition",
-          "value": "attachment"
-        }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        }
-      ]
-    }
-  ]
+  "installCommand": "if [ -f package.json ]; then npm ci; else npm --prefix .. ci; fi",
+  "buildCommand": "if [ -f package.json ]; then node scripts/vercel-build.mjs; else node ../scripts/vercel-build.mjs; fi",
+  "cleanUrls": true
 }

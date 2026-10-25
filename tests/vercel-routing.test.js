@@ -117,8 +117,8 @@ test("AUTH_EMAIL_FROM and bundled SCHEMA_SQL stay in sync with Vercel config", a
   assert.equal(SCHEMA_SQL.trim(), diskSql.trim());
 
   const vercelCfg = JSON.parse(fs.readFileSync(path.resolve("vercel.json"), "utf8"));
-  assert.equal(vercelCfg.outputDirectory, "docs");
-  assert.equal(vercelCfg.buildCommand, "npm run build");
+  assert.ok(String(vercelCfg.buildCommand || "").includes("vercel-build.mjs"));
+  assert.ok(fs.existsSync(path.resolve("scripts/vercel-build.mjs")));
   assert.ok(fs.existsSync(path.resolve("api/index.js")));
   assert.ok(!fs.existsSync(path.resolve("api/[...route].js")));
 
