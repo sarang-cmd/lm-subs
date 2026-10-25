@@ -9,6 +9,10 @@
 import { RUNTIME_MESSAGE } from "../config/selectors.js";
 import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
 import {
+  playCompletionChimeSound,
+  unlockChimeAudio,
+} from "../lib/chime.js";
+import {
   getProviderOriginPattern,
   getProviderSpec,
 } from "../lib/providers/registry.js";
@@ -119,6 +123,8 @@ async function initOptions() {
   const optCaptionWidth = document.getElementById("opt-caption-width");
   const optCaptionOpacity = document.getElementById("opt-caption-opacity");
   const optCaptionOpacityLabel = document.getElementById("opt-caption-opacity-label");
+  const optKaraokeDelay = document.getElementById("opt-karaoke-delay");
+  const optKaraokeDelayLabel = document.getElementById("opt-karaoke-delay-label");
   const optPlaybackSpeed = document.getElementById("opt-playback-speed");
   const optKaraokeHighlight = document.getElementById("opt-karaoke-highlight");
   const optShowSpeakers = document.getElementById("opt-show-speakers");
@@ -142,6 +148,7 @@ async function initOptions() {
   const optNotifyFailover = document.getElementById("opt-notify-failover");
   const optNotifySync = document.getElementById("opt-notify-sync");
   const optTestNotifBtn = document.getElementById("opt-test-notif-btn");
+  const optTestChimeBtn = document.getElementById("opt-test-chime-btn");
   const optMarkNotifReadBtn = document.getElementById("opt-mark-notif-read-btn");
   const optClearNotifBtn = document.getElementById("opt-clear-notif-btn");
   const optNotifList = document.getElementById("opt-notif-list");
@@ -403,6 +410,10 @@ async function initOptions() {
     if (optCaptionOpacityLabel) {
       optCaptionOpacityLabel.textContent = `${opacity}%`;
     }
+    if (optKaraokeDelayLabel && optKaraokeDelay) {
+      const kdVal = Number(optKaraokeDelay.value) || 0;
+      optKaraokeDelayLabel.textContent = `${kdVal > 0 ? "+" : ""}${kdVal} ms`;
+    }
 
     optPreviewStage.dataset.pos = pos;
     const sizePx = {
@@ -477,14 +488,19 @@ async function initOptions() {
       optPreviewBox.textContent = `${prefix}Logical qubits suppress phase errors across physical stabilizer arrays.`;
     } else {
       const done = document.createElement("span");
-      done.style.color = "#93c5fd";
-      done.style.textDecoration = "underline";
-      done.style.textUnderlineOffset = "3px";
-      done.textContent = `${prefix}Logical qubits suppress phase errors`;
-      optPreviewBox.append(
-        done,
-        document.createTextNode(" across physical stabilizer arrays.")
-      );
+      done.textContent = `${prefix}Logical qubits suppress `;
+      const activeWord = document.createElement("span");
+      activeWord.style.background =
+        style === "paper" ? "rgba(0, 85, 212, 0.16)" : "rgba(29, 92, 246, 0.48)";
+      activeWord.style.color = style === "paper" ? "#0055d4" : "#ffffff";
+      activeWord.style.padding = "1px 5px";
+      activeWord.style.borderRadius = "4px";
+      activeWord.style.fontWeight = "600";
+      activeWord.textContent = "phase errors";
+      const upcoming = document.createElement("span");
+      upcoming.style.opacity = "0.64";
+      upcoming.textContent = " across physical stabilizer arrays.";
+      optPreviewBox.append(done, activeWord, upcoming);
     }
   }
 
@@ -514,6 +530,7 @@ async function initOptions() {
     if (optCaptionPosition) optCaptionPosition.value = settings.captionPosition || "bottom";
     if (optCaptionWidth) optCaptionWidth.value = settings.captionMaxWidth || "balanced";
     if (optCaptionOpacity) optCaptionOpacity.value = String(settings.captionBgOpacity ?? 88);
+    if (optKaraokeDelay) optKaraokeDelay.value = String(settings.karaokeDelayMs ?? 0);
     if (optPlaybackSpeed) optPlaybackSpeed.value = String(settings.defaultPlaybackSpeed || 1);
     if (optKaraokeHighlight) optKaraokeHighlight.checked = Boolean(settings.karaokeHighlight);
     if (optShowSpeakers) optShowSpeakers.checked = settings.showSpeakerLabels !== false;
@@ -533,7 +550,7 @@ async function initOptions() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.3";
+      "0.2.4";
 
     const avail = Boolean(updateStatus?.updateAvailable);
     optUpdateCard.dataset.available = avail ? "true" : "false";
@@ -1318,7 +1335,13 @@ async function initOptions() {
   optAutoBgSync?.addEventListener("change", saveNotificationToggles);
   optDesktopNotifications?.addEventListener("change", saveNotificationToggles);
   optBadgeAlerts?.addEventListener("change", saveNotificationToggles);
-  optSoundAlerts?.addEventListener("change", saveNotificationToggles);
+  optSoundAlerts?.addEventListener("change", async () => {
+    await saveNotificationToggles();
+    if (optSoundAlerts.checked) {
+      unlockChimeAudio(window);
+      await playCompletionChimeSound({ win: window, force: true });
+    }
+  });
   optNotifyFailover?.addEventListener("change", saveNotificationToggles);
   optNotifySync?.addEventListener("change", saveNotificationToggles);
 
@@ -1407,10 +1430,34 @@ async function initOptions() {
   optTestNotifBtn?.addEventListener("click", async () => {
     if (optDesktopNotifications) optDesktopNotifications.checked = true;
     settings = await saveSettings({ desktopNotifications: true });
+    if (optSoundAlerts?.checked) {
+      unlockChimeAudio(window);
+      playCompletionChimeSound({ win: window, force: true }).catch(() => {});
+    }
     await sendRuntime({ type: RUNTIME_MESSAGE.TEST_DESKTOP_NOTIFICATION });
     notifications = await getNotifications();
     renderNotificationsPanel();
   });
+
+  optTestChimeBtn?.addEventListener("click", async () => {
+    unlockChimeAudio(window);
+    optTestChimeBtn.textContent = "Playing…";
+    await playCompletionChimeSound({ win: window, force: true });
+    setTimeout(() => {
+      optTestChimeBtn.textContent = "Preview chime";
+    }, 650);
+  });
+
+  try {
+    chrome.runtime?.onMessage?.addListener((msg) => {
+      if (msg?.type === RUNTIME_MESSAGE.SUBTITLES_READY && settings.soundAlerts) {
+        playCompletionChimeSound({ win: window }).catch(() => {});
+      }
+      return false;
+    });
+  } catch {
+    // Ignore runtime listener outside extension context
+  }
 
   optMarkNotifReadBtn?.addEventListener("click", async () => {
     const res = await sendRuntime({
@@ -1703,6 +1750,7 @@ async function initOptions() {
       captionPosition: optCaptionPosition ? optCaptionPosition.value : settings.captionPosition,
       captionMaxWidth: optCaptionWidth ? optCaptionWidth.value : settings.captionMaxWidth,
       captionBgOpacity: optCaptionOpacity ? Number(optCaptionOpacity.value) : settings.captionBgOpacity,
+      karaokeDelayMs: optKaraokeDelay ? Number(optKaraokeDelay.value) : settings.karaokeDelayMs,
       defaultPlaybackSpeed: optPlaybackSpeed ? Number(optPlaybackSpeed.value) : settings.defaultPlaybackSpeed,
       karaokeHighlight: optKaraokeHighlight ? Boolean(optKaraokeHighlight.checked) : settings.karaokeHighlight,
       showSpeakerLabels: optShowSpeakers ? Boolean(optShowSpeakers.checked) : settings.showSpeakerLabels,
@@ -1721,6 +1769,7 @@ async function initOptions() {
     optCaptionPosition,
     optCaptionWidth,
     optCaptionOpacity,
+    optKaraokeDelay,
     optPlaybackSpeed,
     optKaraokeHighlight,
     optShowSpeakers,
@@ -1745,7 +1794,8 @@ async function initOptions() {
       captionMaxWidth: "balanced",
       captionBgOpacity: 88,
       defaultPlaybackSpeed: 1,
-      karaokeHighlight: false,
+      karaokeHighlight: true,
+      karaokeDelayMs: 0,
       showSpeakerLabels: true,
       pauseOnCaptionHover: false,
       clickCaptionToCopy: true,

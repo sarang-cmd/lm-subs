@@ -199,6 +199,159 @@
     };
   }
 
+  // src/lib/chime.js
+  var sharedCtx = null;
+  var cachedWavDataUri = null;
+  var lastChimeEpochMs = 0;
+  function bytesToBase64(bytes) {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(bytes).toString("base64");
+    }
+    let binary = "";
+    const chunk = 32768;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return globalThis.btoa(binary);
+  }
+  function buildChimeWavBytes(sampleRate = 44100) {
+    const durationSec = 0.44;
+    const numSamples = Math.floor(sampleRate * durationSec);
+    const dataBytes = numSamples * 2;
+    const buf = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buf);
+    const writeAscii = (offset, str) => {
+      for (let i = 0; i < str.length; i += 1) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    };
+    writeAscii(0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeAscii(8, "WAVE");
+    writeAscii(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, "data");
+    view.setUint32(40, dataBytes, true);
+    const notes = [
+      { start: 0, dur: 0.24, freq: 523.25 },
+      { start: 0.11, dur: 0.31, freq: 783.99 }
+    ];
+    for (let i = 0; i < numSamples; i += 1) {
+      const t = i / sampleRate;
+      let sample = 0;
+      for (const note of notes) {
+        if (t >= note.start && t <= note.start + note.dur) {
+          const lt = t - note.start;
+          const attack = Math.min(1, lt / 0.012);
+          const decay = Math.exp(-lt * 10.5);
+          const env = attack * decay;
+          const fundamental = Math.sin(2 * Math.PI * note.freq * lt);
+          const harmonic = 0.28 * Math.sin(2 * Math.PI * note.freq * 2 * lt);
+          sample += env * (fundamental + harmonic) * 0.34;
+        }
+      }
+      const clamped = Math.max(-0.95, Math.min(0.95, sample));
+      view.setInt16(44 + i * 2, Math.round(clamped * 32767), true);
+    }
+    return new Uint8Array(buf);
+  }
+  function getChimeWavDataUri() {
+    if (!cachedWavDataUri) {
+      const wavBytes = buildChimeWavBytes(44100);
+      cachedWavDataUri = `data:audio/wav;base64,${bytesToBase64(wavBytes)}`;
+    }
+    return cachedWavDataUri;
+  }
+  function getOrCreateAudioContext(win = globalThis) {
+    if (sharedCtx && sharedCtx.state !== "closed") {
+      return sharedCtx;
+    }
+    const AudioCtx = win?.AudioContext || win?.webkitAudioContext;
+    if (!AudioCtx) return null;
+    try {
+      sharedCtx = new AudioCtx();
+      return sharedCtx;
+    } catch {
+      return null;
+    }
+  }
+  async function playWavElementFallback(win = globalThis) {
+    try {
+      const AudioCtor = win?.Audio || globalThis.Audio;
+      if (typeof AudioCtor !== "function") return false;
+      const audio = new AudioCtor(getChimeWavDataUri());
+      audio.volume = 0.72;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.then === "function") {
+        await playPromise;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function playCompletionChimeSound({
+    win = globalThis,
+    force = false,
+    dedupeMs = 1200
+  } = {}) {
+    const nowMs = Date.now();
+    if (!force && dedupeMs > 0 && nowMs - lastChimeEpochMs < dedupeMs) {
+      return false;
+    }
+    lastChimeEpochMs = nowMs;
+    try {
+      const ctx = getOrCreateAudioContext(win);
+      if (ctx) {
+        if (ctx.state === "suspended" && typeof ctx.resume === "function") {
+          await Promise.race([
+            ctx.resume().catch(() => {
+            }),
+            new Promise((r) => setTimeout(r, 140))
+          ]);
+        }
+        if (ctx.state === "running") {
+          const t0 = ctx.currentTime;
+          const notes = [
+            { offset: 0, dur: 0.24, freq: 523.25 },
+            { offset: 0.11, dur: 0.31, freq: 783.99 }
+          ];
+          for (const n of notes) {
+            const osc = ctx.createOscillator();
+            const overtone = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const overtoneGain = ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(n.freq, t0 + n.offset);
+            overtone.type = "sine";
+            overtone.frequency.setValueAtTime(n.freq * 2, t0 + n.offset);
+            overtoneGain.gain.setValueAtTime(0.22, t0 + n.offset);
+            gain.gain.setValueAtTime(1e-4, t0 + n.offset);
+            gain.gain.linearRampToValueAtTime(0.24, t0 + n.offset + 0.014);
+            gain.gain.exponentialRampToValueAtTime(8e-4, t0 + n.offset + n.dur);
+            osc.connect(gain);
+            overtone.connect(overtoneGain);
+            overtoneGain.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(t0 + n.offset);
+            overtone.start(t0 + n.offset);
+            osc.stop(t0 + n.offset + n.dur + 0.02);
+            overtone.stop(t0 + n.offset + n.dur + 0.02);
+          }
+          return true;
+        }
+      }
+    } catch {
+    }
+    return playWavElementFallback(win);
+  }
+
   // src/lib/providers/registry.js
   var DEFAULT_QUEUE_ORDER = Object.freeze([
     "groq",
@@ -498,7 +651,9 @@
     // "bottom" | "raised" | "top"
     captionMaxWidth: "balanced",
     // "compact" | "balanced" | "wide"
-    karaokeHighlight: false,
+    karaokeHighlight: true,
+    karaokeDelayMs: 0,
+    // -1500..3000 ms delay applied to word-by-word highlight
     showSpeakerLabels: true,
     pauseOnCaptionHover: false,
     clickCaptionToCopy: true,
@@ -587,6 +742,7 @@
       captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition) ? saved.captionPosition : "bottom",
       captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth) ? saved.captionMaxWidth : "balanced",
       karaokeHighlight: typeof saved.karaokeHighlight === "boolean" ? saved.karaokeHighlight : DEFAULT_SETTINGS.karaokeHighlight,
+      karaokeDelayMs: Number.isFinite(Number(saved.karaokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(saved.karaokeDelayMs) / 10) * 10)) : DEFAULT_SETTINGS.karaokeDelayMs,
       showSpeakerLabels: typeof saved.showSpeakerLabels === "boolean" ? saved.showSpeakerLabels : DEFAULT_SETTINGS.showSpeakerLabels,
       pauseOnCaptionHover: typeof saved.pauseOnCaptionHover === "boolean" ? saved.pauseOnCaptionHover : DEFAULT_SETTINGS.pauseOnCaptionHover,
       clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
@@ -627,6 +783,9 @@
     }
     if (Array.isArray(partial?.excludePatterns)) {
       next.excludePatterns = partial.excludePatterns.map((s) => String(s).trim()).filter(Boolean);
+    }
+    if (partial && "karaokeDelayMs" in partial) {
+      next.karaokeDelayMs = Number.isFinite(Number(partial.karaokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(partial.karaokeDelayMs) / 10) * 10)) : DEFAULT_SETTINGS.karaokeDelayMs;
     }
     await store.set({ [STORAGE_KEYS.SETTINGS]: next });
     return next;
@@ -748,9 +907,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.3",
+          currentVersion: "0.2.4",
           currentBuildId: "",
-          latestVersion: "0.2.3",
+          latestVersion: "0.2.4",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -762,9 +921,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.3"),
+        currentVersion: String(saved.currentVersion || "0.2.4"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -776,9 +935,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.3",
+        currentVersion: "0.2.4",
         currentBuildId: "",
-        latestVersion: "0.2.3",
+        latestVersion: "0.2.4",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -1606,7 +1765,7 @@ ${rows.join("\n")}
     async function renderUpdateBanner() {
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.3";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.4";
       if (popupUpdateStatusHint) {
         const folderPart = dirInfo.linked ? `Folder linked (${dirInfo.folderName})` : "Auto-check active";
         popupUpdateStatusHint.textContent = updateStatus?.updateAvailable ? `Update v${updateStatus.latestVersion} available \xB7 ${folderPart}` : `Installed v${curVer} \xB7 ${folderPart}`;
@@ -2025,6 +2184,16 @@ ${rows.join("\n")}
           updateStatus = await getUpdateStatus();
           await renderUpdateBanner();
         }
+        if (changes.settings?.newValue) {
+          settings = { ...settings, ...changes.settings.newValue };
+        }
+      });
+      chrome.runtime?.onMessage?.addListener((msg) => {
+        if (msg?.type === RUNTIME_MESSAGE.SUBTITLES_READY && settings.soundAlerts) {
+          playCompletionChimeSound({ win: window }).catch(() => {
+          });
+        }
+        return false;
       });
     } catch {
     }

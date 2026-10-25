@@ -403,7 +403,7 @@ export function App() {
             )}
             <a
               className="btn btn-sm btn-primary"
-              href="/releases/lm-subs-v0.2.3.zip"
+              href="/releases/lm-subs-v0.2.4.zip"
               download
             >
               Download extension
@@ -427,7 +427,7 @@ export function App() {
                 <div className="hero-cta-row">
                   <a
                     className="btn btn-primary"
-                    href="/releases/lm-subs-v0.2.3.zip"
+                    href="/releases/lm-subs-v0.2.4.zip"
                     download
                   >
                     Download Chrome extension (.zip)
@@ -450,7 +450,7 @@ export function App() {
                   </button>
                 </div>
                 <div className="hero-footnote">
-                  Open-source MIT Chrome extension (v0.2.3). Bring your own free-tier Groq, Mistral, or Gemini key.
+                  Open-source MIT Chrome extension (v0.2.4). Bring your own free-tier Groq, Mistral, or Gemini key.
                 </div>
               </div>
 
@@ -477,7 +477,7 @@ export function App() {
                     </button>
                     <a
                       className="btn"
-                      href="/releases/lm-subs-v0.2.3.zip"
+                      href="/releases/lm-subs-v0.2.4.zip"
                       download
                     >
                       Download .zip package
@@ -498,7 +498,7 @@ export function App() {
                   >
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Download and unzip:</strong>{" "}
-                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.3.zip</code> and extract it into a regular folder in your Documents folder.
+                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.4.zip</code> and extract it into a regular folder in your Documents folder.
                     </li>
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Load in Chrome:</strong>{" "}
@@ -579,14 +579,14 @@ export function App() {
 
                   <figure className="product-figure">
                     <img
-                      src="/assets/screenshots/01-player-subtitles.png?v=4"
-                      alt="LM Subs closed captions and export bar rendered inside a NotebookLM Video Overview player"
+                      src="/assets/screenshots/01-player-subtitles.png?v=6"
+                      alt="LM Subs highlighted spoken-word captions and bottom play-bar CC controls inside a Google NotebookLM Video Overview player"
                       width="1280"
                       height="800"
                       loading="lazy"
                     />
                     <figcaption>
-                      In-player caption bar inside Google NotebookLM with font sizing, timing offset, and direct file export.
+                      Highlighted spoken-word captions inside the video frame with compact CC and Transcript controls docked in the bottom play bar.
                     </figcaption>
                   </figure>
                 </div>
@@ -775,7 +775,7 @@ export function App() {
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div>
-            <strong>LM Subs</strong> (v0.2.3, MIT License) by{" "}
+            <strong>LM Subs</strong> (v0.2.4, MIT License) by{" "}
             <a
               className="link"
               href="/about"

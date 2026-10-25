@@ -8,6 +8,7 @@
 
 import { NOTEBOOKLM_HOSTS, RUNTIME_MESSAGE } from "../config/selectors.js";
 import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
+import { playCompletionChimeSound } from "../lib/chime.js";
 import {
   getProviderOriginPattern,
   getProviderSpec,
@@ -412,7 +413,7 @@ async function initPopup() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.3";
+      "0.2.4";
 
     if (popupUpdateStatusHint) {
       const folderPart = dirInfo.linked
@@ -904,6 +905,15 @@ async function initPopup() {
         updateStatus = await getUpdateStatus();
         await renderUpdateBanner();
       }
+      if (changes.settings?.newValue) {
+        settings = { ...settings, ...changes.settings.newValue };
+      }
+    });
+    chrome.runtime?.onMessage?.addListener((msg) => {
+      if (msg?.type === RUNTIME_MESSAGE.SUBTITLES_READY && settings.soundAlerts) {
+        playCompletionChimeSound({ win: window }).catch(() => {});
+      }
+      return false;
     });
   } catch {
     // Ignore

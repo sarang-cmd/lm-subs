@@ -80,7 +80,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   captionBgOpacity: 88, // 0..100
   captionPosition: "bottom", // "bottom" | "raised" | "top"
   captionMaxWidth: "balanced", // "compact" | "balanced" | "wide"
-  karaokeHighlight: false,
+  karaokeHighlight: true,
+  karaokeDelayMs: 0, // -1500..3000 ms delay applied to word-by-word highlight
   showSpeakerLabels: true,
   pauseOnCaptionHover: false,
   clickCaptionToCopy: true,
@@ -216,6 +217,9 @@ export async function getSettings(storageArea) {
       typeof saved.karaokeHighlight === "boolean"
         ? saved.karaokeHighlight
         : DEFAULT_SETTINGS.karaokeHighlight,
+    karaokeDelayMs: Number.isFinite(Number(saved.karaokeDelayMs))
+      ? Math.max(-1500, Math.min(3000, Math.round(Number(saved.karaokeDelayMs) / 10) * 10))
+      : DEFAULT_SETTINGS.karaokeDelayMs,
     showSpeakerLabels:
       typeof saved.showSpeakerLabels === "boolean"
         ? saved.showSpeakerLabels
@@ -304,6 +308,12 @@ export async function saveSettings(partial, storageArea) {
     next.excludePatterns = partial.excludePatterns
       .map((s) => String(s).trim())
       .filter(Boolean);
+  }
+
+  if (partial && "karaokeDelayMs" in partial) {
+    next.karaokeDelayMs = Number.isFinite(Number(partial.karaokeDelayMs))
+      ? Math.max(-1500, Math.min(3000, Math.round(Number(partial.karaokeDelayMs) / 10) * 10))
+      : DEFAULT_SETTINGS.karaokeDelayMs;
   }
 
   await store.set({ [STORAGE_KEYS.SETTINGS]: next });
@@ -897,9 +907,9 @@ export async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.3",
+        currentVersion: "0.2.4",
         currentBuildId: "",
-        latestVersion: "0.2.3",
+        latestVersion: "0.2.4",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -911,9 +921,9 @@ export async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.3"),
+      currentVersion: String(saved.currentVersion || "0.2.4"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -925,9 +935,9 @@ export async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.3",
+      currentVersion: "0.2.4",
       currentBuildId: "",
-      latestVersion: "0.2.3",
+      latestVersion: "0.2.4",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",

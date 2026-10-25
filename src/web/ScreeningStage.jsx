@@ -14,6 +14,9 @@ function formatClock(sec) {
 export function ScreeningStage() {
   const prefersReducedMotion = useReducedMotion();
   const [playing, setPlaying] = useState(false);
+  const [ccEnabled, setCcEnabled] = useState(true);
+  const [wordHighlight, setWordHighlight] = useState(true);
+  const [highlightDelayMs, setHighlightDelayMs] = useState(0);
   const [currentTime, setCurrentTime] = useState(6.2);
   const [fontSize, setFontSize] = useState("medium");
   const [captionTheme, setCaptionTheme] = useState("classic");
@@ -130,48 +133,99 @@ export function ScreeningStage() {
             </ul>
           </div>
 
-          <div
-            className="stage-caption-overlay"
-            data-size={fontSize}
-            style={{
-              background:
-                captionTheme === "minimal"
-                  ? "transparent"
-                  : captionTheme === "paper"
-                    ? "rgba(253, 253, 254, 0.94)"
-                    : captionTheme === "amber"
-                      ? "rgba(28, 22, 12, 0.92)"
-                      : captionTheme === "contrast"
-                        ? "#050608"
-                        : "rgba(15, 17, 20, 0.92)",
-              borderColor:
-                captionTheme === "minimal"
-                  ? "transparent"
-                  : captionTheme === "contrast"
-                    ? "#3b82f6"
-                    : captionTheme === "amber"
-                      ? "rgba(251, 191, 36, 0.35)"
-                      : "rgba(255, 255, 255, 0.12)",
-              borderRadius: captionTheme === "cinema" ? "999px" : "6px",
-              textShadow:
-                captionTheme === "minimal"
-                  ? "0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.85)"
-                  : "none",
-              color:
-                captionTheme === "paper" && captionColor === "white"
-                  ? "#111315"
-                  : captionTheme === "amber" && captionColor === "white"
-                    ? "#fde68a"
-                    : captionColor === "yellow"
-                      ? "#fde047"
-                      : captionColor === "cyan"
-                        ? "#67e8f9"
-                        : "#fdfdfe",
-            }}
-            aria-live="off"
-          >
-            {activeCue.text}
-          </div>
+          {ccEnabled && (
+            <div
+              className="stage-caption-overlay"
+              data-size={fontSize}
+              style={{
+                background:
+                  captionTheme === "minimal"
+                    ? "transparent"
+                    : captionTheme === "paper"
+                      ? "rgba(253, 253, 254, 0.94)"
+                      : captionTheme === "amber"
+                        ? "rgba(28, 22, 12, 0.92)"
+                        : captionTheme === "contrast"
+                          ? "#050608"
+                          : "rgba(15, 17, 20, 0.92)",
+                borderColor:
+                  captionTheme === "minimal"
+                    ? "transparent"
+                    : captionTheme === "contrast"
+                      ? "#3b82f6"
+                      : captionTheme === "amber"
+                        ? "rgba(251, 191, 36, 0.35)"
+                        : "rgba(255, 255, 255, 0.12)",
+                borderRadius: captionTheme === "cinema" ? "999px" : "6px",
+                textShadow:
+                  captionTheme === "minimal"
+                    ? "0 1px 3px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.85)"
+                    : "none",
+                color:
+                  captionTheme === "paper" && captionColor === "white"
+                    ? "#111315"
+                    : captionTheme === "amber" && captionColor === "white"
+                      ? "#fde68a"
+                      : captionColor === "yellow"
+                        ? "#fde047"
+                        : captionColor === "cyan"
+                          ? "#67e8f9"
+                          : "#fdfdfe",
+              }}
+              aria-live="off"
+            >
+              {(() => {
+                if (!wordHighlight) return activeCue.text;
+                const words = activeCue.text.split(/(\s+)/);
+                const nonSpace = words.filter((w) => w.trim()).length || 1;
+                const delayed = effectiveTime - highlightDelayMs / 1000;
+                const rawProg =
+                  (delayed - activeCue.startSec) /
+                  Math.max(0.25, activeCue.endSec - activeCue.startSec);
+                const cueProgress = Math.max(0, Math.min(1, rawProg));
+                const activeIdx =
+                  highlightDelayMs > 0 && rawProg < 0
+                    ? 0
+                    : Math.min(
+                        nonSpace,
+                        Math.max(1, Math.ceil(cueProgress * nonSpace))
+                      );
+                let seen = 0;
+                return words.map((tok, idx) => {
+                  if (!tok.trim()) return <span key={idx}>{tok}</span>;
+                  seen += 1;
+                  if (seen === activeIdx) {
+                    return (
+                      <span
+                        key={idx}
+                        style={{
+                          background:
+                            captionTheme === "paper"
+                              ? "rgba(0, 85, 212, 0.16)"
+                              : "rgba(29, 92, 246, 0.48)",
+                          color:
+                            captionTheme === "paper" ? "#0055d4" : "#ffffff",
+                          padding: "1px 5px",
+                          borderRadius: "4px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {tok}
+                      </span>
+                    );
+                  }
+                  if (seen > activeIdx) {
+                    return (
+                      <span key={idx} style={{ opacity: 0.64 }}>
+                        {tok}
+                      </span>
+                    );
+                  }
+                  return <span key={idx}>{tok}</span>;
+                });
+              })()}
+            </div>
+          )}
 
           <div className="stage-controls">
             <label htmlFor="stage-scrubber-input" style={{ position: "absolute", left: "-9999px" }}>
@@ -196,8 +250,45 @@ export function ScreeningStage() {
                   data-active={playing ? "true" : "false"}
                   onClick={() => setPlaying((p) => !p)}
                 >
-                  {playing ? "Pause" : "Play demo"}
+                  {playing ? "Pause" : "Play"}
                 </button>
+                <button
+                  type="button"
+                  className="stage-btn"
+                  data-active={ccEnabled ? "true" : "false"}
+                  title="Toggle closed captions"
+                  onClick={() => setCcEnabled((v) => !v)}
+                  style={{
+                    fontWeight: 700,
+                    letterSpacing: "0.03em",
+                    boxShadow: ccEnabled ? "inset 0 -2px 0 #3b82f6" : "none",
+                  }}
+                >
+                  CC
+                </button>
+                <button
+                  type="button"
+                  className="stage-btn"
+                  data-active={wordHighlight ? "true" : "false"}
+                  title="Toggle spoken-word highlight"
+                  onClick={() => setWordHighlight((v) => !v)}
+                >
+                  Highlight
+                </button>
+                <label htmlFor="stage-delay-select" className="stage-meta">
+                  Word delay
+                </label>
+                <select
+                  id="stage-delay-select"
+                  className="stage-btn"
+                  value={highlightDelayMs}
+                  onChange={(e) => setHighlightDelayMs(Number(e.target.value))}
+                >
+                  <option value={0}>0 ms</option>
+                  <option value={150}>+150 ms</option>
+                  <option value={300}>+300 ms</option>
+                  <option value={500}>+500 ms</option>
+                </select>
                 <span className="stage-meta">
                   {formatClock(currentTime)} / {formatClock(SAMPLE_VIDEO_OVERVIEW.durationSec)}
                 </span>

@@ -170,7 +170,8 @@ export function StatsView({ token, user, onOpenSignIn }) {
               </div>
               <div className="kpi-label">Videos captioned</div>
               <div className="kpi-sub">
-                {numFmt.format(totals.totalCues || 0)} synchronized cues
+                {numFmt.format(totals.totalCues || 0)} synchronized{" "}
+                {Number(totals.totalCues) === 1 ? "cue" : "cues"}
               </div>
             </div>
 
@@ -180,7 +181,8 @@ export function StatsView({ token, user, onOpenSignIn }) {
               </div>
               <div className="kpi-label">Spoken audio indexed</div>
               <div className="kpi-sub">
-                {numFmt.format(totals.cloudHitCount || 0)} cross-device cache hits
+                {numFmt.format(totals.cloudHitCount || 0)} cross-device cache{" "}
+                {Number(totals.cloudHitCount) === 1 ? "hit" : "hits"}
               </div>
             </div>
 
@@ -202,8 +204,10 @@ export function StatsView({ token, user, onOpenSignIn }) {
               </div>
               <div className="kpi-label">Median caption time</div>
               <div className="kpi-sub">
-                {numFmt.format(totals.failoverCount || 0)} rate-limit failovers,{" "}
-                {numFmt.format(totals.exportCount || 0)} exports
+                {numFmt.format(totals.failoverCount || 0)} rate-limit{" "}
+                {Number(totals.failoverCount) === 1 ? "failover" : "failovers"},{" "}
+                {numFmt.format(totals.exportCount || 0)}{" "}
+                {Number(totals.exportCount) === 1 ? "export" : "exports"}
               </div>
             </div>
           </div>

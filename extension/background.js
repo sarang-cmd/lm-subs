@@ -2748,7 +2748,9 @@ var DEFAULT_SETTINGS = Object.freeze({
   // "bottom" | "raised" | "top"
   captionMaxWidth: "balanced",
   // "compact" | "balanced" | "wide"
-  karaokeHighlight: false,
+  karaokeHighlight: true,
+  karaokeDelayMs: 0,
+  // -1500..3000 ms delay applied to word-by-word highlight
   showSpeakerLabels: true,
   pauseOnCaptionHover: false,
   clickCaptionToCopy: true,
@@ -2837,6 +2839,7 @@ async function getSettings(storageArea) {
     captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition) ? saved.captionPosition : "bottom",
     captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth) ? saved.captionMaxWidth : "balanced",
     karaokeHighlight: typeof saved.karaokeHighlight === "boolean" ? saved.karaokeHighlight : DEFAULT_SETTINGS.karaokeHighlight,
+    karaokeDelayMs: Number.isFinite(Number(saved.karaokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(saved.karaokeDelayMs) / 10) * 10)) : DEFAULT_SETTINGS.karaokeDelayMs,
     showSpeakerLabels: typeof saved.showSpeakerLabels === "boolean" ? saved.showSpeakerLabels : DEFAULT_SETTINGS.showSpeakerLabels,
     pauseOnCaptionHover: typeof saved.pauseOnCaptionHover === "boolean" ? saved.pauseOnCaptionHover : DEFAULT_SETTINGS.pauseOnCaptionHover,
     clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
@@ -2877,6 +2880,9 @@ async function saveSettings(partial, storageArea) {
   }
   if (Array.isArray(partial?.excludePatterns)) {
     next.excludePatterns = partial.excludePatterns.map((s) => String(s).trim()).filter(Boolean);
+  }
+  if (partial && "karaokeDelayMs" in partial) {
+    next.karaokeDelayMs = Number.isFinite(Number(partial.karaokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(partial.karaokeDelayMs) / 10) * 10)) : DEFAULT_SETTINGS.karaokeDelayMs;
   }
   await store.set({ [STORAGE_KEYS.SETTINGS]: next });
   return next;
@@ -3296,9 +3302,9 @@ async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.3",
+        currentVersion: "0.2.4",
         currentBuildId: "",
-        latestVersion: "0.2.3",
+        latestVersion: "0.2.4",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -3310,9 +3316,9 @@ async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.3"),
+      currentVersion: String(saved.currentVersion || "0.2.4"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.3"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -3324,9 +3330,9 @@ async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.3",
+      currentVersion: "0.2.4",
       currentBuildId: "",
-      latestVersion: "0.2.3",
+      latestVersion: "0.2.4",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -3703,7 +3709,7 @@ function createRuntimeDispatcher({
     } catch {
     }
   }
-  async function fireDesktopAlertIfPermitted({ id, title, body }) {
+  async function fireDesktopAlertIfPermitted({ id, title, body, silent = false }) {
     if (!notificationsApi?.create) return false;
     try {
       if (permissionsApi?.contains) {
@@ -3731,7 +3737,8 @@ function createRuntimeDispatcher({
               type: "basic",
               iconUrl,
               title: String(title || "LM Subs"),
-              message: String(body || "")
+              message: String(body || ""),
+              silent: Boolean(silent)
             },
             () => {
               void globalThis.chrome?.runtime?.lastError;
@@ -3784,7 +3791,8 @@ function createRuntimeDispatcher({
       await fireDesktopAlertIfPermitted({
         id: notification.id,
         title: notification.title,
-        body: notification.body
+        body: notification.body,
+        silent: !settings.soundAlerts
       });
     }
     return notification;
@@ -4140,7 +4148,7 @@ function createRuntimeDispatcher({
     return { ok: true, profile: updatedProfile, mergeResult };
   }
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.4";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -5149,14 +5157,21 @@ function createRuntimeDispatcher({
         fireDesktop: true
       }).catch(() => {
       });
-      notifyTabMessage(tabId, {
+      const readyMsg = {
         type: RUNTIME_MESSAGE.SUBTITLES_READY,
         cacheKey: savedEntry.cacheKey,
         artifactId: savedEntry.artifactId,
         title: savedEntry.title,
         cueCount: savedEntry.cueCount,
         provider: txResult.providerName
-      });
+      };
+      notifyTabMessage(tabId, readyMsg);
+      try {
+        runtimeApi?.sendMessage?.(readyMsg, () => {
+          void globalThis.chrome?.runtime?.lastError;
+        });
+      } catch {
+      }
       getCloudSyncProfile(storageArea).then((prof) => {
         if (prof.connected && prof.autoSync) {
           return runBidirectionalCloudSync({ pushOnly: true });
@@ -5546,7 +5561,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.4";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,

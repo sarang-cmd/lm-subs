@@ -32,9 +32,9 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
             You do not need coding tools, terminal commands, or a credit card. Follow the four steps below in Google Chrome, Brave, Microsoft Edge, or Arc.
           </p>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "20px" }}>
-            <a
-              className="btn btn-primary"
-            href="/releases/lm-subs-v0.2.3.zip"
+          <a
+            className="btn btn-primary"
+            href="/releases/lm-subs-v0.2.4.zip"
             download
           >
             Download Chrome extension (.zip)
@@ -70,7 +70,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               Download and unzip the extension folder
             </h2>
             <p className="section-prose">
-              Click the download button above to save <code>lm-subs-v0.2.3.zip</code> to your computer, then extract it into a regular folder. Keep that folder somewhere permanent such as your Documents folder so Chrome can load it whenever you open your browser.
+              Click the download button above to save <code>lm-subs-v0.2.4.zip</code> to your computer, then extract it into a regular folder. Keep that folder somewhere permanent such as your Documents folder so Chrome can load it whenever you open your browser.
             </p>
           </div>
 
@@ -88,7 +88,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               <Tabs.Content value="mac" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
                   <li>Open your <strong style={{ color: "var(--ink)" }}>Downloads</strong> folder in Finder.</li>
-                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.3.zip</code>. macOS creates an unzipped folder next to the zip file automatically.</li>
+                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.4.zip</code>. macOS creates an unzipped folder next to the zip file automatically.</li>
                   <li>Move that unzipped folder into <strong style={{ color: "var(--ink)" }}>Documents</strong> so you do not delete it later while cleaning Downloads.</li>
                 </ol>
               </Tabs.Content>
@@ -96,7 +96,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               <Tabs.Content value="windows" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
                   <li>Open File Explorer and go to <strong style={{ color: "var(--ink)" }}>Downloads</strong>.</li>
-                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.3.zip</code> and click <strong style={{ color: "var(--ink)" }}>Extract All...</strong>, then click <strong style={{ color: "var(--ink)" }}>Extract</strong>.</li>
+                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.4.zip</code> and click <strong style={{ color: "var(--ink)" }}>Extract All...</strong>, then click <strong style={{ color: "var(--ink)" }}>Extract</strong>.</li>
                   <li>Notice that Windows now shows a regular folder without a zipper icon. Remember where that unzipped folder is saved.</li>
                 </ol>
               </Tabs.Content>
@@ -204,7 +204,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/03-toolbar-popup.png?v=4"
+              src="/assets/screenshots/03-toolbar-popup.png?v=6"
               alt="LM Subs Chrome toolbar popup showing where to paste and save your free Groq API key"
               width="1280"
               height="800"
@@ -248,7 +248,7 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
               , open any notebook, and play a Video Overview. Within about three seconds, synchronized closed captions appear at the bottom of the video player.
             </p>
             <p className="section-prose">
-              Hover over the top-right corner of the video to toggle <strong>CC</strong>, resize caption text with <strong>A-</strong> and <strong>A+</strong>, nudge timing, or download <code>.srt</code>, <code>.vtt</code>, <code>.txt</code>, or <code>.json</code> transcripts.
+              Use the compact <strong>CC</strong>, <strong>Transcript</strong>, and <strong>•••</strong> controls docked inside the bottom play bar to toggle captions, adjust word-for-word highlight delay, customize styling, or download <code>.srt</code>, <code>.vtt</code>, <code>.txt</code>, <code>.md</code>, <code>.csv</code>, or <code>.json</code> transcripts.
             </p>
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "18px" }}>
               <button
@@ -270,14 +270,14 @@ export function GuideView({ onNavigate, onOpenSignIn, user }) {
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/01-player-subtitles.png?v=4"
-              alt="Synchronized closed captions and export controls inside a NotebookLM Video Overview"
+              src="/assets/screenshots/01-player-subtitles.png?v=6"
+              alt="Highlighted spoken-word captions and bottom play-bar controls inside a NotebookLM Video Overview"
               width="1280"
               height="800"
               loading="lazy"
             />
             <figcaption>
-              Captions render automatically inside inline playback, Fullscreen, and Picture-in-Picture.
+              Highlighted spoken-word captions render inside inline playback, Fullscreen, and Picture-in-Picture with controls integrated in the bottom play bar.
             </figcaption>
           </figure>
         </div>
