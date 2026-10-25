@@ -4,6 +4,24 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `v0.2.4` (2026-10-25)
+
+Docks compact player controls inside NotebookLM's bottom play bar, enables 3-state spoken-word caption highlighting by default with adjustable word-for-word highlight delay (`karaokeDelayMs`), upgrades the completion chime (`soundAlerts`) with WebAudio user-gesture unlock and PCM WAV fallback, refreshes the social preview hero card around the Transformer architecture Video Overview, and replaces all product screenshots with real browser renders.
+
+### Added
+* **Adjustable word-for-word highlight delay (`src/lib/storage.js`, `src/content/player-overlay.js`, `src/content/content.js`, `extension/options.html`, `src/options/options.js`, `src/web/ScreeningStage.jsx`):** Added `karaokeDelayMs` (`-1500 ms` to `+3000 ms`, default `0 ms`) so users can offset progressive spoken-word highlighting relative to audio delivery using the in-player Style slider, `{` / `}` keyboard shortcuts (`-50 ms` / `+50 ms`), extension Settings slider, or interactive web stage selector.
+* **Compact bottom play-bar controls and default 3-state word highlighting (`src/content/player-overlay.js`, `src/lib/storage.js`, `src/web/ScreeningStage.jsx`):** Docked a streamlined pill (`CC`, status readout, `Transcript`, and `•••` popover trigger) directly inside the bottom video play bar, moved secondary styling, timing, study loop, and 6-format export controls into an anchored `.tools-popover`, and enabled 3-state progressive word highlighting (spoken, Cobalt active word pill, and upcoming words) by default.
+* **Chime preview button (`extension/options.html`, `src/options/options.js`):** Added a `Test sound chime` button in Settings alongside `Test desktop alert`.
+
+### Fixed
+* **Audible completion sound chime (`src/lib/chime.js`, `src/content/content.js`, `src/popup/popup.js`, `src/background/service-worker.js`):** Replaced the suspended `0.055`-gain `AudioContext` sine oscillator with a shared user-gesture unlocked WebAudio synthesizer (`0.24` harmonic gain, `await ctx.resume()`) backed by a 16-bit 44.1 kHz RIFF PCM WAV `HTMLAudioElement` fallback and explicit `silent: !settings.soundAlerts` handling on OS notifications.
+* **Singular KPI grammar (`src/web/StatsView.jsx`):** Fixed singular/plural formatting for `1 active sync day` vs `N active sync days` on the Statistics page.
+
+### Changed
+* **Real product UI screenshots and Transformer Video Overview social preview (`docs/assets/banner-social-1280x640.png`, `docs/assets/screenshots/01..04.png`, `scripts/generate-assets.mjs`):** Updated the social preview hero banner with an *Attention Is All You Need* Transformer architecture Video Overview showing inside-video highlighted captions and bottom play-bar `CC` controls, removed synthetic screenshot SVG generators from `scripts/generate-assets.mjs`, and captured authentic Chromium renders of all extension and web views.
+
+---
+
 ## `v0.2.3` (2026-10-25)
 
 Adds the live Caption Customization Studio (6 backdrop themes, 4 typefaces, 5 text colors, 5 sizes, 3 vertical positions, continuous opacity, and progressive spoken-word highlight), NotebookLM study tools (smart topic chapters, cue bookmarks, chat citation insertion, sentence loop, cue jump, playback speed, Picture-in-Picture, and `.CSV` export), machine-counted codebase telemetry on `/about`, and fixes split-column button clipping in extension settings.

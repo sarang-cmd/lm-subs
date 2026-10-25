@@ -12,8 +12,18 @@ import { ALARM_NAMES, RUNTIME_MESSAGE } from "../src/config/selectors.js";
 import { createToastManager } from "../src/content/toast.js";
 import { VideoSubtitleController } from "../src/content/player-overlay.js";
 import { LM_SUBS_LOGO_DATA_URI, createBrandLogoElement } from "../src/lib/brand-logo.js";
+import {
+  buildChimeWavBytes,
+  getChimeWavDataUri,
+  playCompletionChimeSound,
+} from "../src/lib/chime.js";
 import { PROJECT_STATS } from "../src/lib/project-stats.js";
-import { getSettings, saveSettings, setApiKey } from "../src/lib/storage.js";
+import {
+  DEFAULT_SETTINGS,
+  getSettings,
+  saveSettings,
+  setApiKey,
+} from "../src/lib/storage.js";
 import { extractZipArchive } from "../src/lib/unpacked-updater.js";
 
 function createMemoryStorage() {
@@ -438,27 +448,29 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
 
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
   const manifestJson = JSON.parse(fs.readFileSync(path.resolve("extension/manifest.json"), "utf8"));
-  assert.equal(pkgJson.version, "0.2.3");
-  assert.equal(manifestJson.version, "0.2.3");
+  assert.equal(pkgJson.version, "0.2.4");
+  assert.equal(manifestJson.version, "0.2.4");
   assert.equal(pkgJson.repository?.url, "https://github.com/sarang-cmd/lm-subs.git");
   assert.equal(pkgJson.homepage, "https://lm-subs.vercel.app");
-  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.3.zip")));
+  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.4.zip")));
   assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-latest.zip")));
   assert.ok(fs.existsSync(path.resolve("docs/releases/latest.json")));
+  assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.3.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.2.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.1.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.0.zip")));
 
   const progressMd = fs.readFileSync(path.resolve("progress.md"), "utf8");
   assert.ok(
-    progressMd.includes("## `v0.2.3`") &&
+    progressMd.includes("## `v0.2.4`") &&
+      progressMd.includes("## `v0.2.3`") &&
       progressMd.includes("## `v0.2.2`") &&
       progressMd.includes("## `v0.2.1`") &&
       progressMd.includes("## `v0.2.0`") &&
       progressMd.includes("## `v0.1.2`") &&
       progressMd.includes("## `v0.1.1`") &&
       progressMd.includes("## `v0.1.0`"),
-    "progress.md must document versions 0.1.0 through 0.2.3"
+    "progress.md must document versions 0.1.0 through 0.2.4"
   );
   assert.ok(
     !progressMd.includes("—") && !progressMd.includes("–"),
@@ -828,7 +840,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   assert.equal(verRes.status, 200);
   const verJson = await verRes.json();
   assert.equal(verJson.ok, true);
-  assert.equal(verJson.version, "0.2.3");
+  assert.equal(verJson.version, "0.2.4");
 
   const realZipBytes = new Uint8Array(
     fs.readFileSync(path.resolve("docs/releases/lm-subs-latest.zip"))
@@ -836,7 +848,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   const latestMeta = JSON.parse(
     fs.readFileSync(path.resolve("docs/releases/latest.json"), "utf8")
   );
-  assert.equal(latestMeta.version, "0.2.3");
+  assert.equal(latestMeta.version, "0.2.4");
   assert.match(latestMeta.buildId, /^[0-9a-f]{12}$/);
   assert.match(latestMeta.zipSha256, /^[0-9a-f]{64}$/);
 
@@ -971,7 +983,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   assert.equal(checkUnlinked.autoApplied, false);
   assert.equal(badges.at(-1), "UPD");
   assert.equal(desktopAlerts.length, 1);
-  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.3/);
+  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.4/);
   assert.equal(desktopAlerts[0].opts.iconUrl, "icons/icon128.png");
 
   // 4. Linked unpacked folder: CHECK_FOR_UPDATES automatically verifies SHA-256, writes all files, notifies, and reloads!
@@ -1231,7 +1243,7 @@ test("Caption Studio Customizations, NotebookLM Study Controls, Split-Grid Overf
   ctrl.destroy();
 
   // 4. Verify real machine-counted PROJECT_STATS for /about
-  assert.equal(PROJECT_STATS.version, "0.2.3");
+  assert.equal(PROJECT_STATS.version, "0.2.4");
   assert.ok(PROJECT_STATS.totalLoc > 25000, "PROJECT_STATS must reflect real repository LOC");
   assert.ok(PROJECT_STATS.nonBlankLoc > 20000);
   assert.ok(PROJECT_STATS.sourceFiles >= 40);
@@ -1241,5 +1253,157 @@ test("Caption Studio Customizations, NotebookLM Study Controls, Split-Grid Overf
   const aboutSrc = fs.readFileSync(path.resolve("src/web/AboutView.jsx"), "utf8");
   assert.ok(aboutSrc.includes("PROJECT_STATS") && aboutSrc.includes("Project and codebase metrics"));
 });
+
+test("v0.2.4: Bottom play-bar controls, 3-state word highlight delay (karaokeDelayMs), and audible RIFF WAV chime", async () => {
+  // 1. Default settings turn on highlighted captions with 0 ms delay; karaokeDelayMs persists & clamps
+  assert.equal(DEFAULT_SETTINGS.karaokeHighlight, true);
+  assert.equal(DEFAULT_SETTINGS.karaokeDelayMs, 0);
+
+  const mem = createMemoryStorage();
+  const saved = await saveSettings({ karaokeDelayMs: 350 }, mem);
+  assert.equal(saved.karaokeDelayMs, 350);
+  const clampedHigh = await saveSettings({ karaokeDelayMs: 9900 }, mem);
+  assert.equal(clampedHigh.karaokeDelayMs, 3000);
+  const clampedLow = await saveSettings({ karaokeDelayMs: -9900 }, mem);
+  assert.equal(clampedLow.karaokeDelayMs, -1500);
+
+  // 2. Verify compact bottom play-bar pill + secondary tools popover + word-highlight delay timing
+  function makeNode(tag) {
+    return {
+      tagName: String(tag).toUpperCase(),
+      className: "",
+      dataset: {},
+      style: {},
+      children: [],
+      textContent: "",
+      value: "",
+      firstChild: null,
+      appendChild(child) {
+        this.children.push(child);
+        this.firstChild = this.children[0] || null;
+        return child;
+      },
+      append(...nodes) {
+        for (const n of nodes) this.appendChild(n);
+      },
+      removeChild(child) {
+        const idx = this.children.indexOf(child);
+        if (idx >= 0) this.children.splice(idx, 1);
+        this.firstChild = this.children[0] || null;
+      },
+      remove() {},
+      addEventListener() {},
+      removeEventListener() {},
+      setAttribute() {},
+      querySelector() {
+        return null;
+      },
+      attachShadow() {
+        return makeNode("shadow");
+      },
+    };
+  }
+
+  const mockDoc = {
+    createElement: (t) => makeNode(t),
+    createTextNode: (txt) => ({ nodeType: 3, textContent: txt }),
+    body: makeNode("body"),
+  };
+  const parent = makeNode("div");
+  const mockVideo = {
+    parentElement: parent,
+    currentTime: 0.4,
+    paused: false,
+    playbackRate: 1,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  let patchedDelay = null;
+  const ctrl = new VideoSubtitleController(mockVideo, {
+    doc: mockDoc,
+    initialKaraokeDelayMs: 0,
+    onStylePatchChange: (p) => {
+      if ("karaokeDelayMs" in p) patchedDelay = p.karaokeDelayMs;
+    },
+  });
+
+  // Compact bottom play-bar pill keeps only primary controls + hidden file input
+  assert.equal(ctrl.karaokeHighlight, true);
+  assert.equal(ctrl.toolbar.children.length, 5);
+  assert.equal(ctrl.toggleToolsPopover(), true);
+  assert.equal(ctrl.toolsPopoverEl.dataset.open, "true");
+
+  ctrl.setCues(
+    [{ startSec: 0, endSec: 4, text: "Multi-head self-attention computes context in parallel." }],
+    { title: "Transformer Overview" }
+  );
+
+  // At t=0.4s with 0ms delay, word 1 is highlighted as `.caption-word-current`
+  assert.ok(
+    ctrl.captionBox.children.some((c) =>
+      String(c.className || "").includes("caption-word-current")
+    ),
+    "Active spoken word must receive .caption-word-current pill"
+  );
+
+  // Delay word highlight by +600ms -> at t=0.4s, delayedTime = -0.2s < startSec, so no word is highlighted yet
+  assert.equal(ctrl.adjustKaraokeDelay(600), 600);
+  assert.equal(patchedDelay, 600);
+  assert.equal(
+    ctrl.captionBox.children.some((c) =>
+      String(c.className || "").includes("caption-word-current")
+    ),
+    false,
+    "With +600ms delay at t=0.4s, active-word highlight waits until syllable onset"
+  );
+  assert.ok(
+    ctrl.captionBox.children.every(
+      (c) => !c.className || c.className === "caption-word-upcoming"
+    )
+  );
+
+  // Advance video past the +600ms delay (t=0.8s) -> word 1 now highlights!
+  mockVideo.currentTime = 0.8;
+  ctrl._renderActiveCue();
+  assert.ok(
+    ctrl.captionBox.children.some((c) =>
+      String(c.className || "").includes("caption-word-current")
+    ),
+    "Once playback passes startSec + karaokeDelayMs, word highlight activates"
+  );
+  ctrl.destroy();
+
+  // 3. Verify 16-bit 44.1 kHz RIFF PCM WAV completion chime generator & fallback playback
+  const wav = buildChimeWavBytes();
+  assert.equal(Buffer.from(wav.slice(0, 4)).toString("ascii"), "RIFF");
+  assert.equal(Buffer.from(wav.slice(8, 12)).toString("ascii"), "WAVE");
+  assert.ok(wav.byteLength > 20000, "Chime WAV must contain synthesized 44.1 kHz PCM samples");
+  const uri = getChimeWavDataUri();
+  assert.ok(uri.startsWith("data:audio/wav;base64,"));
+
+  let playedFallback = 0;
+  const mockWin = {
+    Audio: class {
+      constructor(src) {
+        this.src = src;
+        this.volume = 1;
+      }
+      play() {
+        playedFallback += 1;
+        return Promise.resolve();
+      }
+    },
+  };
+  const okChime = await playCompletionChimeSound({ win: mockWin, force: true });
+  assert.equal(okChime, true);
+  assert.equal(playedFallback, 1);
+
+  // Ensure scripts/generate-assets.mjs contains zero synthetic screenshot or banner generators
+  const genAssetsSrc = fs.readFileSync(path.resolve("scripts/generate-assets.mjs"), "utf8");
+  assert.equal(genAssetsSrc.includes("01-player-subtitles"), false);
+  assert.equal(genAssetsSrc.includes("BANNER_SVG"), false);
+});
+
 
 

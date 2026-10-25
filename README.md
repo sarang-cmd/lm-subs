@@ -14,11 +14,11 @@
 [![Tests](docs/assets/badges/tests.svg)](#development-and-testing)
 [![License: MIT](docs/assets/badges/license.svg)](LICENSE)
 
-[**Download `lm-subs-v0.2.3.zip`**](docs/releases/lm-subs-v0.2.3.zip) | [**Beginner Setup Guide**](#install-guide-no-coding-or-credit-card-needed) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
+[**Download `lm-subs-v0.2.4.zip`**](docs/releases/lm-subs-v0.2.4.zip) | [**Beginner Setup Guide**](#install-guide-no-coding-or-credit-card-needed) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
 
 <br />
 
-<img src="docs/assets/banner-social-1280x640.png" width="100%" alt="LM Subs: Synchronized captions, exports, and opt-in Neon Postgres sync for Google NotebookLM" />
+<img src="docs/assets/banner-social-1280x640.png" width="100%" alt="LM Subs: Highlighted captions inside the video and bottom play-bar CC controls for Google NotebookLM" />
 
 </div>
 
@@ -29,10 +29,10 @@
 You do not need terminal commands, developer tools, or a paid subscription to use LM Subs. Follow these four steps in **Google Chrome**, **Brave**, **Microsoft Edge**, or **Arc**:
 
 ### Step 1: Download and unzip the extension folder
-1. Download [**`lm-subs-v0.2.3.zip`**](docs/releases/lm-subs-v0.2.3.zip) to your computer.
+1. Download [**`lm-subs-v0.2.4.zip`**](docs/releases/lm-subs-v0.2.4.zip) to your computer.
 2. **Unzip** it into a normal folder:
-   * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.3.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
-   * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.3.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
+   * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.4.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
+   * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.4.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
 
 ### Step 2: Load the folder in Chrome
 1. Open a new browser tab, type `chrome://extensions` into the address bar, and press **Enter** (`brave://extensions` in Brave, `edge://extensions` in Edge).
@@ -48,18 +48,18 @@ LM Subs connects directly from your browser to a speech-to-text provider so nobo
 
 ### Step 4: Watch any NotebookLM Video Overview
 1. Open [notebooklm.google.com](https://notebooklm.google.com), open any notebook, and play a **Video Overview**.
-2. Within about three seconds, synchronized captions appear at the bottom of the player.
-3. Hover near the top-right corner of the video to toggle **CC**, open the interactive click-to-seek **Transcript** drawer (`T`), switch caption backdrop (`B`), adjust font size (**A-** / **A+**), shift timing (`-0.25s` / `+0.25s`), view keyboard shortcuts (`?`), or export **`.srt`**, **`.vtt`**, **`.txt`**, **`.md`** study notes, or **`.json`** files.
+2. Within about three seconds, synchronized captions with active-word highlighting appear inside the lower frame of the video player (accompanied by an optional completion chime).
+3. Use the compact **CC**, **Transcript**, and **•••** controls docked inside the bottom play bar to toggle captions (`C`), open the click-to-seek **Transcript** drawer (`T`), adjust word-for-word highlight delay (`{` / `}` or the Style slider), switch caption backdrop (`B`), resize text (**A-** / **A+**), shift cue timing (`[` / `]`), view keyboard shortcuts (`?`), or export **`.srt`**, **`.vtt`**, **`.txt`**, **`.md`**, **`.csv`**, or **`.json`** files.
 
 ---
 
 ## Product tour and screenshots
 
-### In-player closed captions and export bar inside NotebookLM
-Synchronized two-line closed captions (`CC`, `A-`/`A+`, timing offset, `.srt`/`.vtt`/`.txt`/`.json` download, clipboard `Copy`, subtitle `Import`, and `Regen`) rendered inside an isolated Shadow DOM container across inline Studio playback, modal dialogs, Fullscreen, and OS Picture-in-Picture.
+### Compact bottom play-bar controls and highlighted spoken-word captions inside NotebookLM
+Synchronized closed captions with 3-state progressive word highlighting, adjustable word-highlight delay (`-500 ms` to `+1500 ms`), compact **CC** and **Transcript** controls integrated directly into the bottom play bar, and a secondary tools popover for styling, study loops, and `.srt`/`.vtt`/`.txt`/`.md`/`.csv`/`.json` export.
 
 <p align="center">
-  <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="LM Subs closed captions and export bar rendered inside Google NotebookLM" />
+  <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="LM Subs highlighted spoken-word captions inside the video and compact CC controls in the bottom play bar" />
 </p>
 
 ### Audio-only stream extraction, 12-provider failover, and opt-in sync
@@ -91,7 +91,7 @@ Google NotebookLM generates narrated **Studio Video Overviews**, yet its built-i
 
 Naive transcription tools upload entire 50 to 120 MB HD `.mp4` video files or inflate compressed audio into 40+ MB of uncompressed `.wav` data, hitting API upload limits and turning a 3-minute Video Overview into a multi-minute wait.
 
-| Metric | Full Video / WAV Upload | LM Subs (`v0.2.3`) |
+| Metric | Full Video / WAV Upload | LM Subs (`v0.2.4`) |
 | :--- | :--- | :--- |
 | **Media payload** | 50 to 120 MB `.mp4` + 42 MB `.wav` | **~3.4 MB `=m140` AAC** (or HTTP `206` audio byte ranges) |
 | **Audio prep overhead** | 45 to 90s full download + decode | **0 ms** direct `=m140` passthrough (`<1.2s` Range remux) |
@@ -178,7 +178,7 @@ Configure one key or stack multiple providers in priority order for automatic `H
 npm install          # Install dependencies (0 vulnerabilities)
 npm run assets       # Render SVG/PNG brand marks, favicons, badges, diagram, and 4 screenshots
 npm run build        # Bundle all 5 MV3 extension entrypoints + React web app (docs/app.js)
-npm run zip          # Rebuild bundles and package docs/releases/lm-subs-v0.2.3.zip
+npm run zip          # Rebuild bundles and package docs/releases/lm-subs-v0.2.4.zip
 npm test             # Run unit, security, speed, export, and PGlite Postgres E2E tests
 npm start            # Start unified Web App + /api/* Hono server on http://0.0.0.0:4173
 ```

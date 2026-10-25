@@ -371,6 +371,177 @@
     return img;
   }
 
+  // src/lib/chime.js
+  var sharedCtx = null;
+  var cachedWavDataUri = null;
+  var lastChimeEpochMs = 0;
+  function bytesToBase64(bytes) {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(bytes).toString("base64");
+    }
+    let binary = "";
+    const chunk = 32768;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return globalThis.btoa(binary);
+  }
+  function buildChimeWavBytes(sampleRate = 44100) {
+    const durationSec = 0.44;
+    const numSamples = Math.floor(sampleRate * durationSec);
+    const dataBytes = numSamples * 2;
+    const buf = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buf);
+    const writeAscii = (offset, str) => {
+      for (let i = 0; i < str.length; i += 1) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    };
+    writeAscii(0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeAscii(8, "WAVE");
+    writeAscii(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, "data");
+    view.setUint32(40, dataBytes, true);
+    const notes = [
+      { start: 0, dur: 0.24, freq: 523.25 },
+      { start: 0.11, dur: 0.31, freq: 783.99 }
+    ];
+    for (let i = 0; i < numSamples; i += 1) {
+      const t = i / sampleRate;
+      let sample = 0;
+      for (const note of notes) {
+        if (t >= note.start && t <= note.start + note.dur) {
+          const lt = t - note.start;
+          const attack = Math.min(1, lt / 0.012);
+          const decay = Math.exp(-lt * 10.5);
+          const env = attack * decay;
+          const fundamental = Math.sin(2 * Math.PI * note.freq * lt);
+          const harmonic = 0.28 * Math.sin(2 * Math.PI * note.freq * 2 * lt);
+          sample += env * (fundamental + harmonic) * 0.34;
+        }
+      }
+      const clamped = Math.max(-0.95, Math.min(0.95, sample));
+      view.setInt16(44 + i * 2, Math.round(clamped * 32767), true);
+    }
+    return new Uint8Array(buf);
+  }
+  function getChimeWavDataUri() {
+    if (!cachedWavDataUri) {
+      const wavBytes = buildChimeWavBytes(44100);
+      cachedWavDataUri = `data:audio/wav;base64,${bytesToBase64(wavBytes)}`;
+    }
+    return cachedWavDataUri;
+  }
+  function getOrCreateAudioContext(win = globalThis) {
+    if (sharedCtx && sharedCtx.state !== "closed") {
+      return sharedCtx;
+    }
+    const AudioCtx = win?.AudioContext || win?.webkitAudioContext;
+    if (!AudioCtx) return null;
+    try {
+      sharedCtx = new AudioCtx();
+      return sharedCtx;
+    } catch {
+      return null;
+    }
+  }
+  function unlockChimeAudio(win = globalThis) {
+    try {
+      const ctx = getOrCreateAudioContext(win);
+      if (!ctx) return false;
+      if (ctx.state === "suspended" && typeof ctx.resume === "function") {
+        ctx.resume().catch(() => {
+        });
+      }
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function playWavElementFallback(win = globalThis) {
+    try {
+      const AudioCtor = win?.Audio || globalThis.Audio;
+      if (typeof AudioCtor !== "function") return false;
+      const audio = new AudioCtor(getChimeWavDataUri());
+      audio.volume = 0.72;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.then === "function") {
+        await playPromise;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function playCompletionChimeSound({
+    win = globalThis,
+    force = false,
+    dedupeMs = 1200
+  } = {}) {
+    const nowMs = Date.now();
+    if (!force && dedupeMs > 0 && nowMs - lastChimeEpochMs < dedupeMs) {
+      return false;
+    }
+    lastChimeEpochMs = nowMs;
+    try {
+      const ctx = getOrCreateAudioContext(win);
+      if (ctx) {
+        if (ctx.state === "suspended" && typeof ctx.resume === "function") {
+          await Promise.race([
+            ctx.resume().catch(() => {
+            }),
+            new Promise((r) => setTimeout(r, 140))
+          ]);
+        }
+        if (ctx.state === "running") {
+          const t0 = ctx.currentTime;
+          const notes = [
+            { offset: 0, dur: 0.24, freq: 523.25 },
+            { offset: 0.11, dur: 0.31, freq: 783.99 }
+          ];
+          for (const n of notes) {
+            const osc = ctx.createOscillator();
+            const overtone = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const overtoneGain = ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(n.freq, t0 + n.offset);
+            overtone.type = "sine";
+            overtone.frequency.setValueAtTime(n.freq * 2, t0 + n.offset);
+            overtoneGain.gain.setValueAtTime(0.22, t0 + n.offset);
+            gain.gain.setValueAtTime(1e-4, t0 + n.offset);
+            gain.gain.linearRampToValueAtTime(0.24, t0 + n.offset + 0.014);
+            gain.gain.exponentialRampToValueAtTime(8e-4, t0 + n.offset + n.dur);
+            osc.connect(gain);
+            overtone.connect(overtoneGain);
+            overtoneGain.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(t0 + n.offset);
+            overtone.start(t0 + n.offset);
+            osc.stop(t0 + n.offset + n.dur + 0.02);
+            overtone.stop(t0 + n.offset + n.dur + 0.02);
+          }
+          return true;
+        }
+      }
+    } catch {
+    }
+    return playWavElementFallback(win);
+  }
+
   // src/lib/decide.js
   function compileExcludePatterns(patterns) {
     if (!Array.isArray(patterns)) return [];
@@ -740,7 +911,9 @@
     // "bottom" | "raised" | "top"
     captionMaxWidth: "balanced",
     // "compact" | "balanced" | "wide"
-    karaokeHighlight: false,
+    karaokeHighlight: true,
+    karaokeDelayMs: 0,
+    // -1500..3000 ms delay applied to word-by-word highlight
     showSpeakerLabels: true,
     pauseOnCaptionHover: false,
     clickCaptionToCopy: true,
@@ -829,6 +1002,7 @@
       captionPosition: CAPTION_POSITIONS.includes(saved.captionPosition) ? saved.captionPosition : "bottom",
       captionMaxWidth: CAPTION_WIDTHS.includes(saved.captionMaxWidth) ? saved.captionMaxWidth : "balanced",
       karaokeHighlight: typeof saved.karaokeHighlight === "boolean" ? saved.karaokeHighlight : DEFAULT_SETTINGS.karaokeHighlight,
+      karaokeDelayMs: Number.isFinite(Number(saved.karaokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(saved.karaokeDelayMs) / 10) * 10)) : DEFAULT_SETTINGS.karaokeDelayMs,
       showSpeakerLabels: typeof saved.showSpeakerLabels === "boolean" ? saved.showSpeakerLabels : DEFAULT_SETTINGS.showSpeakerLabels,
       pauseOnCaptionHover: typeof saved.pauseOnCaptionHover === "boolean" ? saved.pauseOnCaptionHover : DEFAULT_SETTINGS.pauseOnCaptionHover,
       clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
@@ -869,6 +1043,9 @@
     }
     if (Array.isArray(partial?.excludePatterns)) {
       next.excludePatterns = partial.excludePatterns.map((s) => String(s).trim()).filter(Boolean);
+    }
+    if (partial && "karaokeDelayMs" in partial) {
+      next.karaokeDelayMs = Number.isFinite(Number(partial.karaokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(partial.karaokeDelayMs) / 10) * 10)) : DEFAULT_SETTINGS.karaokeDelayMs;
     }
     await store.set({ [STORAGE_KEYS.SETTINGS]: next });
     return next;
@@ -1750,29 +1927,106 @@ ${rows.join("\n")}
   }
   .toolbar {
     position: absolute;
-    top: 52px;
-    right: 14px;
+    bottom: 10px;
+    right: 104px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    max-width: calc(100% - 28px);
-    gap: 3px;
-    padding: 4px 6px;
-    border-radius: 7px;
-    background: rgba(23, 26, 31, 0.95);
-    border: 1px solid #272b33;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(18, 20, 24, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     pointer-events: auto;
     opacity: 0.96;
     font-variant-numeric: tabular-nums;
-    transition: opacity 120ms ease;
+    transition: opacity 150ms ease, background-color 120ms ease;
   }
   .toolbar[data-idle="true"] {
-    opacity: 0.22;
+    opacity: 0;
   }
   .toolbar:hover,
   .toolbar:focus-within {
     opacity: 1 !important;
+    background: rgba(18, 20, 24, 0.92);
+  }
+  .cc-pill {
+    position: relative;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.72);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #f3f4f6;
+    background: transparent;
+  }
+  .cc-pill[data-active="true"] {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: #ffffff;
+    color: #ffffff;
+    box-shadow: inset 0 -2px 0 #3b82f6;
+  }
+  .cc-pill[data-primary="true"] {
+    border-color: #3b82f6;
+    background: rgba(0, 85, 212, 0.85);
+    color: #ffffff;
+  }
+  .bar-pill {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #e5e7eb;
+  }
+  .tools-popover {
+    position: absolute;
+    bottom: 50px;
+    right: 14px;
+    width: 288px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(18, 20, 24, 0.97);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #f6f7f8;
+    pointer-events: auto;
+    font-size: 11px;
+  }
+  .tools-popover[data-open="true"] {
+    display: flex;
+  }
+  .tools-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tools-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #9ca3af;
+  }
+  .tools-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  .tools-row button {
+    padding: 4px 7px;
+    border: 1px solid #2b313c;
+    background: #14171c;
+    border-radius: 5px;
+    font-size: 10.5px;
   }
   button {
     all: unset;
@@ -1841,7 +2095,7 @@ ${rows.join("\n")}
     position: absolute;
     left: 5%;
     right: 5%;
-    bottom: 54px;
+    bottom: 56px;
     display: flex;
     justify-content: center;
     align-items: flex-end;
@@ -1849,10 +2103,10 @@ ${rows.join("\n")}
     transition: top 120ms ease, bottom 120ms ease, right 120ms ease;
   }
   .caption-stage[data-pos="raised"] {
-    bottom: 96px;
+    bottom: 98px;
   }
   .caption-stage[data-pos="top"] {
-    top: 90px;
+    top: 42px;
     bottom: auto;
     align-items: flex-start;
   }
@@ -1907,10 +2161,22 @@ ${rows.join("\n")}
     display: inline-block;
   }
   .caption-word-done {
-    color: #93c5fd;
-    text-decoration: underline;
-    text-decoration-color: rgba(59, 130, 246, 0.75);
-    text-underline-offset: 3px;
+    opacity: 1;
+  }
+  .caption-word-current {
+    background: rgba(29, 92, 246, 0.48);
+    color: #ffffff;
+    padding: 1px 5px;
+    margin: 0 1px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .caption-box[data-style="paper"] .caption-word-current {
+    background: rgba(0, 85, 212, 0.16);
+    color: #0055d4;
+  }
+  .caption-word-upcoming {
+    opacity: 0.64;
   }
   .caption-secondary {
     display: block;
@@ -1922,16 +2188,16 @@ ${rows.join("\n")}
   /* Live Caption Style Popover */
   .style-popover {
     position: absolute;
-    top: 86px;
+    bottom: 50px;
     right: 14px;
     width: 288px;
     display: none;
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(17, 19, 21, 0.97);
-    border: 1px solid #272b33;
+    border-radius: 10px;
+    background: rgba(18, 20, 24, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: #f6f7f8;
     pointer-events: auto;
     font-size: 11px;
@@ -1979,16 +2245,16 @@ ${rows.join("\n")}
   /* Interactive Click-to-Seek Transcript, Chapters & Bookmarks Drawer */
   .transcript-drawer {
     position: absolute;
-    top: 86px;
+    top: 16px;
     right: 14px;
-    bottom: 58px;
+    bottom: 50px;
     width: min(336px, 45%);
     min-width: 248px;
     display: none;
     flex-direction: column;
-    border-radius: 8px;
-    background: rgba(17, 19, 21, 0.96);
-    border: 1px solid #272b33;
+    border-radius: 10px;
+    background: rgba(18, 20, 24, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: #f6f7f8;
     pointer-events: auto;
     overflow: hidden;
@@ -2157,16 +2423,16 @@ ${rows.join("\n")}
   /* Keyboard Shortcuts Cheat Sheet Popover */
   .shortcuts-popover {
     position: absolute;
-    top: 86px;
+    bottom: 50px;
     right: 14px;
     width: 264px;
     display: none;
     flex-direction: column;
     gap: 5px;
     padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(17, 19, 21, 0.97);
-    border: 1px solid #272b33;
+    border-radius: 10px;
+    background: rgba(18, 20, 24, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: #f6f7f8;
     pointer-events: auto;
     font-size: 11px;
@@ -2245,7 +2511,8 @@ ${rows.join("\n")}
       initialBgOpacity = 88,
       initialCaptionPosition = "bottom",
       initialCaptionMaxWidth = "balanced",
-      initialKaraokeHighlight = false,
+      initialKaraokeHighlight = true,
+      initialKaraokeDelayMs = 0,
       initialShowSpeakerLabels = true,
       initialPauseOnCaptionHover = false,
       initialClickCaptionToCopy = true,
@@ -2280,6 +2547,7 @@ ${rows.join("\n")}
       this.captionPosition = CAPTION_POSITIONS.includes(initialCaptionPosition) ? initialCaptionPosition : "bottom";
       this.captionMaxWidth = CAPTION_WIDTHS.includes(initialCaptionMaxWidth) ? initialCaptionMaxWidth : "balanced";
       this.karaokeHighlight = Boolean(initialKaraokeHighlight);
+      this.karaokeDelayMs = Number.isFinite(Number(initialKaraokeDelayMs)) ? Math.max(-1500, Math.min(3e3, Math.round(Number(initialKaraokeDelayMs)))) : 0;
       this.showSpeakerLabels = initialShowSpeakerLabels !== false;
       this.pauseOnCaptionHover = Boolean(initialPauseOnCaptionHover);
       this.clickCaptionToCopy = initialClickCaptionToCopy !== false;
@@ -2297,6 +2565,7 @@ ${rows.join("\n")}
       this.drawerQuery = "";
       this.styleOpen = false;
       this.shortcutsOpen = false;
+      this.toolsOpen = false;
       this.loopCueIndex = -1;
       this.activeCueIndex = -1;
       this.lastRenderedSignature = "";
@@ -2363,6 +2632,24 @@ ${rows.join("\n")}
         if (this.shortcutsEl) this.shortcutsEl.dataset.open = "false";
         if (this.shortcutsBtn) this.shortcutsBtn.dataset.active = "false";
       }
+      if (keepName !== "tools" && this.toolsOpen) {
+        this.toolsOpen = false;
+        if (this.toolsPopoverEl) this.toolsPopoverEl.dataset.open = "false";
+        if (this.moreBtn) this.moreBtn.dataset.active = "false";
+      }
+    }
+    toggleToolsPopover(forceState) {
+      this._ensureMounted();
+      const next = typeof forceState === "boolean" ? forceState : !this.toolsOpen;
+      if (next) this._closePopoversExcept("tools");
+      this.toolsOpen = next;
+      if (this.toolsPopoverEl) {
+        this.toolsPopoverEl.dataset.open = next ? "true" : "false";
+      }
+      if (this.moreBtn) {
+        this.moreBtn.dataset.active = next ? "true" : "false";
+      }
+      return this.toolsOpen;
     }
     _mount() {
       const parent = this._resolveMountParent();
@@ -2385,7 +2672,8 @@ ${rows.join("\n")}
       this.toolbar.className = "toolbar";
       this.ccBtn = this.doc.createElement("button");
       this.ccBtn.type = "button";
-      this.ccBtn.title = "Toggle subtitles (C)";
+      this.ccBtn.className = "cc-pill";
+      this.ccBtn.title = "Toggle closed captions (C)";
       this.ccBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (this.cues.length === 0 && this.statusState !== "working") {
@@ -2527,36 +2815,70 @@ ${rows.join("\n")}
       this.regenBtn = this._makeBtn("Retry", "Regenerate subtitles with AI", () => {
         this.onRequestGenerate({ force: true });
       });
+      this.transcriptBtn.className = "bar-pill";
+      this.moreBtn = this._makeBtn(
+        "Options",
+        "Subtitle style, timing, playback, and export options",
+        () => this.toggleToolsPopover()
+      );
+      this.moreBtn.className = "bar-pill";
+      this.toolsPopoverEl = this.doc.createElement("div");
+      this.toolsPopoverEl.className = "tools-popover";
+      this.toolsPopoverEl.dataset.open = "false";
+      const makeToolsSection = (labelText, ...buttons) => {
+        const sec = this.doc.createElement("div");
+        sec.className = "tools-section";
+        const lbl = this.doc.createElement("div");
+        lbl.className = "tools-label";
+        lbl.textContent = labelText;
+        const row = this.doc.createElement("div");
+        row.className = "tools-row";
+        row.append(...buttons);
+        sec.append(lbl, row);
+        return sec;
+      };
+      this.controlsGroup.style.display = "flex";
+      this.controlsGroup.style.flexDirection = "column";
+      this.controlsGroup.style.gap = "8px";
       this.controlsGroup.append(
-        sep0,
-        this.transcriptBtn,
-        this.loopBtn,
-        this.speedBtn,
-        this.pipBtn,
-        sep1,
-        this.sizeDownBtn,
-        this.sizeUpBtn,
-        this.styleBtn,
-        this.stylerBtn,
-        sep2,
-        this.offsetMinusBtn,
-        this.offsetLabelBtn,
-        this.offsetPlusBtn,
-        sep3,
-        this.srtBtn,
-        this.vttBtn,
-        this.txtBtn,
-        this.mdBtn,
-        this.csvBtn,
-        this.copyBtn,
+        makeToolsSection(
+          "Appearance and studio",
+          this.sizeDownBtn,
+          this.sizeUpBtn,
+          this.styleBtn,
+          this.stylerBtn
+        ),
+        makeToolsSection(
+          "Playback and timing",
+          this.loopBtn,
+          this.speedBtn,
+          this.pipBtn,
+          this.offsetMinusBtn,
+          this.offsetLabelBtn,
+          this.offsetPlusBtn
+        ),
+        makeToolsSection(
+          "Export transcript",
+          this.srtBtn,
+          this.vttBtn,
+          this.txtBtn,
+          this.mdBtn,
+          this.csvBtn,
+          this.copyBtn
+        )
+      );
+      const utilitySection = makeToolsSection(
+        "Source and shortcuts",
+        this.importBtn,
+        this.regenBtn,
         this.shortcutsBtn
       );
+      this.toolsPopoverEl.append(this.controlsGroup, utilitySection);
       this.toolbar.append(
         this.ccBtn,
         this.statusEl,
-        this.controlsGroup,
-        this.importBtn,
-        this.regenBtn,
+        this.transcriptBtn,
+        this.moreBtn,
         this.fileInput
       );
       this._mountStylePopover();
@@ -2576,6 +2898,7 @@ ${rows.join("\n")}
         ["Caption size", "- / +"],
         ["Cycle backdrop", "B"],
         ["Timing -0.25s / +0.25s", "[ / ]"],
+        ["Word delay -50 / +50ms", "{ / }"],
         ["Reset timing", "\\"]
       ];
       for (const [desc, keyLabel] of shortcutPairs) {
@@ -2630,6 +2953,7 @@ ${rows.join("\n")}
         style,
         this.stageEl,
         this.drawerEl,
+        this.toolsPopoverEl,
         this.stylePopoverEl,
         this.shortcutsEl,
         this.toolbar
@@ -2746,6 +3070,29 @@ ${rows.join("\n")}
       });
       opRow.append(opHead, this.opacityInput);
       this.stylePopoverEl.appendChild(opRow);
+      const kdRow = this.doc.createElement("div");
+      kdRow.className = "style-row";
+      const kdHead = this.doc.createElement("div");
+      kdHead.className = "style-row-head";
+      const kdLbl = this.doc.createElement("span");
+      kdLbl.textContent = "Word highlight delay ({ / })";
+      this.karaokeDelayValEl = this.doc.createElement("span");
+      this.karaokeDelayValEl.textContent = `${this.karaokeDelayMs > 0 ? "+" : ""}${this.karaokeDelayMs} ms`;
+      kdHead.append(kdLbl, this.karaokeDelayValEl);
+      this.karaokeDelayInput = this.doc.createElement("input");
+      this.karaokeDelayInput.type = "range";
+      this.karaokeDelayInput.className = "opacity-range";
+      this.karaokeDelayInput.min = "-500";
+      this.karaokeDelayInput.max = "1500";
+      this.karaokeDelayInput.step = "50";
+      this.karaokeDelayInput.value = String(this.karaokeDelayMs);
+      this.karaokeDelayInput.addEventListener("input", (e) => {
+        e.stopPropagation();
+        const v = Number(this.karaokeDelayInput.value);
+        this._updateStylePatch({ karaokeDelayMs: v });
+      });
+      kdRow.append(kdHead, this.karaokeDelayInput);
+      this.stylePopoverEl.appendChild(kdRow);
       const toggleRow = this.doc.createElement("div");
       toggleRow.className = "style-pills";
       this.karaokeBtn = this._makeBtn(
@@ -3133,6 +3480,13 @@ ${rows.join("\n")}
       if (this.opacityInput) {
         this.opacityInput.value = String(this.captionBgOpacity);
       }
+      if (this.karaokeDelayValEl) {
+        const sign = this.karaokeDelayMs > 0 ? "+" : "";
+        this.karaokeDelayValEl.textContent = `${sign}${this.karaokeDelayMs} ms`;
+      }
+      if (this.karaokeDelayInput) {
+        this.karaokeDelayInput.value = String(this.karaokeDelayMs);
+      }
       if (this.karaokeBtn) {
         this.karaokeBtn.dataset.active = this.karaokeHighlight ? "true" : "false";
       }
@@ -3151,6 +3505,14 @@ ${rows.join("\n")}
       syncPills("width", this.captionMaxWidth);
       this.lastRenderedSignature = "";
       this._renderActiveCue();
+    }
+    adjustKaraokeDelay(deltaMs) {
+      const next = Math.max(
+        -1500,
+        Math.min(3e3, Math.round((this.karaokeDelayMs + deltaMs) / 10) * 10)
+      );
+      this._updateStylePatch({ karaokeDelayMs: next });
+      return next;
     }
     adjustOffset(delta) {
       this._adjustOffset(delta);
@@ -3244,6 +3606,12 @@ ${rows.join("\n")}
       }
       if (typeof patch.karaokeHighlight === "boolean") {
         this.karaokeHighlight = patch.karaokeHighlight;
+      }
+      if (Number.isFinite(Number(patch.karaokeDelayMs))) {
+        this.karaokeDelayMs = Math.max(
+          -1500,
+          Math.min(3e3, Math.round(Number(patch.karaokeDelayMs) / 10) * 10)
+        );
       }
       if (typeof patch.showSpeakerLabels === "boolean") {
         this.showSpeakerLabels = patch.showSpeakerLabels;
@@ -3521,7 +3889,7 @@ ${rows.join("\n")}
         this.ccBtn.dataset.primary = "false";
         this.ccBtn.disabled = false;
       } else {
-        this.ccBtn.textContent = "CC: Generate subtitles";
+        this.ccBtn.textContent = "CC";
         this.ccBtn.dataset.active = "false";
         this.ccBtn.dataset.primary = "true";
         this.ccBtn.disabled = false;
@@ -3533,9 +3901,13 @@ ${rows.join("\n")}
       } else {
         this.statusEl.style.display = "none";
       }
-      this.controlsGroup.style.display = hasCues ? "inline-flex" : "none";
+      this.controlsGroup.style.display = hasCues ? "flex" : "none";
       if (this.transcriptBtn) {
+        this.transcriptBtn.style.display = hasCues ? "inline-flex" : "none";
         this.transcriptBtn.dataset.active = this.drawerOpen ? "true" : "false";
+      }
+      if (this.moreBtn) {
+        this.moreBtn.dataset.active = this.toolsOpen ? "true" : "false";
       }
       this.regenBtn.style.display = hasCues || this.statusState === "error" ? "inline-flex" : "none";
       this.regenBtn.textContent = hasCues ? "Regen" : "Retry";
@@ -3585,13 +3957,15 @@ ${rows.join("\n")}
         return;
       }
       const span = Math.max(0.25, active.endSec - active.startSec);
-      const progress = Math.max(0, Math.min(1, (effectiveTime - active.startSec) / span));
+      const delayedTime = effectiveTime - (this.karaokeDelayMs || 0) / 1e3;
+      const rawProgress = (delayedTime - active.startSec) / span;
+      const progress = Math.max(0, Math.min(1, rawProgress));
       const tokens = fullText.split(/(\s+)/);
       const wordPositions = [];
       for (let i = 0; i < tokens.length; i++) {
         if (tokens[i].trim()) wordPositions.push(i);
       }
-      const activeWordCount = Math.min(
+      const activeWordCount = this.karaokeDelayMs > 0 && rawProgress < 0 ? 0 : Math.min(
         wordPositions.length,
         Math.max(1, Math.ceil(progress * wordPositions.length))
       );
@@ -3608,13 +3982,21 @@ ${rows.join("\n")}
             continue;
           }
           seenWords += 1;
-          if (seenWords <= activeWordCount) {
+          if (seenWords === activeWordCount) {
+            const w = this.doc.createElement("span");
+            w.className = "caption-word-done caption-word-current";
+            w.textContent = tok;
+            this.captionBox.appendChild(w);
+          } else if (seenWords < activeWordCount) {
             const w = this.doc.createElement("span");
             w.className = "caption-word-done";
             w.textContent = tok;
             this.captionBox.appendChild(w);
           } else {
-            this.captionBox.appendChild(this.doc.createTextNode(tok));
+            const w = this.doc.createElement("span");
+            w.className = "caption-word-upcoming";
+            w.textContent = tok;
+            this.captionBox.appendChild(w);
           }
         }
       }
@@ -4110,31 +4492,26 @@ ${rows.join("\n")}
     }
     function playCompletionChime() {
       if (!settings.soundAlerts || !settings.enabled) return;
-      try {
-        const AudioCtx = win.AudioContext || win.webkitAudioContext;
-        if (!AudioCtx) return;
-        const ctx = new AudioCtx();
-        const now = ctx.currentTime;
-        const notes = [523.25, 659.25];
-        notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(freq, now + idx * 0.09);
-          gain.gain.setValueAtTime(1e-4, now + idx * 0.09);
-          gain.gain.exponentialRampToValueAtTime(0.055, now + idx * 0.09 + 0.02);
-          gain.gain.exponentialRampToValueAtTime(1e-4, now + idx * 0.09 + 0.2);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now + idx * 0.09);
-          osc.stop(now + idx * 0.09 + 0.21);
-        });
-        setTimeout(() => {
-          ctx.close?.().catch?.(() => {
-          });
-        }, 600);
-      } catch {
-      }
+      playCompletionChimeSound({ win }).catch(() => {
+      });
+    }
+    try {
+      const onUnlockGesture = () => {
+        unlockChimeAudio(win);
+      };
+      doc.addEventListener?.("pointerdown", onUnlockGesture, {
+        capture: true,
+        passive: true
+      });
+      doc.addEventListener?.("keydown", onUnlockGesture, {
+        capture: true,
+        passive: true
+      });
+      doc.addEventListener?.("play", onUnlockGesture, {
+        capture: true,
+        passive: true
+      });
+    } catch {
     }
     function fireTabDesktopNotification(title, body) {
       if (!settings.desktopNotifications || !settings.enabled) return;
@@ -4645,6 +5022,7 @@ ${formattedText} ` : `${formattedText} `;
         initialCaptionPosition: settings.captionPosition,
         initialCaptionMaxWidth: settings.captionMaxWidth,
         initialKaraokeHighlight: settings.karaokeHighlight,
+        initialKaraokeDelayMs: settings.karaokeDelayMs,
         initialShowSpeakerLabels: settings.showSpeakerLabels,
         initialPauseOnCaptionHover: settings.pauseOnCaptionHover,
         initialClickCaptionToCopy: settings.clickCaptionToCopy,
@@ -5009,6 +5387,22 @@ ${formattedText} ` : `${formattedText} `;
         active.controller.adjustOffset(-0.25);
       } else if (key === "]") {
         active.controller.adjustOffset(0.25);
+      } else if (key === "{") {
+        const nextMs = active.controller.adjustKaraokeDelay?.(-50) ?? 0;
+        showToast(
+          "Word highlight delay",
+          `${nextMs > 0 ? "+" : ""}${nextMs} ms`,
+          "info",
+          1600
+        );
+      } else if (key === "}") {
+        const nextMs = active.controller.adjustKaraokeDelay?.(50) ?? 0;
+        showToast(
+          "Word highlight delay",
+          `${nextMs > 0 ? "+" : ""}${nextMs} ms`,
+          "info",
+          1600
+        );
       } else if (key === "\\") {
         active.controller.resetOffset();
       } else if (key === "-") {
@@ -5222,6 +5616,7 @@ ${formattedText} ` : `${formattedText} `;
             captionPosition: settings.captionPosition,
             captionMaxWidth: settings.captionMaxWidth,
             karaokeHighlight: settings.karaokeHighlight,
+            karaokeDelayMs: settings.karaokeDelayMs,
             showSpeakerLabels: settings.showSpeakerLabels,
             pauseOnCaptionHover: settings.pauseOnCaptionHover,
             clickCaptionToCopy: settings.clickCaptionToCopy,

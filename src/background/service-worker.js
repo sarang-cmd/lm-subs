@@ -184,7 +184,7 @@ export function createRuntimeDispatcher({
     }
   }
 
-  async function fireDesktopAlertIfPermitted({ id, title, body }) {
+  async function fireDesktopAlertIfPermitted({ id, title, body, silent = false }) {
     if (!notificationsApi?.create) return false;
     try {
       if (permissionsApi?.contains) {
@@ -214,6 +214,7 @@ export function createRuntimeDispatcher({
               iconUrl,
               title: String(title || "LM Subs"),
               message: String(body || ""),
+              silent: Boolean(silent),
             },
             () => {
               void globalThis.chrome?.runtime?.lastError;
@@ -268,6 +269,7 @@ export function createRuntimeDispatcher({
         id: notification.id,
         title: notification.title,
         body: notification.body,
+        silent: !settings.soundAlerts,
       });
     }
     return notification;
@@ -699,7 +701,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.3";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.4";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -1897,14 +1899,22 @@ export function createRuntimeDispatcher({
         fireDesktop: true,
       }).catch(() => {});
 
-      notifyTabMessage(tabId, {
+      const readyMsg = {
         type: RUNTIME_MESSAGE.SUBTITLES_READY,
         cacheKey: savedEntry.cacheKey,
         artifactId: savedEntry.artifactId,
         title: savedEntry.title,
         cueCount: savedEntry.cueCount,
         provider: txResult.providerName,
-      });
+      };
+      notifyTabMessage(tabId, readyMsg);
+      try {
+        runtimeApi?.sendMessage?.(readyMsg, () => {
+          void globalThis.chrome?.runtime?.lastError;
+        });
+      } catch {
+        // Ignore when no extension popup/options page is open
+      }
 
       // Push new subtitle transcript to Neon Postgres in background when connected
       getCloudSyncProfile(storageArea)
@@ -2407,7 +2417,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.3";
+          runtimeApi?.getManifest?.()?.version || "0.2.4";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),

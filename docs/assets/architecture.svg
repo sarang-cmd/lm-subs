@@ -42,8 +42,8 @@
 
   <rect x="34" y="320" width="224" height="98" rx="6" class="box"/>
   <text x="46" y="342" class="title">Studio &lt;video&gt; Element</text>
-  <text x="46" y="361" class="sub">Modal dialog + Fullscreen</text>
-  <text x="46" y="378" class="sub">Native VTTCue PiP track</text>
+  <text x="46" y="361" class="sub">Bottom play-bar CC controls</text>
+  <text x="46" y="378" class="sub">Word highlight + delay (ms)</text>
 
   <!-- Lane 2: ISOLATED World -->
   <rect x="292" y="20" width="252" height="420" rx="8" class="lane"/>
@@ -52,66 +52,61 @@
 
   <rect x="306" y="78" width="224" height="112" rx="6" class="box"/>
   <text x="318" y="100" class="title">Decision Gate (decide.js)</text>
-  <text x="318" y="119" class="sub">0 ms local LRU lookup</text>
-  <text x="318" y="136" class="sub">Shadow-DOM &lt;video&gt; scanner</text>
-  <text x="318" y="153" class="sub">Progressive live cue mount</text>
-  <text x="318" y="170" class="sub">Keepalive port for long talks</text>
+  <text x="318" y="119" class="sub">Auto-generate vs manual rules</text>
+  <text x="318" y="136" class="sub">Deduplicates in-flight jobs</text>
+  <text x="318" y="153" class="sub">Audible WebAudio chime alert</text>
 
-  <rect x="306" y="214" width="224" height="204" rx="6" class="box-hi"/>
-  <text x="318" y="238" class="title">In-Player Caption Bar</text>
-  <text x="318" y="258" class="sub">Closed ShadowRoot isolation</text>
-  <text x="318" y="276" class="sub">O(log N) binary-search sync</text>
-  <text x="318" y="294" class="sub">CC, A-/A+, +-0.25s offset</text>
-  <text x="318" y="312" class="sub">SRT, VTT, TXT, JSON export</text>
-  <text x="318" y="330" class="sub">Clipboard copy + cue import</text>
-  <text x="318" y="348" class="sub">Dialog-safe file download</text>
+  <rect x="306" y="210" width="224" height="208" rx="6" class="box-hi"/>
+  <text x="318" y="232" class="title">Play-Bar Caption Overlay</text>
+  <text x="318" y="251" class="sub">Docked CC + Transcript pill</text>
+  <text x="318" y="268" class="sub">3-state word highlight + delay</text>
+  <text x="318" y="285" class="sub">6 styles, 4 fonts, 5 colors</text>
+  <text x="318" y="302" class="sub">Inline cue editor + Notebook cite</text>
+  <text x="318" y="319" class="sub">SRT, VTT, TXT, JSON, MD, CSV</text>
 
-  <!-- Lane 3: Service Worker -->
-  <rect x="564" y="20" width="262" height="420" rx="8" class="lane"/>
-  <text x="578" y="44" class="hdr">Service Worker (background.js)</text>
-  <text x="578" y="60" class="sub">Sole reader of keys and tokens</text>
+  <!-- Lane 3: MV3 Service Worker -->
+  <rect x="564" y="20" width="268" height="420" rx="8" class="lane"/>
+  <text x="578" y="44" class="hdr">MV3 Service Worker (background.js)</text>
+  <text x="578" y="60" class="sub">Keyring, Failover Queue, Sync</text>
 
-  <rect x="578" y="78" width="234" height="114" rx="6" class="box-hi"/>
-  <text x="590" y="100" class="title">Sub-5s Audio Fast-Path</text>
-  <text x="590" y="119" class="sub">1. Direct =m140 AAC (~3.4 MB)</text>
-  <text x="590" y="136" class="sub">2. HTTP 206 Range soun slices</text>
-  <text x="590" y="153" class="sub">3. ISO-BMFF audio remuxer</text>
-  <text x="590" y="170" class="sub">Skips 50+ MB video frames</text>
+  <rect x="578" y="78" width="240" height="112" rx="6" class="box-hi"/>
+  <text x="590" y="100" class="title">12-Provider STT Queue</text>
+  <text x="590" y="119" class="sub">1. Groq Whisper Large v3 Turbo</text>
+  <text x="590" y="136" class="sub">2. Mistral Voxtral Mini</text>
+  <text x="590" y="153" class="sub">+10 BYOK providers on failover</text>
 
-  <rect x="578" y="210" width="234" height="114" rx="6" class="box-hi"/>
-  <text x="590" y="232" class="title">12-Provider BYOK Queue</text>
-  <text x="590" y="251" class="sub">#1 Groq -&gt; #2 Mistral -&gt; #3 Gemini</text>
-  <text x="590" y="268" class="sub">Segment timestamps (~200x RT)</text>
-  <text x="590" y="285" class="sub">3x concurrent chunk workers</text>
-  <text x="590" y="302" class="sub">Auto-failover on HTTP 429</text>
+  <rect x="578" y="210" width="240" height="106" rx="6" class="box"/>
+  <text x="590" y="232" class="title">Local Storage + Chime</text>
+  <text x="590" y="251" class="sub">chrome.storage.local vault</text>
+  <text x="590" y="268" class="sub">Badge status + desktop alert</text>
+  <text x="590" y="285" class="sub">Quiet background sync</text>
 
-  <rect x="578" y="342" width="234" height="76" rx="6" class="box"/>
-  <text x="590" y="364" class="title">Opt-In Sync Gate</text>
-  <text x="590" y="382" class="sub">Enforces syncPreferences locally</text>
-  <text x="590" y="399" class="sub">Popup reads booleans only</text>
+  <rect x="578" y="336" width="240" height="82" rx="6" class="box"/>
+  <text x="590" y="358" class="title">Release Auto-Updater</text>
+  <text x="590" y="376" class="sub">/releases/latest.json poll</text>
+  <text x="590" y="393" class="sub">1-click unpacked folder apply</text>
 
-  <!-- Lane 4: Hosted Neon Cloud -->
-  <rect x="846" y="20" width="254" height="420" rx="8" class="lane"/>
-  <text x="860" y="44" class="hdr" style="fill:#166534">Hosted Cloud (Neon + Vercel)</text>
-  <text x="860" y="60" class="sub">Maintainer-hosted Postgres</text>
+  <!-- Lane 4: Hosted Cloud -->
+  <rect x="852" y="20" width="248" height="420" rx="8" class="lane"/>
+  <text x="866" y="44" class="hdr">Hosted Cloud (Neon Postgres)</text>
+  <text x="866" y="60" class="sub">Opt-in per category</text>
 
-  <rect x="860" y="78" width="226" height="104" rx="6" class="box-db"/>
-  <text x="872" y="100" class="title">Google, GitHub, Email Auth</text>
-  <text x="872" y="119" class="sub">OAuth 2.0 + 6-digit email OTP</text>
-  <text x="872" y="136" class="sub">SHA-256 hashed lms_ sessions</text>
-  <text x="872" y="153" class="sub">No user server setup needed</text>
+  <rect x="866" y="78" width="220" height="112" rx="6" class="box-db"/>
+  <text x="878" y="100" class="title">Sign-In (No Self-Host)</text>
+  <text x="878" y="119" class="sub">Google, GitHub, 6-digit Email</text>
+  <text x="878" y="136" class="sub">Granular sync toggles</text>
+  <text x="878" y="153" class="sub">Transcripts, Keys, Preferences</text>
 
-  <rect x="860" y="202" width="226" height="114" rx="6" class="box-db"/>
-  <text x="872" y="224" class="title">AES-256-GCM Vault + Purge</text>
-  <text x="872" y="243" class="sub">Per-user HKDF-SHA256 key</text>
-  <text x="872" y="260" class="sub">Opt-in: keys, cues, settings</text>
-  <text x="872" y="277" class="sub">1-click cloud purge on opt-out</text>
-  <text x="872" y="294" class="sub">UI sees masked hints only</text>
+  <rect x="866" y="210" width="220" height="106" rx="6" class="box-db"/>
+  <text x="878" y="232" class="title">AES-256-GCM Key Vault</text>
+  <text x="878" y="251" class="sub">HKDF-SHA256 per-user key</text>
+  <text x="878" y="268" class="sub">Plaintext never returned to UI</text>
+  <text x="878" y="285" class="sub">Masked hints only</text>
 
-  <rect x="860" y="336" width="226" height="82" rx="6" class="box"/>
-  <text x="872" y="358" class="title">Library + SQL Statistics</text>
-  <text x="872" y="376" class="sub">/library &amp; /stats telemetry</text>
-  <text x="872" y="393" class="sub">50 ms cross-device cache hit</text>
+  <rect x="866" y="336" width="220" height="82" rx="6" class="box"/>
+  <text x="878" y="358" class="title">Library + SQL Statistics</text>
+  <text x="878" y="376" class="sub">/library &amp; /stats telemetry</text>
+  <text x="878" y="393" class="sub">50 ms cross-device cache hit</text>
 
   <!-- Connectors -->
   <path d="M 258 128 L 303 128" class="arrow" marker-end="url(#ah)"/>
@@ -119,6 +114,6 @@
   <path d="M 695 192 L 695 207" class="arrow" marker-end="url(#ah)"/>
   <path d="M 578 272 L 533 272" class="arrow" marker-end="url(#ah)"/>
   <path d="M 306 355 L 261 355" class="arrow" marker-end="url(#ah)"/>
-  <path d="M 812 135 L 857 135" class="arrow-db" marker-end="url(#ahg)"/>
-  <path d="M 857 258 L 812 258" class="arrow-db" marker-end="url(#ahg)"/>
+  <path d="M 818 135 L 863 135" class="arrow-db" marker-end="url(#ahg)"/>
+  <path d="M 863 258 L 818 258" class="arrow-db" marker-end="url(#ahg)"/>
 </svg>

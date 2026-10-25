@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="175" height="22" role="img" aria-label="Tests: 45 / 45 Passing">
+<svg xmlns="http://www.w3.org/2000/svg" width="175" height="22" role="img" aria-label="Tests: 53 / 53 Passing">
   <rect width="175" height="22" rx="4" fill="#111315"/>
   <rect x="53" width="122" height="22" rx="4" fill="#166534"/>
   <rect x="53" width="4" height="22" fill="#166534"/>
   <g fill="#FDFDFE" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10.5" font-weight="700">
     <text x="26.5" y="14.5">Tests</text>
-    <text x="114.0" y="14.5">45 / 45 Passing</text>
+    <text x="114.0" y="14.5">53 / 53 Passing</text>
   </g>
 </svg>

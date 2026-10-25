@@ -282,6 +282,9 @@
               <button id="opt-test-notif-btn" type="button" class="btn btn-sm btn-primary">
                 Test desktop alert
               </button>
+              <button id="opt-test-chime-btn" type="button" class="btn btn-sm">
+                Preview chime
+              </button>
               <button id="opt-mark-notif-read-btn" type="button" class="btn btn-sm">
                 Mark all read
               </button>
@@ -498,6 +501,14 @@
               </div>
 
               <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-karaoke-delay">
+                  <span>Word highlight delay</span>
+                  <span id="opt-karaoke-delay-label" class="mono-input">0 ms</span>
+                </label>
+                <input id="opt-karaoke-delay" type="range" min="-500" max="1500" step="50" value="0" />
+              </div>
+
+              <div class="field" style="margin: 0">
                 <label class="field-label" for="opt-playback-speed">Default playback speed</label>
                 <select id="opt-playback-speed">
                   <option value="0.75">0.75x</option>
@@ -553,10 +564,10 @@
               <div class="switch-row-item">
                 <div>
                   <div style="font-size: 13px; font-weight: 600">Progressive spoken-word highlight</div>
-                  <div class="hint" style="margin-top: 2px">Underlines and tints words across each active cue as they are spoken.</div>
+                  <div class="hint" style="margin-top: 2px">Highlights the active spoken word cleanly inside each caption line.</div>
                 </div>
                 <label class="switch" aria-label="Progressive spoken-word highlight">
-                  <input id="opt-karaoke-highlight" type="checkbox" />
+                  <input id="opt-karaoke-highlight" type="checkbox" checked />
                 </label>
               </div>
 

@@ -36,6 +36,10 @@ import {
   resolveExtensionLogoUrl,
 } from "../lib/brand-logo.js";
 import {
+  playCompletionChimeSound,
+  unlockChimeAudio,
+} from "../lib/chime.js";
+import {
   resolveSubtitleCacheKey,
   shouldGenerateSubtitles,
 } from "../lib/decide.js";
@@ -321,31 +325,28 @@ export async function initContentCoordinator({
 
   function playCompletionChime() {
     if (!settings.soundAlerts || !settings.enabled) return;
-    try {
-      const AudioCtx = win.AudioContext || win.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const now = ctx.currentTime;
-      const notes = [523.25, 659.25];
-      notes.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, now + idx * 0.09);
-        gain.gain.setValueAtTime(0.0001, now + idx * 0.09);
-        gain.gain.exponentialRampToValueAtTime(0.055, now + idx * 0.09 + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.09 + 0.2);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + idx * 0.09);
-        osc.stop(now + idx * 0.09 + 0.21);
-      });
-      setTimeout(() => {
-        ctx.close?.().catch?.(() => {});
-      }, 600);
-    } catch {
-      // Ignore autoplay / audio context restrictions
-    }
+    playCompletionChimeSound({ win }).catch(() => {});
+  }
+
+  // Pre-unlock WebAudio on first user gesture or media playback so async completion chimes play reliably
+  try {
+    const onUnlockGesture = () => {
+      unlockChimeAudio(win);
+    };
+    doc.addEventListener?.("pointerdown", onUnlockGesture, {
+      capture: true,
+      passive: true,
+    });
+    doc.addEventListener?.("keydown", onUnlockGesture, {
+      capture: true,
+      passive: true,
+    });
+    doc.addEventListener?.("play", onUnlockGesture, {
+      capture: true,
+      passive: true,
+    });
+  } catch {
+    // Ignore restricted document listener environments
   }
 
   function fireTabDesktopNotification(title, body) {
@@ -972,6 +973,7 @@ export async function initContentCoordinator({
       initialCaptionPosition: settings.captionPosition,
       initialCaptionMaxWidth: settings.captionMaxWidth,
       initialKaraokeHighlight: settings.karaokeHighlight,
+      initialKaraokeDelayMs: settings.karaokeDelayMs,
       initialShowSpeakerLabels: settings.showSpeakerLabels,
       initialPauseOnCaptionHover: settings.pauseOnCaptionHover,
       initialClickCaptionToCopy: settings.clickCaptionToCopy,
@@ -1395,6 +1397,22 @@ export async function initContentCoordinator({
       active.controller.adjustOffset(-0.25);
     } else if (key === "]") {
       active.controller.adjustOffset(0.25);
+    } else if (key === "{") {
+      const nextMs = active.controller.adjustKaraokeDelay?.(-50) ?? 0;
+      showToast(
+        "Word highlight delay",
+        `${nextMs > 0 ? "+" : ""}${nextMs} ms`,
+        "info",
+        1600
+      );
+    } else if (key === "}") {
+      const nextMs = active.controller.adjustKaraokeDelay?.(50) ?? 0;
+      showToast(
+        "Word highlight delay",
+        `${nextMs > 0 ? "+" : ""}${nextMs} ms`,
+        "info",
+        1600
+      );
     } else if (key === "\\") {
       active.controller.resetOffset();
     } else if (key === "-") {
@@ -1642,6 +1660,7 @@ export async function initContentCoordinator({
           captionPosition: settings.captionPosition,
           captionMaxWidth: settings.captionMaxWidth,
           karaokeHighlight: settings.karaokeHighlight,
+          karaokeDelayMs: settings.karaokeDelayMs,
           showSpeakerLabels: settings.showSpeakerLabels,
           pauseOnCaptionHover: settings.pauseOnCaptionHover,
           clickCaptionToCopy: settings.clickCaptionToCopy,
