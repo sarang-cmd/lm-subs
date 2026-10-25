@@ -326,7 +326,12 @@ const BANNER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height=
   </g>
 </svg>
 `;
-renderSvgToPng(BANNER_SVG, "docs/assets/banner-social-1280x640.png", 1280);
+if (
+  process.argv.includes("--force-banner") ||
+  !fs.existsSync("docs/assets/banner-social-1280x640.png")
+) {
+  renderSvgToPng(BANNER_SVG, "docs/assets/banner-social-1280x640.png", 1280);
+}
 
 // 5. Four Redesigned 1280x800 Screenshots (`docs/assets/screenshots/` + `store-assets/`)
 

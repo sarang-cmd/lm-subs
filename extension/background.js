@@ -2759,7 +2759,7 @@ var DEFAULT_SETTINGS = Object.freeze({
   soundAlerts: false,
   badgeAlerts: true,
   notifyOnFailover: true,
-  notifyOnSync: true,
+  notifyOnSync: false,
   autoUpdateExtension: true,
   autoBackgroundSync: true,
   excludePatterns: [],
@@ -3122,6 +3122,26 @@ async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
   }
   await store.set({ [STORAGE_KEYS.API_KEYS]: merged });
 }
+function hasTranscriptContentChanged(prev, incoming) {
+  if (!prev || !incoming) return true;
+  const prevTitle = String(prev.title || "Video Overview").trim();
+  const nextTitle = String(incoming.title || prev.title || "Video Overview").trim();
+  if (prevTitle !== nextTitle) return true;
+  const prevLang = String(prev.language || "en").trim();
+  const nextLang = String(incoming.language || prev.language || "en").trim();
+  if (prevLang !== nextLang) return true;
+  const prevCues = Array.isArray(prev.cues) ? prev.cues : [];
+  const nextCues = Array.isArray(incoming.cues) ? incoming.cues : [];
+  if (prevCues.length !== nextCues.length) return true;
+  for (let i = 0; i < prevCues.length; i += 1) {
+    const a = prevCues[i];
+    const b = nextCues[i];
+    if (Math.abs((Number(a?.startSec) || 0) - (Number(b?.startSec) || 0)) > 5e-3 || Math.abs((Number(a?.endSec) || 0) - (Number(b?.endSec) || 0)) > 5e-3 || String(a?.text || "") !== String(b?.text || "") || Boolean(a?.bookmarked) !== Boolean(b?.bookmarked) || String(a?.secondaryText || "") !== String(b?.secondaryText || "")) {
+      return true;
+    }
+  }
+  return false;
+}
 async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
   if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) {
     return { addedEntries: [], updatedEntries: [] };
@@ -3142,7 +3162,8 @@ async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
     const prev = byKey.get(sub.cacheKey);
     const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
     const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
-    if (!prev || incomingTime && prevTime && incomingTime > prevTime) {
+    const isGenuineUpdate = prev && incomingTime && prevTime && incomingTime > prevTime && hasTranscriptContentChanged(prev, sub);
+    if (!prev || isGenuineUpdate) {
       const mergedEntry = {
         cacheKey: sub.cacheKey,
         artifactId: sub.artifactId || prev?.artifactId || null,
@@ -3737,7 +3758,8 @@ function createRuntimeDispatcher({
     body = "",
     cacheKey = null,
     provider = null,
-    fireDesktop = false
+    fireDesktop = false,
+    quiet = false
   } = {}) {
     const settings = await getSettings(storageArea);
     if (kind === "failover" && !settings.notifyOnFailover) {
@@ -3753,12 +3775,12 @@ function createRuntimeDispatcher({
         body,
         cacheKey,
         provider,
-        read: false
+        read: Boolean(quiet)
       },
       storageArea
     );
     await syncToolbarBadge();
-    if (fireDesktop && settings.desktopNotifications) {
+    if (!quiet && kind !== "sync" && fireDesktop && settings.desktopNotifications) {
       await fireDesktopAlertIfPermitted({
         id: notification.id,
         title: notification.title,
@@ -4110,7 +4132,8 @@ function createRuntimeDispatcher({
         kind: "sync",
         title: changedCount > 0 ? `Synced ${changedCount} updated transcript${changedCount === 1 ? "" : "s"}` : "Cloud sync completed",
         body: `${updatedProfile.subtitleCount} transcript(s) and ${Object.keys(updatedProfile.keyHints || {}).length} encrypted key(s) synced.`,
-        fireDesktop: silentNotification && changedCount > 0
+        fireDesktop: false,
+        quiet: Boolean(silentNotification)
       }).catch(() => {
       });
     }
@@ -4352,18 +4375,11 @@ function createRuntimeDispatcher({
               title: item.title || "LM Subs",
               body: item.body || "",
               cacheKey: item.cacheKey || null,
-              read: Boolean(item.read),
+              read: true,
               createdAt: item.createdAt
             },
             storageArea
           );
-          if (!item.read && settings.desktopNotifications) {
-            await fireDesktopAlertIfPermitted({
-              id: cloudKey,
-              title: item.title || "LM Subs",
-              body: item.body || ""
-            });
-          }
         }
         await syncToolbarBadge();
       }

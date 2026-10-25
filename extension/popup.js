@@ -509,7 +509,7 @@
     soundAlerts: false,
     badgeAlerts: true,
     notifyOnFailover: true,
-    notifyOnSync: true,
+    notifyOnSync: false,
     autoUpdateExtension: true,
     autoBackgroundSync: true,
     excludePatterns: [],

@@ -91,7 +91,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   soundAlerts: false,
   badgeAlerts: true,
   notifyOnFailover: true,
-  notifyOnSync: true,
+  notifyOnSync: false,
   autoUpdateExtension: true,
   autoBackgroundSync: true,
   excludePatterns: [],
@@ -688,6 +688,33 @@ export async function mergeSecretApiKeysFromCloud(cloudKeys, storageArea) {
 /**
  * Merges subtitle transcripts pulled from Neon Lakebase Postgres into local cache & history.
  */
+function hasTranscriptContentChanged(prev, incoming) {
+  if (!prev || !incoming) return true;
+  const prevTitle = String(prev.title || "Video Overview").trim();
+  const nextTitle = String(incoming.title || prev.title || "Video Overview").trim();
+  if (prevTitle !== nextTitle) return true;
+  const prevLang = String(prev.language || "en").trim();
+  const nextLang = String(incoming.language || prev.language || "en").trim();
+  if (prevLang !== nextLang) return true;
+  const prevCues = Array.isArray(prev.cues) ? prev.cues : [];
+  const nextCues = Array.isArray(incoming.cues) ? incoming.cues : [];
+  if (prevCues.length !== nextCues.length) return true;
+  for (let i = 0; i < prevCues.length; i += 1) {
+    const a = prevCues[i];
+    const b = nextCues[i];
+    if (
+      Math.abs((Number(a?.startSec) || 0) - (Number(b?.startSec) || 0)) > 0.005 ||
+      Math.abs((Number(a?.endSec) || 0) - (Number(b?.endSec) || 0)) > 0.005 ||
+      String(a?.text || "") !== String(b?.text || "") ||
+      Boolean(a?.bookmarked) !== Boolean(b?.bookmarked) ||
+      String(a?.secondaryText || "") !== String(b?.secondaryText || "")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) {
   if (!Array.isArray(cloudSubtitles) || cloudSubtitles.length === 0) {
     return { addedEntries: [], updatedEntries: [] };
@@ -711,7 +738,13 @@ export async function mergeCloudSubtitlesIntoCache(cloudSubtitles, storageArea) 
     const prev = byKey.get(sub.cacheKey);
     const incomingTime = sub.savedAt ? Date.parse(sub.savedAt) : 0;
     const prevTime = prev?.createdAt ? Date.parse(prev.createdAt) : 0;
-    if (!prev || (incomingTime && prevTime && incomingTime > prevTime)) {
+    const isGenuineUpdate =
+      prev &&
+      incomingTime &&
+      prevTime &&
+      incomingTime > prevTime &&
+      hasTranscriptContentChanged(prev, sub);
+    if (!prev || isGenuineUpdate) {
       const mergedEntry = {
         cacheKey: sub.cacheKey,
         artifactId: sub.artifactId || prev?.artifactId || null,

@@ -1038,9 +1038,10 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
     type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
   });
   assert.equal(tickRes.ok, true);
-  assert.ok(
-    desktopAlerts.length > alertsBeforeTick,
-    "Background cloud tick must automatically fire OS desktop alert for newly synced captions"
+  assert.equal(
+    desktopAlerts.length,
+    alertsBeforeTick,
+    "Background cloud sync must run quietly without firing OS desktop popup notifications"
   );
   assert.ok(
     tabBroadcasts.some(
@@ -1049,8 +1050,22 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
         b.payload.type === RUNTIME_MESSAGE.SUBTITLES_UPDATED &&
         b.payload.entries.some((e) => e.cacheKey === "art:remote-auto-1")
     ),
-    "Background cloud tick must broadcast SUBTITLES_UPDATED to open NotebookLM tabs for live hot-reload"
+    "Background cloud tick must still broadcast SUBTITLES_UPDATED to open NotebookLM tabs for live hot-reload"
   );
+
+  // Second background tick with unchanged transcripts must NOT report false updates from push/pull timestamp echo
+  const secondTickRes = await invokeDispatcher(dispatcher, {
+    type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
+  });
+  assert.equal(secondTickRes.ok, true);
+  const secondMerge = secondTickRes.sync?.syncRes?.mergeResult;
+  assert.equal(secondMerge?.addedEntries?.length || 0, 0);
+  assert.equal(
+    secondMerge?.updatedEntries?.length || 0,
+    0,
+    "Unchanged synced transcripts must never trigger false updatedEntries on subsequent background ticks"
+  );
+  assert.equal(desktopAlerts.length, alertsBeforeTick);
 });
 
 test("Caption Studio Customizations, NotebookLM Study Controls, Split-Grid Overflow Fix, and Project Codebase Telemetry", async () => {
