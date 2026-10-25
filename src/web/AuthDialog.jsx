@@ -8,9 +8,11 @@ export function AuthCard({
 }) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [step, setStep] = useState("email"); // "email" | "code"
+  const [codeSentNotice, setCodeSentNotice] = useState("");
   const [previewCode, setPreviewCode] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [copiedPreview, setCopiedPreview] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [error, setError] = useState("");
 
   const emailRef = useRef(null);
@@ -19,6 +21,7 @@ export function AuthCard({
   async function handleSendCode(e) {
     e.preventDefault();
     setError("");
+    setCodeSentNotice("");
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
       setError("Enter a valid email address, such as alex@university.edu.");
@@ -26,7 +29,7 @@ export function AuthCard({
       return;
     }
 
-    setLoading(true);
+    setSendingCode(true);
     try {
       const res = await fetch("/api/auth/email/send-code", {
         method: "POST",
@@ -39,36 +42,73 @@ export function AuthCard({
         emailRef.current?.focus();
         return;
       }
-      setPreviewCode(data.delivery === "preview" ? data.previewCode || "" : "");
       if (data.delivery === "preview" && data.previewCode) {
+        setPreviewCode(data.previewCode);
         setCode(data.previewCode);
+        setCodeSentNotice("");
+      } else {
+        setPreviewCode("");
+        setCodeSentNotice(`Sent a 6-digit code to ${trimmed}. Enter it in the open box below.`);
       }
-      setStep("code");
       window.setTimeout(() => codeRef.current?.focus(), 30);
     } catch {
       setError("Network error while contacting the sign-in service.");
     } finally {
-      setLoading(false);
+      setSendingCode(false);
     }
   }
 
   async function handleVerifyCode(e) {
     e.preventDefault();
     setError("");
-    const cleanCode = code.replace(/\s+/g, "");
-    if (!/^\d{6}$/.test(cleanCode)) {
-      setError("Enter the 6-digit verification code.");
-      codeRef.current?.focus();
+    const trimmedRaw = code.trim();
+
+    // Direct local session code (`lms_...`) support in the same always-open box
+    if (trimmedRaw.startsWith("lms_")) {
+      setVerifyingCode(true);
+      try {
+        const res = await fetch("/api/sync/state", {
+          headers: { Authorization: `Bearer ${trimmedRaw}` },
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.ok || !data?.user) {
+          setError(data?.error || "Invalid or expired local code.");
+          codeRef.current?.focus();
+          return;
+        }
+        onAuthenticated({
+          token: trimmedRaw,
+          user: data.user,
+          summary: data.summary || null,
+        });
+      } catch {
+        setError("Network error while verifying local code.");
+      } finally {
+        setVerifyingCode(false);
+      }
       return;
     }
 
-    setLoading(true);
+    const cleanCode = trimmedRaw.replace(/\s+/g, "");
+    if (!/^\d{6}$/.test(cleanCode)) {
+      setError("Enter a 6-digit verification code or paste an lms_ local code.");
+      codeRef.current?.focus();
+      return;
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setError("Enter the email address above that matches your 6-digit code.");
+      emailRef.current?.focus();
+      return;
+    }
+
+    setVerifyingCode(true);
     try {
       const res = await fetch("/api/auth/email/verify-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim().toLowerCase(),
+          email: cleanEmail,
           code: cleanCode,
           deviceLabel: "web",
         }),
@@ -87,7 +127,18 @@ export function AuthCard({
     } catch {
       setError("Network error while verifying code.");
     } finally {
-      setLoading(false);
+      setVerifyingCode(false);
+    }
+  }
+
+  async function handleCopyPreviewCode() {
+    if (!previewCode) return;
+    try {
+      await navigator.clipboard.writeText(previewCode);
+      setCopiedPreview(true);
+      window.setTimeout(() => setCopiedPreview(false), 1800);
+    } catch {
+      // Ignore clipboard failure
     }
   }
 
@@ -97,7 +148,7 @@ export function AuthCard({
     <div>
       {oauthNotice ? (
         <div className="notice-banner" data-tone="sample" role="status">
-          {oauthNotice === "google" ? "Google" : "GitHub"} OAuth client credentials are not configured on this preview environment yet. Use the 6-digit email sign-in below, or add{" "}
+          {oauthNotice === "google" ? "Google" : "GitHub"} OAuth client credentials are not configured on this environment yet. Use the email or local code sign-in below, or add{" "}
           <code>
             {oauthNotice === "google" ? "GOOGLE_CLIENT_ID" : "GITHUB_CLIENT_ID"}
           </code>{" "}
@@ -150,107 +201,111 @@ export function AuthCard({
           paddingTop: "16px",
         }}
       >
-        {step === "email" ? (
-          <form onSubmit={handleSendCode} noValidate>
-            <div className="form-field">
-              <label className="form-label" htmlFor="auth-email-input">
-                Or continue with email (no password needed)
-              </label>
+        <form onSubmit={handleSendCode} noValidate>
+          <div className="form-field" style={{ marginBottom: "12px" }}>
+            <label className="form-label" htmlFor="auth-email-input">
+              Email address (sends a 6-digit code)
+            </label>
+            <div style={{ display: "flex", gap: "8px" }}>
               <input
                 ref={emailRef}
                 id="auth-email-input"
                 name="email"
                 type="email"
                 className="form-input"
+                style={{ flex: 1 }}
                 placeholder="alex@university.edu"
                 autoComplete="email"
                 spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                aria-invalid={error ? "true" : "false"}
               />
-              {error ? (
-                <div className="field-error" role="alert">
-                  {error}
-                </div>
-              ) : null}
+              <button
+                type="submit"
+                className="btn"
+                disabled={sendingCode}
+              >
+                {sendingCode ? "Sending…" : "Send code"}
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {previewCode ? (
+          <div className="local-code-callout" role="status">
+            <div>
+              <div className="local-code-label">Your local sign-in code</div>
+              <div className="local-code-value">{previewCode}</div>
             </div>
             <button
-              type="submit"
-              className="btn btn-primary"
-              style={{ width: "100%" }}
-              disabled={loading}
+              type="button"
+              className="btn btn-sm"
+              onClick={handleCopyPreviewCode}
             >
-              {loading ? "Sending 6-digit code…" : "Send 6-digit code"}
+              {copiedPreview ? "Copied" : "Copy code"}
             </button>
-          </form>
-        ) : (
-          <form onSubmit={handleVerifyCode} noValidate>
-            {previewCode ? (
-              <div className="notice-banner" data-tone="sample" role="status">
-                Sandbox preview mode (no outbound email server configured): your verification code is{" "}
-                <strong>{previewCode}</strong>.
-              </div>
-            ) : (
-              <p style={{ margin: "0 0 12px", fontSize: "13.5px", color: "var(--ink-secondary)" }}>
-                Enter the 6-digit code sent to <strong>{email}</strong>.
-              </p>
-            )}
+          </div>
+        ) : null}
 
-            <div className="form-field">
-              <label className="form-label" htmlFor="auth-code-input">
-                6-digit verification code
-              </label>
+        {codeSentNotice ? (
+          <div
+            className="notice-banner"
+            data-tone="ok"
+            role="status"
+            style={{ marginBottom: "12px" }}
+          >
+            {codeSentNotice}
+          </div>
+        ) : null}
+
+        {/* Always-open local / verification code box */}
+        <form onSubmit={handleVerifyCode} noValidate>
+          <div className="form-field" style={{ marginBottom: 0 }}>
+            <label className="form-label" htmlFor="auth-code-input">
+              Local code (enter 6-digit code or paste lms_ code)
+            </label>
+            <div style={{ display: "flex", gap: "8px" }}>
               <input
                 ref={codeRef}
                 id="auth-code-input"
                 name="code"
                 type="text"
-                inputMode="numeric"
-                maxLength={6}
                 className="form-input form-input-mono"
-                placeholder="123456"
+                style={{ flex: 1 }}
+                placeholder="123456 or lms_..."
                 autoComplete="one-time-code"
                 spellCheck={false}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 aria-invalid={error ? "true" : "false"}
               />
-              {error ? (
-                <div className="field-error" role="alert">
-                  {error}
-                </div>
-              ) : null}
-            </div>
-
-            <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="submit"
                 className="btn btn-primary"
-                style={{ flex: 1 }}
-                disabled={loading}
+                disabled={verifyingCode}
               >
-                {loading ? "Verifying…" : "Verify and sign in"}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setStep("email");
-                  setError("");
-                }}
-              >
-                Change email
+                {verifyingCode ? "Verifying…" : "Verify code"}
               </button>
             </div>
-          </form>
-        )}
+            {error ? (
+              <div className="field-error" role="alert">
+                {error}
+              </div>
+            ) : null}
+          </div>
+        </form>
       </div>
     </div>
   );
 }
 
-export function AuthDialog({ open, onOpenChange, onAuthenticated, oauthNotice = "" }) {
+export function AuthDialog({
+  open,
+  onOpenChange,
+  onAuthenticated,
+  oauthNotice = "",
+  redirectAfter = "/library",
+}) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -279,6 +334,7 @@ export function AuthDialog({ open, onOpenChange, onAuthenticated, oauthNotice = 
 
           <AuthCard
             oauthNotice={oauthNotice}
+            redirectAfter={redirectAfter}
             onAuthenticated={(payload) => {
               onAuthenticated(payload);
               onOpenChange(false);

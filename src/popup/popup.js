@@ -7,6 +7,7 @@
  */
 
 import { NOTEBOOKLM_HOSTS, RUNTIME_MESSAGE } from "../config/selectors.js";
+import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
 import {
   getProviderOriginPattern,
   getProviderSpec,
@@ -18,6 +19,7 @@ import {
   getSavedKeyPresenceMap,
   getSettings,
   getSubtitleCacheList,
+  normalizeSyncServerUrl,
   saveSettings,
   setApiKey,
 } from "../lib/storage.js";
@@ -46,6 +48,16 @@ async function requestProviderOrigin(providerId, customBaseUrl = "") {
   }
 }
 
+async function requestSyncServerOrigin(rawUrl) {
+  if (!chrome.permissions?.request) return true;
+  try {
+    const u = new URL(normalizeSyncServerUrl(rawUrl));
+    return await chrome.permissions.request({ origins: [`${u.origin}/*`] });
+  } catch {
+    return true;
+  }
+}
+
 function exportSubtitleEntry(entry, format = "srt") {
   if (!entry?.cues?.length) return;
   const { content, filename, mimeType } = serializeSubtitles(entry.cues, format, {
@@ -68,9 +80,10 @@ function exportSubtitleEntry(entry, format = "srt") {
 
 async function initPopup() {
   const iconSlot = document.getElementById("brand-icon-slot");
-  iconSlot?.appendChild(createBrandMarkSvg(document, 28));
+  iconSlot?.appendChild(createBrandMarkSvg(document, 24));
 
   const enabledToggle = document.getElementById("enabled-toggle");
+  const providersDisclosure = document.getElementById("popup-providers-disclosure");
   const queueSummaryText = document.getElementById("queue-summary-text");
   const openQueueBtn = document.getElementById("open-queue-btn");
   const openOptionsBtn = document.getElementById("open-options-btn");
@@ -88,7 +101,12 @@ async function initPopup() {
   const popupSyncBadge = document.getElementById("popup-sync-badge");
   const popupSyncSummary = document.getElementById("popup-sync-summary");
   const popupSyncNowBtn = document.getElementById("popup-sync-now-btn");
+  const popupGetCodeBtn = document.getElementById("popup-get-code-btn");
   const popupOpenSyncBtn = document.getElementById("popup-open-sync-btn");
+  const popupLocalCodeRow = document.getElementById("popup-local-code-row");
+  const popupLocalCodeInput = document.getElementById("popup-local-code-input");
+  const popupConnectCodeBtn = document.getElementById("popup-connect-code-btn");
+  const popupSyncFeedback = document.getElementById("popup-sync-feedback");
 
   const tabBadge = document.getElementById("tab-badge");
   const tabDescription = document.getElementById("tab-description");
@@ -130,6 +148,7 @@ async function initPopup() {
   let activeTabDiagnostics = null;
   let activeTabSubtitles = null;
   let missingGoogleOrigins = [];
+  let initialDisclosureSet = false;
 
   function resolveExportTarget() {
     if (activeTabSubtitles?.cues?.length > 0) {
@@ -185,12 +204,20 @@ async function initPopup() {
     if (activeIds.length === 0) {
       queueSummaryText.textContent = "Add Groq or Mistral key";
       if (guideEl) guideEl.open = true;
+      if (providersDisclosure && !initialDisclosureSet) {
+        providersDisclosure.open = true;
+        initialDisclosureSet = true;
+      }
     } else {
       queueSummaryText.textContent = activeIds
         .slice(0, 3)
         .map((id, i) => `#${i + 1} ${getProviderSpec(id).name.split(" ")[0]}`)
         .join(" -> ");
       if (guideEl) guideEl.open = false;
+      if (providersDisclosure && !initialDisclosureSet) {
+        providersDisclosure.open = false;
+        initialDisclosureSet = true;
+      }
     }
   }
 
@@ -225,18 +252,22 @@ async function initPopup() {
       popupSyncBadge.textContent = "Synced";
       popupSyncBadge.className = "badge badge-saved";
       const keyCount = Object.keys(syncProfile.keyHints || {}).length;
-      popupSyncSummary.textContent = `${syncProfile.user.email}, ${keyCount} key(s), ${
+      popupSyncSummary.textContent = `${syncProfile.user.email} (${keyCount} key(s), ${
         syncProfile.subtitleCount || 0
-      } transcript(s)`;
+      } transcript(s))`;
       if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
-      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Account and sync";
+      if (popupGetCodeBtn) popupGetCodeBtn.style.display = "none";
+      if (popupLocalCodeRow) popupLocalCodeRow.style.display = "none";
+      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Account";
     } else {
       popupSyncBadge.textContent = "Signed out";
       popupSyncBadge.className = "badge";
       popupSyncSummary.textContent =
-        "Sign in with Google, GitHub, or email to sync encrypted keys and transcripts.";
+        "Paste your local code below or click Get code to sign in with Google, GitHub, or email.";
       if (popupSyncNowBtn) popupSyncNowBtn.style.display = "none";
-      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Sign in";
+      if (popupGetCodeBtn) popupGetCodeBtn.style.display = "inline-flex";
+      if (popupLocalCodeRow) popupLocalCodeRow.style.display = "block";
+      if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Settings";
     }
   }
 
@@ -256,11 +287,15 @@ async function initPopup() {
       const speedPart = lastStatus.latencyMs
         ? `, ${(lastStatus.latencyMs / 1000).toFixed(1)}s`
         : "";
-      const ratioPart =
-        lastStatus.originalBytes && lastStatus.extractedBytes
-          ? `, ${(lastStatus.extractedBytes / 1048576).toFixed(1)} MB audio`
+      const byteStats = resolveAvoidedVideoBytes({
+        originalBytes: lastStatus.originalBytes,
+        extractedBytes: lastStatus.extractedBytes,
+      });
+      const avoidedPart =
+        byteStats.savedBytes > 0
+          ? `, ${(byteStats.savedBytes / 1048576).toFixed(1)} MB avoided`
           : "";
-      lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${speedPart}${ratioPart}`;
+      lastStatusMeta.textContent = `${lastStatus.cueCount || 0} cues${speedPart}${avoidedPart}`;
     } else if (lastStatus.state === "working") {
       lastStatusBadge.textContent = "Working";
       lastStatusBadge.className = "badge badge-warn";
@@ -301,7 +336,7 @@ async function initPopup() {
           tabBadge.textContent = "NotebookLM";
           tabBadge.className = "badge";
           tabDescription.textContent =
-            "Reload the NotebookLM tab once if you just installed LM Subs.";
+            "Reload the NotebookLM tab once if you recently installed LM Subs.";
           generateNowBtn.disabled = false;
           return;
         }
@@ -314,17 +349,17 @@ async function initPopup() {
           renderExportBar();
         }
         if (state.hasVideoElement || state.readyArtifactCount > 0) {
-          tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} Ready`;
+          tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} ready`;
           tabBadge.className = "badge badge-saved";
           tabDescription.textContent = state.activeArtifact?.title
             ? `Video: "${state.activeArtifact.title}"`
-            : "Video Overview ready for instant captioning.";
+            : "Video Overview ready for captioning.";
           generateNowBtn.disabled = false;
         } else if (state.generatingCount > 0) {
           tabBadge.textContent = "Rendering";
           tabBadge.className = "badge badge-warn";
           tabDescription.textContent =
-            "Studio is rendering the Video Overview — captions start automatically.";
+            "Studio is rendering the Video Overview. Captions start automatically when ready.";
           generateNowBtn.disabled = true;
         } else {
           tabBadge.textContent = "Idle";
@@ -430,9 +465,10 @@ async function initPopup() {
     presenceMap = await getSavedKeyPresenceMap();
     renderQueueSummary();
     renderSelectedProvider();
+    if (providersDisclosure) providersDisclosure.open = false;
     keyFeedback.dataset.kind = "ok";
     keyFeedback.textContent = syncProfile?.connected
-      ? `${spec.name} saved locally & syncing to Neon…`
+      ? `${spec.name} saved locally and syncing…`
       : `${spec.name} saved and active in queue.`;
 
     if (syncProfile?.connected) {
@@ -440,7 +476,7 @@ async function initPopup() {
       if (syncRes?.ok && syncRes.profile) {
         syncProfile = syncRes.profile;
         renderSyncStatus();
-        keyFeedback.textContent = `${spec.name} saved & encrypted in Neon Postgres.`;
+        keyFeedback.textContent = `${spec.name} saved and encrypted in Neon Postgres.`;
       }
     }
   });
@@ -471,12 +507,90 @@ async function initPopup() {
     }
   });
 
+  popupGetCodeBtn?.addEventListener("click", () => {
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const url = `${base}/?view=library&ext_connect=1`;
+    if (chrome.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  });
+
+  async function handlePopupConnectLocalCode() {
+    const token = (popupLocalCodeInput?.value || "").trim();
+    if (!token) {
+      if (popupSyncFeedback) {
+        popupSyncFeedback.dataset.kind = "err";
+        popupSyncFeedback.textContent = "Paste your lms_ local code first.";
+      }
+      popupLocalCodeInput?.focus();
+      return;
+    }
+
+    const base = normalizeSyncServerUrl(syncProfile?.serverUrl);
+    const granted = await requestSyncServerOrigin(base);
+    if (!granted) {
+      if (popupSyncFeedback) {
+        popupSyncFeedback.dataset.kind = "err";
+        popupSyncFeedback.textContent = "Permission denied for sync service.";
+      }
+      return;
+    }
+
+    if (popupConnectCodeBtn) popupConnectCodeBtn.disabled = true;
+    if (popupSyncFeedback) {
+      popupSyncFeedback.dataset.kind = "";
+      popupSyncFeedback.textContent = "Connecting local code…";
+    }
+
+    const res = await sendRuntime({
+      type: RUNTIME_MESSAGE.SYNC_SIGNIN,
+      token,
+    });
+
+    if (popupConnectCodeBtn) popupConnectCodeBtn.disabled = false;
+
+    if (!res?.ok) {
+      if (popupSyncFeedback) {
+        popupSyncFeedback.dataset.kind = "err";
+        popupSyncFeedback.textContent = res?.error || "Invalid or expired local code.";
+      }
+      return;
+    }
+
+    if (popupLocalCodeInput) popupLocalCodeInput.value = "";
+    [settings, presenceMap, cacheList, syncProfile] = await Promise.all([
+      getSettings(),
+      getSavedKeyPresenceMap(),
+      getSubtitleCacheList(),
+      getCloudSyncProfile(),
+    ]);
+    renderQueueSummary();
+    renderSelectedProvider();
+    renderSyncStatus();
+    renderLastStatus();
+    renderExportBar();
+    if (popupSyncFeedback) {
+      popupSyncFeedback.dataset.kind = "ok";
+      popupSyncFeedback.textContent = "Connected and synced.";
+    }
+  }
+
+  popupConnectCodeBtn?.addEventListener("click", handlePopupConnectLocalCode);
+  popupLocalCodeInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handlePopupConnectLocalCode();
+    }
+  });
+
   popupSyncNowBtn?.addEventListener("click", async () => {
     popupSyncNowBtn.disabled = true;
     popupSyncNowBtn.textContent = "Syncing…";
     const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_NOW });
     popupSyncNowBtn.disabled = false;
-    popupSyncNowBtn.textContent = "Sync Now";
+    popupSyncNowBtn.textContent = "Sync";
     if (res?.ok && res.profile) {
       syncProfile = res.profile;
       [settings, presenceMap, cacheList] = await Promise.all([

@@ -456,4 +456,51 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
     "DEPLOYMENT_GUIDE.md must correlate Neon with Supabase and Firebase"
   );
   assert.ok(!deployMd.includes("notebooklm-subtitles"));
+
+  // Verify extension visual parity tokens, collapsible providers, and always-open local code boxes
+  const uiCss = fs.readFileSync(path.resolve("extension/ui.css"), "utf8");
+  assert.ok(uiCss.includes("#f6f7f8") && uiCss.includes("#fdfdfe") && uiCss.includes("#0055d4"));
+  assert.ok(uiCss.includes(".provider-item-drawer") && uiCss.includes(".local-code-box"));
+
+  const optionsHtml = fs.readFileSync(path.resolve("extension/options.html"), "utf8");
+  assert.ok(
+    optionsHtml.includes('id="sync-token-input"') &&
+      !optionsHtml.includes('<input id="sync-token-input" type="password"'),
+    "options.html must expose #sync-token-input as plain readable text"
+  );
+  // Ensure neither #sync-token-input nor #sync-code-step is hidden behind display:none or <details>
+  assert.ok(
+    !/id="sync-code-step"[^>]*display:\s*none/i.test(optionsHtml),
+    "#sync-code-step must remain open in options.html"
+  );
+  assert.ok(
+    optionsHtml.includes('id="provider-collapse-all-btn"') &&
+      optionsHtml.includes('id="provider-section-toggle-btn"'),
+    "options.html must include collapsible controls for STT providers and API keys"
+  );
+
+  const popupHtml = fs.readFileSync(path.resolve("extension/popup.html"), "utf8");
+  assert.ok(
+    popupHtml.includes('id="popup-local-code-input"') &&
+      popupHtml.includes('id="popup-connect-code-btn"'),
+    "popup.html must include an always-open local code input box"
+  );
+  assert.ok(
+    popupHtml.includes('id="popup-providers-disclosure"'),
+    "popup.html must wrap STT providers and API keys in a collapsible disclosure"
+  );
+
+  const authDialogJsx = fs.readFileSync(path.resolve("src/web/AuthDialog.jsx"), "utf8");
+  assert.ok(
+    authDialogJsx.includes('id="auth-code-input"') &&
+      !authDialogJsx.includes('step === "email"'),
+    "AuthDialog.jsx must keep #auth-code-input always open without hiding behind step === email"
+  );
+
+  const libraryJsx = fs.readFileSync(path.resolve("src/web/LibraryView.jsx"), "utf8");
+  assert.ok(
+    libraryJsx.includes('id="library-local-code-input"') &&
+      libraryJsx.includes("Collapsible.Root"),
+    "LibraryView.jsx must render the open local extension code box and collapsible API keys section"
+  );
 });

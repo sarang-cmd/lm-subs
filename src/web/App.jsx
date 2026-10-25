@@ -91,6 +91,13 @@ export function App() {
   const [loadingCloud, setLoadingCloud] = useState(false);
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [oauthNotice, setOauthNotice] = useState("");
+  const [extConnectRequested, setExtConnectRequested] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("ext_connect") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [providerFilter, setProviderFilter] = useState("all");
   const [previewPrefs, setPreviewPrefs] = useState({
     syncApiKeys: true,
@@ -135,6 +142,10 @@ export function App() {
     }
 
     const params = new URLSearchParams(window.location.search);
+    if (params.get("ext_connect") === "1") {
+      setExtConnectRequested(true);
+      setView("library");
+    }
     const notice = params.get("oauth_notice");
     if (notice === "google" || notice === "github") {
       setOauthNotice(notice);
@@ -704,6 +715,7 @@ export function App() {
             cloudState={cloudState}
             loadingCloud={loadingCloud}
             oauthNotice={oauthNotice}
+            extConnectRequested={extConnectRequested}
             onAuthenticated={handleAuthenticated}
             onSignOut={handleSignOut}
             onRefreshCloud={() => refreshCloud(token)}
@@ -812,6 +824,9 @@ export function App() {
         onOpenChange={setAuthDialogOpen}
         onAuthenticated={handleAuthenticated}
         oauthNotice={oauthNotice}
+        redirectAfter={
+          extConnectRequested ? "/?view=library&ext_connect=1" : "/library"
+        }
       />
     </>
   );

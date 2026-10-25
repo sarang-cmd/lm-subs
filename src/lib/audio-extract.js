@@ -711,7 +711,7 @@ export async function extractAudioViaHttpRange({
   credentials = "include",
   totalBytes = 0,
   fetchImpl = globalThis.fetch,
-  concurrency = 6,
+  concurrency = 8,
   probeBytes = 1024 * 1024,
 }) {
   async function fetchRangeSlice(start, endInclusive) {
@@ -740,6 +740,7 @@ export async function extractAudioViaHttpRange({
   if (!headRes || headRes.bytes.byteLength < 32) return null;
 
   const knownTotal = headRes.totalBytes || totalBytes;
+  let moovSliceForReplan = headRes.bytes;
   let plan = planMp4AudioExtractionFromSlice(headRes.bytes, {
     totalFileBytes: knownTotal,
   });
@@ -770,6 +771,7 @@ export async function extractAudioViaHttpRange({
     if (moovOffset >= 0 && moovOffset + moovSize <= knownTotal && moovSize <= 16 * 1024 * 1024) {
       const fullMoov = await fetchRangeSlice(moovOffset, moovOffset + moovSize - 1);
       if (fullMoov) {
+        moovSliceForReplan = fullMoov.bytes;
         plan = planMp4AudioExtractionFromSlice(fullMoov.bytes, {
           totalFileBytes: knownTotal,
         });
@@ -792,10 +794,14 @@ export async function extractAudioViaHttpRange({
           ) {
             const sz = tv.getUint32(i, false);
             if (sz >= 32 && i + sz <= tb.byteLength) {
-              plan = planMp4AudioExtractionFromSlice(tb.subarray(i, i + sz), {
+              const tailMoovSlice = tb.subarray(i, i + sz);
+              plan = planMp4AudioExtractionFromSlice(tailMoovSlice, {
                 totalFileBytes: knownTotal,
               });
-              if (plan) break;
+              if (plan) {
+                moovSliceForReplan = tailMoovSlice;
+                break;
+              }
             }
           }
         }
@@ -805,7 +811,33 @@ export async function extractAudioViaHttpRange({
 
   if (!plan) return null;
 
-  // Guard: if coalesced ranges somehow exceed 45% of file size on a tiny file, only worthwhile when saving bandwidth
+  // If fine-grained interleaving produced many small slices, re-coalesce with wider spans
+  // so HTTP/2 finishes in a couple of round-trips instead of dozens of tiny 206 requests.
+  if (plan.coalescedRanges.length > 28) {
+    const widerPlan = planMp4AudioExtractionFromSlice(
+      moovSliceForReplan || headRes.bytes,
+      {
+        totalFileBytes: knownTotal,
+        maxGapBytes: 262144,
+        maxRangeSpanBytes: 4 * 1024 * 1024,
+      }
+    );
+    if (widerPlan && widerPlan.coalescedRanges.length < plan.coalescedRanges.length) {
+      plan = widerPlan;
+    }
+  }
+
+  // On medium files (<24 MB), if coalescing still leaves >48 separate HTTP round-trips,
+  // a single streaming GET + in-memory remux completes faster than 48+ Range requests.
+  if (
+    plan.coalescedRanges.length > 48 &&
+    knownTotal > 0 &&
+    knownTotal <= 24 * 1024 * 1024
+  ) {
+    return null;
+  }
+
+  // Guard: if coalesced ranges somehow exceed 64 MB, skip range assembly
   const plannedDownloadBytes = plan.coalescedRanges.reduce(
     (sum, r) => sum + (r.endExclusive - r.start),
     0
@@ -1097,3 +1129,70 @@ export function createSyntheticMp4WithVideoAndAudio({
   out.set(mdat, ftyp.byteLength + realMoov.byteLength);
   return out;
 }
+
+/**
+ * Resolves the source full-video container byte count and avoided video upload bytes.
+ *
+ * - When the muxed MP4 container size was measured directly (`originalBytes > extractedBytes`),
+ *   uses the exact measured byte count.
+ * - When a pure-audio stream (`=m140` / `audio/mp4`) bypassed the HD video stream without
+ *   downloading it (`originalBytes <= extractedBytes`), estimates the bypassed 720p `=m22`
+ *   MP4 container size conservatively from duration (~112 KB/s) or the 128 kbps AAC stream
+ *   ratio (~6.5x) so avoided video upload telemetry never falsely reads `0.0 MB`.
+ */
+export function resolveAvoidedVideoBytes({
+  originalBytes = 0,
+  extractedBytes = 0,
+  durationSeconds = 0,
+  cues = [],
+} = {}) {
+  const orig = Math.max(0, Math.round(Number(originalBytes) || 0));
+  const ext = Math.max(0, Math.round(Number(extractedBytes) || 0));
+
+  if (orig > ext && ext > 0) {
+    return {
+      originalBytes: orig,
+      extractedBytes: ext,
+      savedBytes: orig - ext,
+    };
+  }
+
+  let dur = Number(durationSeconds) || 0;
+  if (dur <= 0 && Array.isArray(cues) && cues.length > 0) {
+    for (const c of cues) {
+      const end = Number(c?.endSec ?? c?.end ?? 0);
+      if (Number.isFinite(end) && end > dur) dur = end;
+    }
+  }
+
+  if (ext > 0) {
+    const byRatio = Math.round(ext * 6.5);
+    const byDuration = dur > 0 ? Math.round(dur * 112 * 1024) : 0;
+    const estimatedVideoBytes = Math.max(
+      ext + 1024,
+      byDuration > ext ? byDuration : byRatio
+    );
+    return {
+      originalBytes: estimatedVideoBytes,
+      extractedBytes: ext,
+      savedBytes: Math.max(0, estimatedVideoBytes - ext),
+    };
+  }
+
+  if (dur > 0) {
+    const estExt = Math.round(dur * 16 * 1024);
+    const estOrig = Math.round(dur * 112 * 1024);
+    return {
+      originalBytes: estOrig,
+      extractedBytes: estExt,
+      savedBytes: Math.max(0, estOrig - estExt),
+    };
+  }
+
+  return {
+    originalBytes: orig,
+    extractedBytes: ext,
+    savedBytes: Math.max(0, orig - ext),
+  };
+}
+

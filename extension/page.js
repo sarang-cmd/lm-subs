@@ -519,6 +519,56 @@
     }
     return chunks;
   }
+  function resolveAvoidedVideoBytes({
+    originalBytes = 0,
+    extractedBytes = 0,
+    durationSeconds = 0,
+    cues = []
+  } = {}) {
+    const orig = Math.max(0, Math.round(Number(originalBytes) || 0));
+    const ext = Math.max(0, Math.round(Number(extractedBytes) || 0));
+    if (orig > ext && ext > 0) {
+      return {
+        originalBytes: orig,
+        extractedBytes: ext,
+        savedBytes: orig - ext
+      };
+    }
+    let dur = Number(durationSeconds) || 0;
+    if (dur <= 0 && Array.isArray(cues) && cues.length > 0) {
+      for (const c of cues) {
+        const end = Number(c?.endSec ?? c?.end ?? 0);
+        if (Number.isFinite(end) && end > dur) dur = end;
+      }
+    }
+    if (ext > 0) {
+      const byRatio = Math.round(ext * 6.5);
+      const byDuration = dur > 0 ? Math.round(dur * 112 * 1024) : 0;
+      const estimatedVideoBytes = Math.max(
+        ext + 1024,
+        byDuration > ext ? byDuration : byRatio
+      );
+      return {
+        originalBytes: estimatedVideoBytes,
+        extractedBytes: ext,
+        savedBytes: Math.max(0, estimatedVideoBytes - ext)
+      };
+    }
+    if (dur > 0) {
+      const estExt = Math.round(dur * 16 * 1024);
+      const estOrig = Math.round(dur * 112 * 1024);
+      return {
+        originalBytes: estOrig,
+        extractedBytes: estExt,
+        savedBytes: Math.max(0, estOrig - estExt)
+      };
+    }
+    return {
+      originalBytes: orig,
+      extractedBytes: ext,
+      savedBytes: Math.max(0, orig - ext)
+    };
+  }
 
   // src/lib/batchexecute.js
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1150,22 +1200,44 @@
       }
       let lastErr = null;
       for (const credentialsMode of ["include", "omit"]) {
+        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 4500) : null;
         try {
-          const res = await nativeFetch(url, {
+          const fetchInit = {
             method: "GET",
             credentials: credentialsMode
-          });
+          };
+          if (controller) fetchInit.signal = controller.signal;
+          const res = await nativeFetch(url, fetchInit);
+          if (timer) clearTimeout(timer);
           if (!res.ok) {
             lastErr = new Error(`HTTP ${res.status}`);
+            try {
+              await res.body?.cancel?.();
+            } catch {
+            }
+            if (res.status === 400 || res.status === 404 || res.status === 410) {
+              break;
+            }
             continue;
           }
           const ct = res.headers?.get?.("content-type") || "";
+          if (/text\/html/i.test(ct)) {
+            lastErr = new Error("HTML login redirect");
+            try {
+              await res.body?.cancel?.();
+            } catch {
+            }
+            continue;
+          }
           const buf = new Uint8Array(await res.arrayBuffer());
           return {
             bytes: validateMediaPayload(buf, ct),
-            contentType: ct
+            contentType: ct,
+            url
           };
         } catch (err) {
+          if (timer) clearTimeout(timer);
           lastErr = err;
         }
       }
@@ -1175,7 +1247,8 @@
       requestId,
       candidateUrls = [],
       videoCurrentSrc = "",
-      blobOnly = false
+      blobOnly = false,
+      durationSeconds = 0
     } = {}) {
       const discoveredMediaUrls = discoverPerformanceMediaUrls();
       const expanded = [];
@@ -1203,12 +1276,22 @@
       }
       let downloaded = null;
       let lastError = blobOnly ? "Deferred HTTPS CDN download to Service Worker." : "No downloadable media stream matched in page.";
+      const deadFifeSuffixes = /* @__PURE__ */ new Set();
       for (const url of expanded) {
+        const fifeSuffixMatch = url.match(/\/([A-Za-z0-9_-]{16,})(=[A-Za-z0-9_,.-]+)$/);
+        const fifeKey = fifeSuffixMatch ? `${fifeSuffixMatch[1]}${fifeSuffixMatch[2]}` : "";
+        if (fifeKey && deadFifeSuffixes.has(fifeKey)) {
+          continue;
+        }
         try {
           downloaded = await fetchSingleCandidateInPage(url, { blobOnly });
           break;
         } catch (err) {
-          lastError = err?.message || String(err);
+          const msg = err?.message || String(err);
+          lastError = msg;
+          if (fifeKey && /HTTP (?:400|404|410)\b/.test(msg)) {
+            deadFifeSuffixes.add(fifeKey);
+          }
         }
       }
       if (!downloaded) {
@@ -1221,23 +1304,61 @@
         });
         return;
       }
-      const originalBytes = downloaded.bytes.byteLength;
+      const rawDownloadedBytes = downloaded.bytes.byteLength;
       try {
         const extracted = extractAudioTrackFromMp4(downloaded.bytes);
         if (extracted && extracted.bytes && extracted.extractedBytes <= MAX_INLINE_M4A_BYTES) {
           const cleanCopy = extracted.bytes.slice();
+          const byteStats = resolveAvoidedVideoBytes({
+            originalBytes: rawDownloadedBytes,
+            extractedBytes: cleanCopy.byteLength,
+            durationSeconds
+          });
           postToContent(
             PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE,
             {
               requestId,
               ok: true,
-              originalBytes,
+              originalBytes: byteStats.originalBytes,
               extractedBytes: cleanCopy.byteLength,
               chunks: [
                 {
                   buffer: cleanCopy.buffer,
                   mimeType: "audio/mp4",
                   fileName: "overview-audio.m4a",
+                  startOffsetSec: 0,
+                  durationSec: null
+                }
+              ]
+            },
+            [cleanCopy.buffer]
+          );
+          return;
+        }
+        const isAlreadyPureAudio = /^audio\//i.test(downloaded.contentType || "") || /=m140(?:-dv)?(?:$|\?)|mime=audio/i.test(downloaded.url || "");
+        if (isAlreadyPureAudio && rawDownloadedBytes <= MAX_INLINE_M4A_BYTES) {
+          const cleanCopy = downloaded.bytes.slice();
+          const normalizedMime = /^audio\/(?:webm|mpeg|ogg|wav)/i.test(
+            downloaded.contentType || ""
+          ) ? downloaded.contentType.split(";")[0].trim().toLowerCase() : "audio/mp4";
+          const ext = normalizedMime === "audio/webm" ? "webm" : normalizedMime === "audio/mpeg" ? "mp3" : "m4a";
+          const byteStats = resolveAvoidedVideoBytes({
+            originalBytes: rawDownloadedBytes,
+            extractedBytes: cleanCopy.byteLength,
+            durationSeconds
+          });
+          postToContent(
+            PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE,
+            {
+              requestId,
+              ok: true,
+              originalBytes: byteStats.originalBytes,
+              extractedBytes: cleanCopy.byteLength,
+              chunks: [
+                {
+                  buffer: cleanCopy.buffer,
+                  mimeType: normalizedMime,
+                  fileName: `overview-audio.${ext}`,
                   startOffsetSec: 0,
                   durationSec: null
                 }
@@ -1267,7 +1388,7 @@
           {
             requestId,
             ok: true,
-            originalBytes,
+            originalBytes: rawDownloadedBytes,
             extractedBytes: totalExtracted,
             chunks: serializedChunks
           },

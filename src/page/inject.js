@@ -22,6 +22,7 @@
 import { PAGE_MESSAGE } from "../config/selectors.js";
 import {
   extractAudioTrackFromMp4,
+  resolveAvoidedVideoBytes,
   slicePcmIntoWavChunks,
   validateMediaPayload,
 } from "../lib/audio-extract.js";
@@ -277,22 +278,49 @@ export function installMainWorldObserver(win = globalThis) {
 
     let lastErr = null;
     for (const credentialsMode of ["include", "omit"]) {
+      const controller =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = controller
+        ? setTimeout(() => controller.abort(), 4500)
+        : null;
       try {
-        const res = await nativeFetch(url, {
+        const fetchInit = {
           method: "GET",
           credentials: credentialsMode,
-        });
+        };
+        if (controller) fetchInit.signal = controller.signal;
+        const res = await nativeFetch(url, fetchInit);
+        if (timer) clearTimeout(timer);
         if (!res.ok) {
           lastErr = new Error(`HTTP ${res.status}`);
+          try {
+            await res.body?.cancel?.();
+          } catch {
+            // Ignore
+          }
+          if (res.status === 400 || res.status === 404 || res.status === 410) {
+            break;
+          }
           continue;
         }
         const ct = res.headers?.get?.("content-type") || "";
+        if (/text\/html/i.test(ct)) {
+          lastErr = new Error("HTML login redirect");
+          try {
+            await res.body?.cancel?.();
+          } catch {
+            // Ignore
+          }
+          continue;
+        }
         const buf = new Uint8Array(await res.arrayBuffer());
         return {
           bytes: validateMediaPayload(buf, ct),
           contentType: ct,
+          url,
         };
       } catch (err) {
+        if (timer) clearTimeout(timer);
         lastErr = err;
       }
     }
@@ -305,6 +333,7 @@ export function installMainWorldObserver(win = globalThis) {
     candidateUrls = [],
     videoCurrentSrc = "",
     blobOnly = false,
+    durationSeconds = 0,
   } = {}) {
     const discoveredMediaUrls = discoverPerformanceMediaUrls();
     const expanded = [];
@@ -338,12 +367,24 @@ export function installMainWorldObserver(win = globalThis) {
       ? "Deferred HTTPS CDN download to Service Worker."
       : "No downloadable media stream matched in page.";
 
+    const deadFifeSuffixes = new Set();
     for (const url of expanded) {
+      const fifeSuffixMatch = url.match(/\/([A-Za-z0-9_-]{16,})(=[A-Za-z0-9_,.-]+)$/);
+      const fifeKey = fifeSuffixMatch
+        ? `${fifeSuffixMatch[1]}${fifeSuffixMatch[2]}`
+        : "";
+      if (fifeKey && deadFifeSuffixes.has(fifeKey)) {
+        continue;
+      }
       try {
         downloaded = await fetchSingleCandidateInPage(url, { blobOnly });
         break;
       } catch (err) {
-        lastError = err?.message || String(err);
+        const msg = err?.message || String(err);
+        lastError = msg;
+        if (fifeKey && /HTTP (?:400|404|410)\b/.test(msg)) {
+          deadFifeSuffixes.add(fifeKey);
+        }
       }
     }
 
@@ -358,7 +399,7 @@ export function installMainWorldObserver(win = globalThis) {
       return;
     }
 
-    const originalBytes = downloaded.bytes.byteLength;
+    const rawDownloadedBytes = downloaded.bytes.byteLength;
 
     try {
       const extracted = extractAudioTrackFromMp4(downloaded.bytes);
@@ -368,18 +409,67 @@ export function installMainWorldObserver(win = globalThis) {
         extracted.extractedBytes <= MAX_INLINE_M4A_BYTES
       ) {
         const cleanCopy = extracted.bytes.slice();
+        const byteStats = resolveAvoidedVideoBytes({
+          originalBytes: rawDownloadedBytes,
+          extractedBytes: cleanCopy.byteLength,
+          durationSeconds,
+        });
         postToContent(
           PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE,
           {
             requestId,
             ok: true,
-            originalBytes,
+            originalBytes: byteStats.originalBytes,
             extractedBytes: cleanCopy.byteLength,
             chunks: [
               {
                 buffer: cleanCopy.buffer,
                 mimeType: "audio/mp4",
                 fileName: "overview-audio.m4a",
+                startOffsetSec: 0,
+                durationSec: null,
+              },
+            ],
+          },
+          [cleanCopy.buffer]
+        );
+        return;
+      }
+
+      // FAST PATH B: Fragmented pure-audio stream (`=m140` / `audio/*`) skips slow PCM WAV decode
+      const isAlreadyPureAudio =
+        /^audio\//i.test(downloaded.contentType || "") ||
+        /=m140(?:-dv)?(?:$|\?)|mime=audio/i.test(downloaded.url || "");
+      if (isAlreadyPureAudio && rawDownloadedBytes <= MAX_INLINE_M4A_BYTES) {
+        const cleanCopy = downloaded.bytes.slice();
+        const normalizedMime = /^audio\/(?:webm|mpeg|ogg|wav)/i.test(
+          downloaded.contentType || ""
+        )
+          ? downloaded.contentType.split(";")[0].trim().toLowerCase()
+          : "audio/mp4";
+        const ext =
+          normalizedMime === "audio/webm"
+            ? "webm"
+            : normalizedMime === "audio/mpeg"
+              ? "mp3"
+              : "m4a";
+        const byteStats = resolveAvoidedVideoBytes({
+          originalBytes: rawDownloadedBytes,
+          extractedBytes: cleanCopy.byteLength,
+          durationSeconds,
+        });
+        postToContent(
+          PAGE_MESSAGE.EXTRACT_AUDIO_RESPONSE,
+          {
+            requestId,
+            ok: true,
+            originalBytes: byteStats.originalBytes,
+            extractedBytes: cleanCopy.byteLength,
+            chunks: [
+              {
+                buffer: cleanCopy.buffer,
+                mimeType: normalizedMime,
+                fileName: `overview-audio.${ext}`,
                 startOffsetSec: 0,
                 durationSec: null,
               },
@@ -411,7 +501,7 @@ export function installMainWorldObserver(win = globalThis) {
         {
           requestId,
           ok: true,
-          originalBytes,
+          originalBytes: rawDownloadedBytes,
           extractedBytes: totalExtracted,
           chunks: serializedChunks,
         },
