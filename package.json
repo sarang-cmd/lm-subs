@@ -24,9 +24,13 @@
     "postgresql",
     "byok"
   ],
+  "homepage": "https://lm-subs.vercel.app",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sarang-cmd/notebooklm-subtitles.git"
+    "url": "https://github.com/sarang-cmd/lm-subs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sarang-cmd/lm-subs/issues"
   },
   "scripts": {
     "build": "node build.mjs",

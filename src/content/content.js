@@ -1248,7 +1248,7 @@ export async function initContentCoordinator({
       return false;
     }
 
-    if (msg.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK" && msg.base64Media) {
+    if (msg.type === RUNTIME_MESSAGE.DECODE_WAV_FALLBACK && msg.base64Media) {
       decodeBase64MediaToWavFallback(msg.base64Media)
         .then((chunks) => sendResponse({ ok: true, chunks }))
         .catch((err) =>

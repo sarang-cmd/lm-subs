@@ -1,6 +1,6 @@
-# Chrome Web Store Publishing Guide — LM Subs (`v0.2.0`)
+# Chrome Web Store Publishing Guide: LM Subs (`v0.2.0`)
 
-Use the copy-pasteable fields below when submitting `docs/releases/lm-subs-v0.2.0.zip` in the Chrome Web Store Developer Dashboard.
+Use the copy-pasteable fields below when submitting `docs/releases/lm-subs-v0.2.0.zip` (`https://github.com/sarang-cmd/lm-subs`, live web app `https://lm-subs.vercel.app`) in the Chrome Web Store Developer Dashboard.
 
 ---
 
@@ -13,7 +13,7 @@ Use the copy-pasteable fields below when submitting `docs/releases/lm-subs-v0.2.
 
 ---
 
-## 2. Privacy Tab — Permission Justifications
+## 2. Privacy Tab: Permission Justifications
 
 ### Single Purpose Description
 > Generates synchronized closed captions, multi-format subtitle exports (`.SRT`, `.VTT`, `.TXT`, `.JSON`), and optional encrypted cloud sync for Google NotebookLM Studio Video Overviews using the user's chosen Speech-to-Text API key.

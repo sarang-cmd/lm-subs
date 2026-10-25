@@ -43,7 +43,7 @@ export function AboutView({ onNavigate }) {
               </a>
               <a
                 className="btn"
-                href="https://github.com/sarang-cmd/notebooklm-subtitles"
+                href="https://github.com/sarang-cmd/lm-subs"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -114,7 +114,7 @@ export function AboutView({ onNavigate }) {
                 <dd style={{ margin: 0 }}>
                   <a
                     className="link"
-                    href="https://github.com/sarang-cmd/notebooklm-subtitles/issues"
+                    href="https://github.com/sarang-cmd/lm-subs/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                   >

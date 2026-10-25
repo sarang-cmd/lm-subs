@@ -379,7 +379,7 @@ test("Speed Optimization Suite: pure-audio =m140 skips WAV IPC, Groq omits slow 
     storageArea: store,
     tabsApi: {
       sendMessage(_tabId, msg, cb) {
-        if (msg?.type === "NOTEBOOKLM_SUBTITLES_DECODE_WAV_FALLBACK") {
+        if (msg?.type === RUNTIME_MESSAGE.DECODE_WAV_FALLBACK) {
           wavDecodeTriggered = true;
         }
         cb?.({ ok: false });

@@ -424,10 +424,17 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
 
   const aboutJsx = fs.readFileSync(path.resolve("src/web/AboutView.jsx"), "utf8");
   assert.ok(aboutJsx.includes("Sarang") && aboutJsx.includes("@sarang-cmd"));
+  assert.ok(aboutJsx.includes("https://github.com/sarang-cmd/lm-subs"));
+  assert.ok(!aboutJsx.includes("notebooklm-subtitles"));
+
+  const pkgJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
+  assert.equal(pkgJson.repository?.url, "https://github.com/sarang-cmd/lm-subs.git");
+  assert.equal(pkgJson.homepage, "https://lm-subs.vercel.app");
 
   const deployMd = fs.readFileSync(path.resolve("DEPLOYMENT_GUIDE.md"), "utf8");
   assert.ok(
     deployMd.includes("Supabase") && deployMd.includes("Firebase") && deployMd.includes("Neon"),
     "DEPLOYMENT_GUIDE.md must correlate Neon with Supabase and Firebase"
   );
+  assert.ok(!deployMd.includes("notebooklm-subtitles"));
 });

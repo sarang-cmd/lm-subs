@@ -120,7 +120,7 @@ const zipBuf = createZipBuffer(files);
 
 fs.mkdirSync("docs/releases", { recursive: true });
 for (const existing of fs.readdirSync("docs/releases")) {
-  if (/^(?:notebooklm-subtitles|lm-subs)-v.*\.zip$/.test(existing)) {
+  if (/^lm-subs-v.*\.zip$/.test(existing)) {
     fs.unlinkSync(path.join("docs/releases", existing));
   }
 }

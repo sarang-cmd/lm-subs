@@ -797,7 +797,7 @@ export function App() {
               Terms of service
             </a>
             <a
-              href="https://github.com/sarang-cmd/notebooklm-subtitles"
+              href="https://github.com/sarang-cmd/lm-subs"
               target="_blank"
               rel="noopener noreferrer"
             >
