@@ -10,8 +10,14 @@ import { RUNTIME_MESSAGE } from "../config/selectors.js";
 import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
 import {
   playCompletionChimeSound,
+  SOUND_PRESETS,
   unlockChimeAudio,
 } from "../lib/chime.js";
+import {
+  buildUnifiedStatsReport,
+  formatMegabytesValue,
+  formatMinutesLabel,
+} from "../lib/stats-model.js";
 import {
   getProviderOriginPattern,
   getProviderSpec,
@@ -127,6 +133,47 @@ async function initOptions() {
   const optKaraokeDelay = document.getElementById("opt-karaoke-delay");
   const optKaraokeDelayLabel = document.getElementById("opt-karaoke-delay-label");
   const optPlaybackSpeed = document.getElementById("opt-playback-speed");
+  const optPlayBarDock = document.getElementById("opt-play-bar-dock");
+
+  // Fine-grained controls
+  const optFineGrained = document.getElementById("opt-fine-grained");
+  const advancedControlsBody = document.getElementById("advanced-controls-body");
+  const optCaptionScale = document.getElementById("opt-caption-scale");
+  const optCaptionScaleLabel = document.getElementById("opt-caption-scale-label");
+  const optDynamicScaling = document.getElementById("opt-dynamic-scaling");
+  const optCaptionMin = document.getElementById("opt-caption-min");
+  const optCaptionMax = document.getElementById("opt-caption-max");
+  const optCaptionPadY = document.getElementById("opt-caption-pad-y");
+  const optCaptionPadX = document.getElementById("opt-caption-pad-x");
+  const optCaptionRadius = document.getElementById("opt-caption-radius");
+  const optCaptionLeading = document.getElementById("opt-caption-leading");
+  const optCaptionLeadingLabel = document.getElementById("opt-caption-leading-label");
+  const optCaptionBottom = document.getElementById("opt-caption-bottom");
+  const optCaptionStroke = document.getElementById("opt-caption-stroke");
+  const optKaraokeAlpha = document.getElementById("opt-karaoke-alpha");
+  const optKaraokeAlphaLabel = document.getElementById("opt-karaoke-alpha-label");
+  const optUpcomingAlpha = document.getElementById("opt-upcoming-alpha");
+  const optUpcomingAlphaLabel = document.getElementById("opt-upcoming-alpha-label");
+  const optSkipGap = document.getElementById("opt-skip-gap");
+  const optSkipGapLabel = document.getElementById("opt-skip-gap-label");
+  const optSkipRate = document.getElementById("opt-skip-rate");
+  const optSkipRateLabel = document.getElementById("opt-skip-rate-label");
+  const optAudioBoost = document.getElementById("opt-audio-boost");
+  const optAudioBoostLabel = document.getElementById("opt-audio-boost-label");
+  const optHoverFade = document.getElementById("opt-hover-fade");
+  const optHoverFadeLabel = document.getElementById("opt-hover-fade-label");
+  const optKeepPip = document.getElementById("opt-keep-pip");
+  const optSkipSilence = document.getElementById("opt-skip-silence");
+  const saveAdvancedBtn = document.getElementById("save-advanced-btn");
+  const resetAdvancedBtn = document.getElementById("reset-advanced-btn");
+
+  // Notification sound presets
+  const optSoundPreset = document.getElementById("opt-sound-preset");
+  const optSoundVolume = document.getElementById("opt-sound-volume");
+  const optSoundVolumeLabel = document.getElementById("opt-sound-volume-label");
+  const optSoundBadge = document.getElementById("opt-sound-badge");
+  const optPreviewSoundBtn = document.getElementById("opt-preview-sound-btn");
+  const optSoundFeedback = document.getElementById("opt-sound-feedback");
   const optKaraokeHighlight = document.getElementById("opt-karaoke-highlight");
   const optShowSpeakers = document.getElementById("opt-show-speakers");
   const optHoverPause = document.getElementById("opt-hover-pause");
@@ -191,13 +238,23 @@ async function initOptions() {
   const syncPrefTranscripts = document.getElementById("sync-pref-transcripts");
   const syncPrefSettings = document.getElementById("sync-pref-settings");
 
-  // Statistics elements
+  // Statistics elements (unified with the website dashboard and toolbar popup)
   const refreshStatsBtn = document.getElementById("refresh-stats-btn");
   const statsSummaryNote = document.getElementById("stats-summary-note");
   const statVideos = document.getElementById("stat-videos");
   const statCues = document.getElementById("stat-cues");
   const statSaved = document.getElementById("stat-saved");
   const statLatency = document.getElementById("stat-latency");
+  const statNotebooks = document.getElementById("stat-notebooks");
+  const statSources = document.getElementById("stat-sources");
+  const statArtifacts = document.getElementById("stat-artifacts");
+  const statStudy = document.getElementById("stat-study");
+  const statVideoOv = document.getElementById("stat-video-ov");
+  const statAudioOv = document.getElementById("stat-audio-ov");
+  const statCitations = document.getElementById("stat-citations");
+  const statBookmarks = document.getElementById("stat-bookmarks");
+  const notebookLmTableWrap = document.getElementById("notebook-lm-table-wrap");
+  const notebookLmTbody = document.getElementById("notebook-lm-tbody");
 
   const cacheEmpty = document.getElementById("cache-empty");
   const cacheTableWrap = document.getElementById("cache-table-wrap");
@@ -303,65 +360,104 @@ async function initOptions() {
     }
   }
 
-  function computeLocalFallbackStats() {
-    let cues = 0;
-    let savedBytes = 0;
-    const lats = [];
-    for (const item of cacheList) {
-      cues += Number(item.cueCount || item.cues?.length || 0);
-      const byteStats = resolveAvoidedVideoBytes({
-        originalBytes: item.originalBytes,
-        extractedBytes: item.extractedBytes,
-        durationSeconds: item.durationSeconds,
-        cues: item.cues,
-      });
-      savedBytes += byteStats.savedBytes;
-      if (Number(item.latencyMs) > 0) lats.push(Number(item.latencyMs));
+  async function computeUnifiedStats() {
+    const [historyList, notebookLmStats] = await Promise.all([
+      sendRuntime({ type: RUNTIME_MESSAGE.GET_DEBUG_REPORT })
+        .then(() => [])
+        .catch(() => []),
+      sendRuntime({ type: RUNTIME_MESSAGE.GET_NOTEBOOKLM_STATS })
+        .then((res) => (res?.ok ? res.stats : null))
+        .catch(() => null),
+    ]);
+
+    let cloudStats = null;
+    if (syncProfile?.connected) {
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
+      if (res?.ok && res.totals) cloudStats = res;
     }
-    lats.sort((a, b) => a - b);
-    const med = lats.length > 0 ? lats[Math.floor(lats.length / 2)] : null;
-    return {
-      videos: cacheList.length,
-      cues,
-      savedBytes,
-      medianLatencyMs: med,
-    };
+
+    return buildUnifiedStatsReport({
+      cacheList,
+      historyList,
+      notebookLmStats,
+      cloudStats,
+    });
+  }
+
+  function renderNotebookLmTable(notebooks = []) {
+    if (!notebookLmTableWrap || !notebookLmTbody) return;
+    notebookLmTbody.textContent = "";
+    if (!notebooks.length) {
+      notebookLmTableWrap.style.display = "none";
+      return;
+    }
+    notebookLmTableWrap.style.display = "block";
+    for (const nb of notebooks) {
+      const tr = document.createElement("tr");
+
+      const tdTitle = document.createElement("td");
+      tdTitle.style.fontWeight = "600";
+      tdTitle.textContent = nb.title || "Untitled notebook";
+
+      const tdSources = document.createElement("td");
+      tdSources.dataset.num = "true";
+      tdSources.textContent = String(nb.sourceCount || 0);
+
+      const tdVideo = document.createElement("td");
+      tdVideo.dataset.num = "true";
+      tdVideo.textContent = String(nb.videoCount || 0);
+
+      const tdAudio = document.createElement("td");
+      tdAudio.dataset.num = "true";
+      tdAudio.textContent = String(nb.audioCount || 0);
+
+      const tdWatch = document.createElement("td");
+      tdWatch.dataset.num = "true";
+      tdWatch.textContent = formatMinutesLabel(
+        (Number(nb.watchSeconds) || 0) + (Number(nb.listenSeconds) || 0)
+      );
+
+      const tdLast = document.createElement("td");
+      tdLast.dataset.num = "true";
+      tdLast.textContent = nb.lastSeenAt
+        ? new Date(nb.lastSeenAt).toLocaleDateString()
+        : "n/a";
+
+      tr.append(tdTitle, tdSources, tdVideo, tdAudio, tdWatch, tdLast);
+      notebookLmTbody.appendChild(tr);
+    }
   }
 
   async function renderStatisticsPanel() {
     if (!statVideos) return;
-    const localStats = computeLocalFallbackStats();
+    const report = await computeUnifiedStats();
+    const t = report.totals;
+    const nb = report.notebookLm;
 
-    if (syncProfile?.connected) {
-      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
-      if (res?.ok && res.totals) {
-        const t = res.totals;
-        const cloudSaved = Number(t.bandwidthSavedBytes) || 0;
-        const bestSaved = Math.max(cloudSaved, localStats.savedBytes);
-        const bestVideos = Math.max(Number(t.videosCaptioned) || 0, localStats.videos);
-        const bestCues = Math.max(Number(t.totalCues) || 0, localStats.cues);
-        const medMs = t.medianLatencyMs || localStats.medianLatencyMs;
-
-        statVideos.textContent = String(bestVideos);
-        statCues.textContent = String(bestCues);
-        statSaved.textContent = formatMegabytesLabel(bestSaved);
-        statLatency.textContent = medMs ? `${(medMs / 1000).toFixed(1)}s` : "n/a";
-        if (statsSummaryNote) {
-          statsSummaryNote.textContent = `Live account metrics (${t.spokenMinutes || 0} spoken minutes across ${bestVideos} captioned videos).`;
-        }
-        return;
-      }
-    }
-
-    statVideos.textContent = String(localStats.videos);
-    statCues.textContent = String(localStats.cues);
-    statSaved.textContent = formatMegabytesLabel(localStats.savedBytes);
-    statLatency.textContent = localStats.medianLatencyMs
-      ? `${(localStats.medianLatencyMs / 1000).toFixed(1)}s`
+    statVideos.textContent = String(t.videosCaptioned || 0);
+    statCues.textContent = String(t.totalCues || 0);
+    statSaved.textContent = formatMegabytesValue(t.bandwidthSavedBytes || 0);
+    statLatency.textContent = t.medianLatencyMs
+      ? `${(t.medianLatencyMs / 1000).toFixed(1)}s`
       : "n/a";
+
+    if (statNotebooks) statNotebooks.textContent = String(nb.notebooksCount || 0);
+    if (statSources) statSources.textContent = String(nb.sourcesIndexed || 0);
+    if (statArtifacts) {
+      statArtifacts.textContent = String(nb.studioArtifactsCount || 0);
+    }
+    if (statStudy) statStudy.textContent = formatMinutesLabel(nb.activeStudyMinutes * 60);
+    if (statVideoOv) statVideoOv.textContent = String(nb.videoOverviewsCount || 0);
+    if (statAudioOv) statAudioOv.textContent = String(nb.audioOverviewsCount || 0);
+    if (statCitations) statCitations.textContent = String(nb.citationsCount || 0);
+    if (statBookmarks) statBookmarks.textContent = String(nb.bookmarksCount || 0);
+
+    renderNotebookLmTable(nb.notebooks);
+
     if (statsSummaryNote) {
-      statsSummaryNote.textContent =
-        "Computed from transcripts cached in this browser. Sign in above to include cross-device statistics.";
+      statsSummaryNote.textContent = syncProfile?.connected
+        ? `Live account metrics merged with this browser: ${t.spokenMinutes || 0} spoken minutes across ${t.videosCaptioned || 0} captioned overviews in ${nb.notebooksCount || 0} notebooks.`
+        : `Computed on this device from ${t.videosCaptioned || 0} captioned overviews and ${nb.notebooksCount || 0} Google NotebookLM notebooks. Sign in above to merge cross-device numbers.`;
     }
   }
 
@@ -534,6 +630,93 @@ async function initOptions() {
     if (optCaptionOpacity) optCaptionOpacity.value = String(settings.captionBgOpacity ?? 88);
     if (optKaraokeDelay) optKaraokeDelay.value = String(settings.karaokeDelayMs ?? 0);
     if (optPlaybackSpeed) optPlaybackSpeed.value = String(settings.defaultPlaybackSpeed || 1);
+    if (optPlayBarDock) optPlayBarDock.value = settings.playBarDockMode || "native";
+
+    // Fine-grained controls
+    if (optFineGrained) optFineGrained.checked = Boolean(settings.fineGrainedControls);
+    if (advancedControlsBody) {
+      advancedControlsBody.style.display = settings.fineGrainedControls
+        ? "block"
+        : "none";
+    }
+    if (optCaptionScale) optCaptionScale.value = String(settings.captionScaleFactor ?? 100);
+    if (optCaptionScaleLabel) {
+      optCaptionScaleLabel.textContent = `${settings.captionScaleFactor ?? 100}%`;
+    }
+    if (optDynamicScaling) {
+      optDynamicScaling.checked = settings.dynamicCaptionScaling !== false;
+    }
+    if (optCaptionMin) optCaptionMin.value = String(settings.captionMinFontPx ?? 11);
+    if (optCaptionMax) optCaptionMax.value = String(settings.captionMaxFontPx ?? 40);
+    if (optCaptionPadY) optCaptionPadY.value = String(settings.captionPaddingY ?? 7);
+    if (optCaptionPadX) optCaptionPadX.value = String(settings.captionPaddingX ?? 15);
+    if (optCaptionRadius) {
+      optCaptionRadius.value = String(settings.captionBorderRadius ?? 7);
+    }
+    if (optCaptionLeading) {
+      optCaptionLeading.value = String(settings.captionLineHeight ?? 142);
+    }
+    if (optCaptionLeadingLabel) {
+      optCaptionLeadingLabel.textContent = `${settings.captionLineHeight ?? 142}%`;
+    }
+    if (optCaptionBottom) {
+      optCaptionBottom.value = String(settings.captionBottomOffsetPx ?? 54);
+    }
+    if (optCaptionStroke) {
+      optCaptionStroke.value = String(settings.captionTextStrokePx ?? 0);
+    }
+    if (optKaraokeAlpha) {
+      optKaraokeAlpha.value = String(settings.karaokeHighlightOpacity ?? 48);
+    }
+    if (optKaraokeAlphaLabel) {
+      optKaraokeAlphaLabel.textContent = `${settings.karaokeHighlightOpacity ?? 48}%`;
+    }
+    if (optUpcomingAlpha) {
+      optUpcomingAlpha.value = String(settings.upcomingWordOpacity ?? 64);
+    }
+    if (optUpcomingAlphaLabel) {
+      optUpcomingAlphaLabel.textContent = `${settings.upcomingWordOpacity ?? 64}%`;
+    }
+    if (optSkipGap) optSkipGap.value = String(settings.skipSilenceGapSec ?? 1.6);
+    if (optSkipGapLabel) optSkipGapLabel.textContent = `${settings.skipSilenceGapSec ?? 1.6}s`;
+    if (optSkipRate) optSkipRate.value = String(settings.skipSilenceRate ?? 2.2);
+    if (optSkipRateLabel) {
+      optSkipRateLabel.textContent = `${settings.skipSilenceRate ?? 2.2}x`;
+    }
+    if (optAudioBoost) optAudioBoost.value = String(settings.audioBoostPercent ?? 100);
+    if (optAudioBoostLabel) {
+      optAudioBoostLabel.textContent = `${settings.audioBoostPercent ?? 100}%`;
+    }
+    if (optHoverFade) optHoverFade.value = String(settings.hoverFadeDelayMs ?? 2200);
+    if (optHoverFadeLabel) {
+      optHoverFadeLabel.textContent = `${settings.hoverFadeDelayMs ?? 2200} ms`;
+    }
+    if (optKeepPip) optKeepPip.checked = settings.keepSubtitlesInPiP !== false;
+    if (optSkipSilence) optSkipSilence.checked = Boolean(settings.skipSilenceEnabled);
+
+    // Alert sound
+    if (optSoundPreset) {
+      optSoundPreset.textContent = "";
+      for (const preset of SOUND_PRESETS) {
+        const option = document.createElement("option");
+        option.value = preset.id;
+        option.textContent = preset.label;
+        optSoundPreset.appendChild(option);
+      }
+      optSoundPreset.value = settings.notificationSoundPreset || "chime";
+    }
+    if (optSoundVolume) {
+      optSoundVolume.value = String(settings.notificationSoundVolume ?? 75);
+    }
+    if (optSoundVolumeLabel) {
+      optSoundVolumeLabel.textContent = `${settings.notificationSoundVolume ?? 75}%`;
+    }
+    if (optSoundBadge) {
+      const spec = SOUND_PRESETS.find(
+        (p) => p.id === (settings.notificationSoundPreset || "chime")
+      );
+      optSoundBadge.textContent = spec ? spec.label.split(" (")[0] : "Chime";
+    }
     if (optKaraokeHighlight) optKaraokeHighlight.checked = Boolean(settings.karaokeHighlight);
     if (optShowSpeakers) optShowSpeakers.checked = settings.showSpeakerLabels !== false;
     if (optHoverPause) optHoverPause.checked = Boolean(settings.pauseOnCaptionHover);
@@ -552,7 +735,7 @@ async function initOptions() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.5";
+      "0.2.6";
 
     const avail = Boolean(updateStatus?.updateAvailable);
     optUpdateCard.dataset.available = avail ? "true" : "false";
@@ -816,6 +999,47 @@ async function initOptions() {
         keyLink.textContent = spec.id === "custom" ? "Server docs" : "Get API key";
 
         descRow.append(desc, keyLink);
+
+        // Beginner walkthrough: exactly how to create the account and grab the key
+        const guide = document.createElement("details");
+        guide.className = "key-guide";
+        guide.open = !isSaved;
+
+        const guideSummary = document.createElement("summary");
+        guideSummary.className = "key-guide-summary";
+        guideSummary.textContent = `How to get a ${spec.name} key, step by step`;
+
+        const guideBody = document.createElement("div");
+        guideBody.className = "key-guide-body";
+
+        const reqLine = document.createElement("p");
+        reqLine.className = "key-guide-req";
+        reqLine.textContent = spec.accountRequirements || "";
+        guideBody.appendChild(reqLine);
+
+        const steps = document.createElement("ol");
+        steps.className = "key-guide-steps";
+        for (const stepText of spec.setupSteps || []) {
+          const li = document.createElement("li");
+          li.textContent = stepText;
+          steps.appendChild(li);
+        }
+        guideBody.appendChild(steps);
+
+        const formatLine = document.createElement("p");
+        formatLine.className = "key-guide-format";
+        formatLine.textContent = `Key format: ${spec.keyFormatHint || "provider secret"}`;
+        guideBody.appendChild(formatLine);
+
+        const openLink = document.createElement("a");
+        openLink.className = "link";
+        openLink.href = spec.keyUrl;
+        openLink.target = "_blank";
+        openLink.rel = "noopener noreferrer";
+        openLink.textContent = `Open the ${spec.name} key page in a new tab`;
+        guideBody.appendChild(openLink);
+
+        guide.append(guideSummary, guideBody);
 
         const grid = document.createElement("div");
         grid.className = "provider-drawer-grid";
@@ -1444,7 +1668,12 @@ async function initOptions() {
   optTestChimeBtn?.addEventListener("click", async () => {
     unlockChimeAudio(window);
     optTestChimeBtn.textContent = "Playing…";
-    await playCompletionChimeSound({ win: window, force: true });
+    await playCompletionChimeSound({
+      win: window,
+      preset: settings.notificationSoundPreset || "chime",
+      volume: Number(settings.notificationSoundVolume) || 75,
+      force: true,
+    });
     setTimeout(() => {
       optTestChimeBtn.textContent = "Preview chime";
     }, 650);
@@ -1762,7 +1991,70 @@ async function initOptions() {
       pauseOnCaptionHover: optHoverPause ? Boolean(optHoverPause.checked) : settings.pauseOnCaptionHover,
       clickCaptionToCopy: optClickCopy ? Boolean(optClickCopy.checked) : settings.clickCaptionToCopy,
       subtitleOffsetSec: Number(optOffsetSec.value) || 0,
+      playBarDockMode: optPlayBarDock ? optPlayBarDock.value : settings.playBarDockMode,
       excludePatterns: patterns,
+    };
+  }
+
+  function collectAdvancedPatch() {
+    return {
+      fineGrainedControls: optFineGrained
+        ? Boolean(optFineGrained.checked)
+        : settings.fineGrainedControls,
+      dynamicCaptionScaling: optDynamicScaling
+        ? Boolean(optDynamicScaling.checked)
+        : settings.dynamicCaptionScaling,
+      captionScaleFactor: optCaptionScale
+        ? Number(optCaptionScale.value)
+        : settings.captionScaleFactor,
+      captionMinFontPx: optCaptionMin
+        ? Number(optCaptionMin.value)
+        : settings.captionMinFontPx,
+      captionMaxFontPx: optCaptionMax
+        ? Number(optCaptionMax.value)
+        : settings.captionMaxFontPx,
+      captionPaddingY: optCaptionPadY
+        ? Number(optCaptionPadY.value)
+        : settings.captionPaddingY,
+      captionPaddingX: optCaptionPadX
+        ? Number(optCaptionPadX.value)
+        : settings.captionPaddingX,
+      captionBorderRadius: optCaptionRadius
+        ? Number(optCaptionRadius.value)
+        : settings.captionBorderRadius,
+      captionLineHeight: optCaptionLeading
+        ? Number(optCaptionLeading.value)
+        : settings.captionLineHeight,
+      captionBottomOffsetPx: optCaptionBottom
+        ? Number(optCaptionBottom.value)
+        : settings.captionBottomOffsetPx,
+      captionTextStrokePx: optCaptionStroke
+        ? Number(optCaptionStroke.value)
+        : settings.captionTextStrokePx,
+      karaokeHighlightOpacity: optKaraokeAlpha
+        ? Number(optKaraokeAlpha.value)
+        : settings.karaokeHighlightOpacity,
+      upcomingWordOpacity: optUpcomingAlpha
+        ? Number(optUpcomingAlpha.value)
+        : settings.upcomingWordOpacity,
+      skipSilenceEnabled: optSkipSilence
+        ? Boolean(optSkipSilence.checked)
+        : settings.skipSilenceEnabled,
+      skipSilenceGapSec: optSkipGap
+        ? Number(optSkipGap.value)
+        : settings.skipSilenceGapSec,
+      skipSilenceRate: optSkipRate
+        ? Number(optSkipRate.value)
+        : settings.skipSilenceRate,
+      audioBoostPercent: optAudioBoost
+        ? Number(optAudioBoost.value)
+        : settings.audioBoostPercent,
+      hoverFadeDelayMs: optHoverFade
+        ? Number(optHoverFade.value)
+        : settings.hoverFadeDelayMs,
+      keepSubtitlesInPiP: optKeepPip
+        ? Boolean(optKeepPip.checked)
+        : settings.keepSubtitlesInPiP,
     };
   }
 
@@ -1819,6 +2111,127 @@ async function initOptions() {
     settings = await saveSettings(collectCaptionBehaviorPatch());
     flashSavedPill();
     await triggerAutoSyncIfConnected({ pushOnly: true });
+  });
+
+  // Fine-grained controls: master switch + explicit save
+  optFineGrained?.addEventListener("change", async () => {
+    settings = await saveSettings({
+      fineGrainedControls: Boolean(optFineGrained.checked),
+    });
+    if (advancedControlsBody) {
+      advancedControlsBody.style.display = optFineGrained.checked
+        ? "block"
+        : "none";
+    }
+    flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
+  });
+
+  const bindRangeLabel = (input, labelEl, format) => {
+    if (!input || !labelEl) return;
+    input.addEventListener("input", () => {
+      labelEl.textContent = format(Number(input.value));
+    });
+  };
+
+  bindRangeLabel(optCaptionScale, optCaptionScaleLabel, (v) => `${v}%`);
+  bindRangeLabel(optCaptionLeading, optCaptionLeadingLabel, (v) => `${v}%`);
+  bindRangeLabel(optKaraokeAlpha, optKaraokeAlphaLabel, (v) => `${v}%`);
+  bindRangeLabel(optUpcomingAlpha, optUpcomingAlphaLabel, (v) => `${v}%`);
+  bindRangeLabel(optSkipGap, optSkipGapLabel, (v) => `${v.toFixed(1)}s`);
+  bindRangeLabel(optSkipRate, optSkipRateLabel, (v) => `${v.toFixed(1)}x`);
+  bindRangeLabel(optAudioBoost, optAudioBoostLabel, (v) => `${v}%`);
+  bindRangeLabel(optHoverFade, optHoverFadeLabel, (v) => `${v} ms`);
+  bindRangeLabel(optSoundVolume, optSoundVolumeLabel, (v) => `${v}%`);
+
+  saveAdvancedBtn?.addEventListener("click", async () => {
+    settings = await saveSettings(collectAdvancedPatch());
+    flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
+  });
+
+  resetAdvancedBtn?.addEventListener("click", async () => {
+    settings = await saveSettings({
+      fineGrainedControls: false,
+      dynamicCaptionScaling: true,
+      captionScaleFactor: 100,
+      captionMinFontPx: 11,
+      captionMaxFontPx: 40,
+      captionPaddingY: 7,
+      captionPaddingX: 15,
+      captionBorderRadius: 7,
+      captionLineHeight: 142,
+      captionBottomOffsetPx: 54,
+      captionTextStrokePx: 0,
+      karaokeHighlightOpacity: 48,
+      upcomingWordOpacity: 64,
+      playBarDockMode: "native",
+      hoverFadeDelayMs: 2200,
+      keepSubtitlesInPiP: true,
+      skipSilenceEnabled: false,
+      skipSilenceGapSec: 1.6,
+      skipSilenceRate: 2.2,
+      audioBoostPercent: 100,
+    });
+    populateForm();
+    flashSavedPill();
+  });
+
+  // Alert sound preset + volume
+  async function saveSoundPreset() {
+    settings = await saveSettings({
+      notificationSoundPreset: optSoundPreset?.value || "chime",
+      notificationSoundVolume: optSoundVolume ? Number(optSoundVolume.value) : 75,
+    });
+    if (optSoundBadge) {
+      const spec = SOUND_PRESETS.find(
+        (p) => p.id === (settings.notificationSoundPreset || "chime")
+      );
+      optSoundBadge.textContent = spec ? spec.label.split(" (")[0] : "Chime";
+    }
+    flashSavedPill();
+    await triggerAutoSyncIfConnected({ pushOnly: true });
+  }
+
+  optSoundPreset?.addEventListener("change", async () => {
+    unlockChimeAudio(globalThis);
+    await saveSoundPreset();
+    await playCompletionChimeSound({
+      preset: optSoundPreset.value,
+      volume: optSoundVolume ? Number(optSoundVolume.value) : 75,
+      force: true,
+    });
+  });
+
+  optSoundVolume?.addEventListener("change", async () => {
+    unlockChimeAudio(globalThis);
+    await saveSoundPreset();
+    await playCompletionChimeSound({
+      preset: optSoundPreset?.value || "chime",
+      volume: Number(optSoundVolume.value),
+      force: true,
+    });
+  });
+
+  optPreviewSoundBtn?.addEventListener("click", async () => {
+    unlockChimeAudio(globalThis);
+    const preset = optSoundPreset?.value || "chime";
+    if (optSoundFeedback) {
+      optSoundFeedback.dataset.kind = "";
+      optSoundFeedback.textContent =
+        preset === "none" ? "Sound is set to silent." : "Playing…";
+    }
+    const played = await playCompletionChimeSound({
+      preset,
+      volume: optSoundVolume ? Number(optSoundVolume.value) : 75,
+      force: true,
+    });
+    if (optSoundFeedback) {
+      optSoundFeedback.dataset.kind = played ? "ok" : "err";
+      optSoundFeedback.textContent = played
+        ? `Played ${SOUND_PRESETS.find((p) => p.id === preset)?.label || preset}.`
+        : "Browser blocked playback. Click anywhere on the page and try again.";
+    }
   });
 
   clearCacheBtn.addEventListener("click", async () => {

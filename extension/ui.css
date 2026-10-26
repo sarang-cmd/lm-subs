@@ -1046,3 +1046,84 @@ input[type="range"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Step-by-step API key walkthrough inside each provider row */
+.key-guide {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 10px;
+}
+
+.key-guide-summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-guide-summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--ink-tertiary);
+  transition: transform 120ms ease;
+}
+
+.key-guide[open] > .key-guide-summary::before {
+  content: "▾";
+}
+
+.key-guide-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.key-guide-body {
+  margin-top: 8px;
+}
+
+.key-guide-req {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+}
+
+.key-guide-steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  display: grid;
+  gap: 5px;
+}
+
+.key-guide-steps li {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-primary);
+}
+
+.key-guide-format {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+/* Alert sound preset card */
+.sound-preset-card {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  padding: 14px 14px 12px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 680px) {
+  .stats-num {
+    font-size: 22px;
+  }
+}

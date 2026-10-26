@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>How to add subtitles to NotebookLM Video Overviews (step by step) | LM Subs</title>
+    <meta name="description" content="A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=4" />
+    <link rel="shortcut icon" href="/favicon.ico?v=4" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="How to add subtitles to NotebookLM Video Overviews (step by step)" />
+    <meta property="og:description" content="A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta property="article:author" content="https://github.com/sarang-cmd" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="How to add subtitles to NotebookLM Video Overviews (step by step)" />
+    <meta name="twitter:description" content="A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=4" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"How to add subtitles to NotebookLM Video Overviews (step by step)","description":"A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes.","url":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM Video Overview subtitles, add captions to NotebookLM video, NotebookLM SRT export, caption NotebookLM","isAccessibleForFree":true}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How long does caption generation take?","acceptedAnswer":{"@type":"Answer","text":"LM Subs uses a sub-five-second fast path on most Video Overviews by extracting NotebookLM's audio-only stream instead of the full MP4. Very long overviews are chunked and transcribed in parallel."}},{"@type":"Question","name":"Do I have to pay for a speech-to-text provider?","acceptedAnswer":{"@type":"Answer","text":"No. Groq offers roughly eight hours of transcription per day on its permanent free tier and Mistral offers a free Studio tier. Neither requires a credit card. You can also point LM Subs at a local Whisper server and pay nothing at all."}},{"@type":"Question","name":"Does LM Subs upload my NotebookLM video anywhere?","acceptedAnswer":{"@type":"Answer","text":"No video is uploaded. Audio extraction happens in your browser and only the compact audio track is sent to the provider whose key you entered. Captions stay in local browser storage unless you sign in and enable sync."}}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"How to add subtitles to NotebookLM Video Overviews (step by step)","item":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles"}]}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link">
+          <span class="brand-mark-text">LM Subs</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-tab" href="/">Overview</a>
+          <a class="nav-tab" href="/guide">Setup guide</a>
+          <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
+          <a class="nav-tab" href="/library">Library</a>
+          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/about">About</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content" class="page-wrap">
+      <article class="section-block">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 14px">
+          <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / Add subtitles to Video Overviews
+        </nav>
+
+        <h1 class="section-heading">How to add subtitles to NotebookLM Video Overviews (step by step)</h1>
+        <p class="hint" style="margin-top: 8px">
+          By <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>, creator of LM Subs. Published 2026-10-26.
+        </p>
+        <p class="section-prose" style="font-size: 17px">This is the full procedure for getting synchronized, exportable subtitles onto a Google NotebookLM Video Overview, including the exact clicks needed for a free API key and the settings that matter most once captions are live.</p>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">What you need before you start</h2>
+        <ul class="prose-list">
+          <li>Google Chrome, Edge, Brave, or any Chromium browser that supports Manifest V3 extensions.</li>
+          <li>A free Groq or Mistral API key. Both have permanent free tiers and neither asks for a credit card.</li>
+          <li>About two minutes.</li>
+        </ul>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Step 1: Install LM Subs</h2>
+        <p class="section-prose">Download the release zip from the <a class="link" href="/welcome">interactive setup page</a>, unzip it into a permanent folder such as Documents, open <code>chrome://extensions</code>, turn on Developer mode, and click Load unpacked. Pin LM Subs from the Access requested section at the top of Chrome's puzzle menu so the toolbar icon stays visible.</p>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Step 2: Create a free Groq API key</h2>
+        <ol class="prose-list">
+          <li>Open <a class="link" href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">console.groq.com/keys</a>.</li>
+          <li>Log in with a Google account, GitHub account, or email address. No credit card is required.</li>
+          <li>Click API Keys in the left navigation, then click Create API Key.</li>
+          <li>Name the key LM Subs, click Submit, and copy the <code>gsk_...</code> value immediately. Groq shows it only once.</li>
+        </ol>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Step 3: Paste the key into LM Subs</h2>
+        <p class="section-prose">Click the LM Subs toolbar icon, open Providers and API keys, confirm Groq is the primary provider, paste the key, and click Save key. Then click Test. A successful test reports the provider name, model, and response latency.</p>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Step 4: Play a Video Overview</h2>
+        <p class="section-prose">Open any notebook with a finished Video Overview and press play. LM Subs pulls the audio-only stream, transcribes it, and renders captions inside the video frame. The CC button appears inside NotebookLM's own bottom play bar and fades in and out together with the native controls, so it never blinks between sentences.</p>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Step 5: Export the transcript</h2>
+        <p class="section-prose">Open the caption options from the play bar or the toolbar popup and export in whichever format you need. Every export uses the current timing offset and includes speaker labels when the provider detects them.</p>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Format</th>
+              <th>Best for</th>
+              <th>Keeps timestamps</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td>.SRT</td>
+                <td>Video editors, YouTube, VLC</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>.VTT</td>
+                <td>Web players, HTML5 caption tracks</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>.TXT</td>
+                <td>Reading, printing, pasting into notes</td>
+                <td>Optional</td>
+              </tr>
+              <tr>
+                <td>.MD</td>
+                <td>Study notes and Obsidian vaults</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>.CSV</td>
+                <td>Spreadsheets and Anki decks</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>.JSON</td>
+                <td>Scripts and downstream tooling</td>
+                <td>Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Settings worth changing on day one</h2>
+        <ul class="prose-list">
+          <li>Word highlight delay: if the highlight runs ahead of the narration, raise it toward +300 ms. If it lags, drag it negative.</li>
+          <li>Timing offset: press the left and right bracket keys to shift every cue by 0.25 seconds if the whole track feels early or late.</li>
+          <li>Caption size: captions scale automatically with player size, so set the base size once and let fullscreen handle itself.</li>
+          <li>Fine-grained controls: turn this on in the settings page only if you want pixel-level typography and playback controls in the player.</li>
+        </ul>
+        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="/welcome">Start the interactive setup</a><a class="btn" href="/guide">Read the setup guide</a></div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Frequently asked questions</h2>
+
+        <div class="faq-item">
+          <h3 class="faq-q">How long does caption generation take?</h3>
+          <p class="section-prose">LM Subs uses a sub-five-second fast path on most Video Overviews by extracting NotebookLM's audio-only stream instead of the full MP4. Very long overviews are chunked and transcribed in parallel.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Do I have to pay for a speech-to-text provider?</h3>
+          <p class="section-prose">No. Groq offers roughly eight hours of transcription per day on its permanent free tier and Mistral offers a free Studio tier. Neither requires a credit card. You can also point LM Subs at a local Whisper server and pay nothing at all.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Does LM Subs upload my NotebookLM video anywhere?</h3>
+          <p class="section-prose">No video is uploaded. Audio extraction happens in your browser and only the compact audio track is sent to the provider whose key you entered. Captions stay in local browser storage unless you sign in and enable sync.</p>
+        </div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Related reading</h2>
+        <ul class="prose-list">
+          <li><a class="link" href="/blog/does-notebooklm-have-captions">Does Google NotebookLM have captions or subtitles?</a></li>
+          <li><a class="link" href="/blog/free-speech-to-text-api-keys">Free speech-to-text API keys that actually work for captioning in 2026</a></li>
+          <li><a class="link" href="/blog/export-notebooklm-transcript-srt-vtt">Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV</a></li>
+        </ul>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

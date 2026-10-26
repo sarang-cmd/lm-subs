@@ -23,6 +23,8 @@ const MIME_TYPES = {
   ".js": "text/javascript; charset=utf-8",
   ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -91,9 +93,16 @@ const server = http.createServer(async (req, res) => {
     const normalized = rawUrl.replace(/\/+$/, "") || "/";
     let relPath = normalized === "/" ? "/index.html" : normalized;
 
-    // Support clean URLs (/privacy -> /privacy.html) and SPA routes (/stats, /library)
+    // Support clean URLs (/privacy -> /privacy.html), directory indexes
+    // (/blog -> /blog/index.html), and SPA routes (/stats, /library)
     let candidate = path.resolve(DOCS_DIR, `.${relPath}`);
     if (
+      fs.existsSync(candidate) &&
+      fs.statSync(candidate).isDirectory() &&
+      fs.existsSync(path.join(candidate, "index.html"))
+    ) {
+      candidate = path.join(candidate, "index.html");
+    } else if (
       !path.extname(candidate) &&
       fs.existsSync(`${candidate}.html`) &&
       fs.statSync(`${candidate}.html`).isFile()

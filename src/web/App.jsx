@@ -372,6 +372,9 @@ export function App() {
             >
               Statistics
             </a>
+            <a className="nav-tab" href="/blog">
+              Blog
+            </a>
             <a
               href="/about"
               className="nav-tab"
@@ -420,7 +423,7 @@ export function App() {
             )}
             <a
               className="btn btn-sm btn-primary"
-              href="/releases/lm-subs-v0.2.5.zip"
+              href="/releases/lm-subs-v0.2.6.zip"
               download
               onClick={handleStartDownloadSetup}
             >
@@ -445,7 +448,7 @@ export function App() {
                 <div className="hero-cta-row">
                   <a
                     className="btn btn-primary"
-                    href="/releases/lm-subs-v0.2.5.zip"
+                    href="/releases/lm-subs-v0.2.6.zip"
                     download
                     onClick={handleStartDownloadSetup}
                   >
@@ -469,7 +472,7 @@ export function App() {
                   </button>
                 </div>
                 <div className="hero-footnote">
-                  Open-source MIT Chrome extension (v0.2.5). Bring your own free-tier Groq, Mistral, or Gemini key.
+                  Open-source MIT Chrome extension (v0.2.6). Bring your own free-tier Groq, Mistral, or Gemini key.
                 </div>
               </div>
 
@@ -496,7 +499,7 @@ export function App() {
                     </button>
                     <a
                       className="btn"
-                      href="/releases/lm-subs-v0.2.5.zip"
+                      href="/releases/lm-subs-v0.2.6.zip"
                       download
                       onClick={handleStartDownloadSetup}
                     >
@@ -518,7 +521,7 @@ export function App() {
                   >
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Download and unzip:</strong>{" "}
-                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.5.zip</code> and extract it into a regular folder in your Documents folder.
+                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.6.zip</code> and extract it into a regular folder in your Documents folder.
                     </li>
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Load and pin from top of menu:</strong>{" "}
@@ -599,7 +602,7 @@ export function App() {
 
                   <figure className="product-figure">
                     <img
-                      src="/assets/screenshots/01-player-subtitles.png?v=7"
+                      src="/assets/screenshots/01-player-subtitles.png?v=8"
                       alt="LM Subs highlighted spoken-word captions and bottom play-bar CC controls inside a Google NotebookLM Video Overview player"
                       width="1280"
                       height="800"
@@ -806,7 +809,7 @@ export function App() {
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div>
-            <strong>LM Subs</strong> (v0.2.5, MIT License) by{" "}
+            <strong>LM Subs</strong> (v0.2.6, MIT License) by{" "}
             <a
               className="link"
               href="/about"
@@ -856,6 +859,7 @@ export function App() {
             >
               Statistics
             </a>
+            <a href="/blog">Blog</a>
             <a
               href="/about"
               onClick={(e) => {

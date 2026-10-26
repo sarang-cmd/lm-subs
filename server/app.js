@@ -1911,6 +1911,17 @@ export function createSyncApp({
       byProvider,
       byLanguage,
       dailySeries: [...dayMap.values()],
+      recentVideos: subs.slice(0, 15).map((r) => ({
+        cacheKey: r.cache_key,
+        title: r.title,
+        language: r.language,
+        provider: r.provider,
+        model: r.model,
+        cueCount: Number(r.cue_count) || 0,
+        extractedBytes: r.extracted_bytes ? Number(r.extracted_bytes) : null,
+        latencyMs: r.latency_ms ? Number(r.latency_ms) : null,
+        failoverUsed: Boolean(r.failover_used),
+      })),
       recentTranscripts: subs.slice(0, 15).map((r) => ({
         cacheKey: r.cache_key,
         title: r.title,
@@ -1925,6 +1936,106 @@ export function createSyncApp({
         failoverUsed: Boolean(r.failover_used),
         savedAt: r.updated_at,
       })),
+    });
+  });
+
+  /**
+   * Google NotebookLM workspace and study telemetry, derived from the synced
+   * transcript vault so the website dashboard reports the exact same numbers as
+   * the extension settings page and toolbar popup.
+   */
+  app.get("/api/notebooklm/stats", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+
+    const res = await db.query(
+      `SELECT notebook_id, title, language, provider, cue_count, spoken_seconds,
+              updated_at
+       FROM lmsubs_subtitles
+       WHERE user_id = $1
+       ORDER BY updated_at DESC`,
+      [user.id]
+    );
+
+    const notebooks = new Map();
+    let studioArtifactsCount = 0;
+    let videoOverviewsCount = 0;
+    let audioOverviewsCount = 0;
+    let activeStudySeconds = 0;
+
+    for (const r of res.rows) {
+      const nbId = String(r.notebook_id || "unknown-notebook");
+      const prev =
+        notebooks.get(nbId) ||
+        {
+          notebookId: nbId,
+          title: "Untitled notebook",
+          sourceCount: 0,
+          videoCount: 0,
+          audioCount: 0,
+          reportCount: 0,
+          studioArtifactCount: 0,
+          watchSeconds: 0,
+          listenSeconds: 0,
+          firstSeenAt: r.updated_at,
+          lastSeenAt: r.updated_at,
+        };
+
+      const spokenSec = Number(r.spoken_seconds) || 0;
+      const title = String(r.title || "");
+      if (/audio overview|podcast|deep dive/i.test(title)) {
+        prev.audioCount += 1;
+        prev.listenSeconds += spokenSec;
+        audioOverviewsCount += 1;
+      } else {
+        prev.videoCount += 1;
+        prev.watchSeconds += spokenSec;
+        videoOverviewsCount += 1;
+      }
+      prev.studioArtifactCount += 1;
+      prev.title =
+        prev.title === "Untitled notebook" && title ? title : prev.title;
+      prev.lastSeenAt =
+        !prev.lastSeenAt || new Date(r.updated_at) > new Date(prev.lastSeenAt)
+          ? r.updated_at
+          : prev.lastSeenAt;
+
+      studioArtifactsCount += 1;
+      activeStudySeconds += spokenSec;
+      notebooks.set(nbId, prev);
+    }
+
+    return c.json({
+      ok: true,
+      stats: {
+        notebooks: Object.fromEntries(notebooks),
+        totals: {
+          watchSeconds: Math.round(activeStudySeconds),
+          listenSeconds: 0,
+          speedSavedSeconds: 0,
+          bookmarksCount: 0,
+          citationsCount: 0,
+          loopsCount: 0,
+          pipSessionsCount: 0,
+          snapshotsCount: 0,
+          exportsCount: 0,
+        },
+        dailyStudy: {},
+      },
+      notebookLm: {
+        notebooksCount: notebooks.size,
+        sourcesIndexed: 0,
+        studioArtifactsCount,
+        videoOverviewsCount,
+        audioOverviewsCount,
+        activeStudyMinutes: Math.round(activeStudySeconds / 60),
+        speedSavedMinutes: 0,
+        bookmarksCount: 0,
+        citationsCount: 0,
+      },
     });
   });
 

@@ -166,7 +166,10 @@
     GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
     APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
     SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
-    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
+    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK",
+    RECORD_NOTEBOOKLM_TELEMETRY: "LM_SUBS_RECORD_NOTEBOOKLM_TELEMETRY",
+    GET_NOTEBOOKLM_STATS: "LM_SUBS_GET_NOTEBOOKLM_STATS",
+    PLAY_NOTIFICATION_SOUND: "LM_SUBS_PLAY_NOTIFICATION_SOUND"
   });
 
   // src/lib/audio-extract.js
@@ -223,9 +226,91 @@
   }
 
   // src/lib/chime.js
+  var SOUND_PRESETS = Object.freeze([
+    {
+      id: "chime",
+      label: "Acoustic fifth chime (C5 to G5)",
+      durationSec: 0.46,
+      wave: "triangle",
+      decayRate: 10.2,
+      overtoneRatio: 2,
+      overtoneGain: 0.24,
+      notes: [
+        { offset: 0, dur: 0.24, freq: 523.25 },
+        { offset: 0.11, dur: 0.32, freq: 783.99 }
+      ]
+    },
+    {
+      id: "marimba",
+      label: "Studio triad marimba (C5, E5, G5)",
+      durationSec: 0.52,
+      wave: "sine",
+      decayRate: 14.5,
+      overtoneRatio: 4,
+      overtoneGain: 0.18,
+      notes: [
+        { offset: 0, dur: 0.18, freq: 523.25 },
+        { offset: 0.085, dur: 0.19, freq: 659.25 },
+        { offset: 0.17, dur: 0.31, freq: 783.99 }
+      ]
+    },
+    {
+      id: "bell",
+      label: "Crystal desk bell (A5 shimmer)",
+      durationSec: 0.56,
+      wave: "sine",
+      decayRate: 8.4,
+      overtoneRatio: 2.756,
+      overtoneGain: 0.2,
+      notes: [
+        { offset: 0, dur: 0.52, freq: 880 },
+        { offset: 0.03, dur: 0.46, freq: 1318.51 }
+      ]
+    },
+    {
+      id: "pulse",
+      label: "Crisp double pulse (F5 to A5)",
+      durationSec: 0.38,
+      wave: "triangle",
+      decayRate: 16,
+      overtoneRatio: 2,
+      overtoneGain: 0.15,
+      notes: [
+        { offset: 0, dur: 0.12, freq: 698.46 },
+        { offset: 0.11, dur: 0.22, freq: 880 }
+      ]
+    },
+    {
+      id: "soft-pop",
+      label: "Warm acoustic pluck (D5 to A5)",
+      durationSec: 0.34,
+      wave: "sine",
+      decayRate: 18.5,
+      overtoneRatio: 3,
+      overtoneGain: 0.14,
+      notes: [
+        { offset: 0, dur: 0.13, freq: 587.33 },
+        { offset: 0.07, dur: 0.22, freq: 880 }
+      ]
+    },
+    {
+      id: "none",
+      label: "Silent (visual alerts only)",
+      durationSec: 0,
+      wave: "sine",
+      decayRate: 10,
+      overtoneRatio: 2,
+      overtoneGain: 0,
+      notes: []
+    }
+  ]);
+  var SOUND_PRESET_IDS = Object.freeze(SOUND_PRESETS.map((p) => p.id));
   var sharedCtx = null;
-  var cachedWavDataUri = null;
+  var cachedWavUris = /* @__PURE__ */ new Map();
   var lastChimeEpochMs = 0;
+  function getSoundPresetSpec(presetId = "chime") {
+    return SOUND_PRESETS.find((p) => p.id === presetId) || SOUND_PRESETS[0];
+  }
   function bytesToBase64(bytes) {
     if (typeof Buffer !== "undefined") {
       return Buffer.from(bytes).toString("base64");
@@ -237,8 +322,9 @@
     }
     return globalThis.btoa(binary);
   }
-  function buildChimeWavBytes(sampleRate = 44100) {
-    const durationSec = 0.44;
+  function buildChimeWavBytes(sampleRate = 44100, presetId = "chime") {
+    const spec = presetId === "none" ? SOUND_PRESETS[0] : getSoundPresetSpec(presetId);
+    const durationSec = Math.max(0.28, spec.durationSec || 0.44);
     const numSamples = Math.floor(sampleRate * durationSec);
     const dataBytes = numSamples * 2;
     const buf = new ArrayBuffer(44 + dataBytes);
@@ -261,21 +347,17 @@
     view.setUint16(34, 16, true);
     writeAscii(36, "data");
     view.setUint32(40, dataBytes, true);
-    const notes = [
-      { start: 0, dur: 0.24, freq: 523.25 },
-      { start: 0.11, dur: 0.31, freq: 783.99 }
-    ];
     for (let i = 0; i < numSamples; i += 1) {
       const t = i / sampleRate;
       let sample = 0;
-      for (const note of notes) {
-        if (t >= note.start && t <= note.start + note.dur) {
-          const lt = t - note.start;
-          const attack = Math.min(1, lt / 0.012);
-          const decay = Math.exp(-lt * 10.5);
+      for (const note of spec.notes) {
+        if (t >= note.offset && t <= note.offset + note.dur) {
+          const lt = t - note.offset;
+          const attack = Math.min(1, lt / 0.01);
+          const decay = Math.exp(-lt * spec.decayRate);
           const env = attack * decay;
           const fundamental = Math.sin(2 * Math.PI * note.freq * lt);
-          const harmonic = 0.28 * Math.sin(2 * Math.PI * note.freq * 2 * lt);
+          const harmonic = spec.overtoneGain * Math.sin(2 * Math.PI * note.freq * spec.overtoneRatio * lt);
           sample += env * (fundamental + harmonic) * 0.34;
         }
       }
@@ -284,12 +366,13 @@
     }
     return new Uint8Array(buf);
   }
-  function getChimeWavDataUri() {
-    if (!cachedWavDataUri) {
-      const wavBytes = buildChimeWavBytes(44100);
-      cachedWavDataUri = `data:audio/wav;base64,${bytesToBase64(wavBytes)}`;
+  function getChimeWavDataUri(presetId = "chime") {
+    const key = SOUND_PRESET_IDS.includes(presetId) && presetId !== "none" ? presetId : "chime";
+    if (!cachedWavUris.has(key)) {
+      const wavBytes = buildChimeWavBytes(44100, key);
+      cachedWavUris.set(key, `data:audio/wav;base64,${bytesToBase64(wavBytes)}`);
     }
-    return cachedWavDataUri;
+    return cachedWavUris.get(key);
   }
   function getOrCreateAudioContext(win = globalThis) {
     if (sharedCtx && sharedCtx.state !== "closed") {
@@ -304,13 +387,31 @@
       return null;
     }
   }
-  async function playWavElementFallback(win = globalThis) {
+  function unlockChimeAudio(win = globalThis) {
+    try {
+      const ctx = getOrCreateAudioContext(win);
+      if (!ctx) return false;
+      if (ctx.state === "suspended" && typeof ctx.resume === "function") {
+        ctx.resume().catch(() => {
+        });
+      }
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function playWavElementFallback(win = globalThis, presetId = "chime", volumePct = 75) {
     try {
       const AudioCtor = win?.Audio || globalThis.Audio;
       if (typeof AudioCtor !== "function") return false;
-      const audio = new AudioCtor(getChimeWavDataUri());
+      const audio = new AudioCtor(getChimeWavDataUri(presetId));
       audio.__lmSubsInternal = true;
-      audio.volume = 0.72;
+      audio.volume = Math.max(0.05, Math.min(1, (Number(volumePct) || 75) / 100));
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.then === "function") {
         await playPromise;
@@ -322,14 +423,21 @@
   }
   async function playCompletionChimeSound({
     win = globalThis,
+    preset = "chime",
+    volume = 75,
     force = false,
-    dedupeMs = 1200
+    dedupeMs = 1100
   } = {}) {
+    if (preset === "none") return false;
+    const spec = getSoundPresetSpec(preset);
+    if (!spec.notes.length) return false;
     const nowMs = Date.now();
     if (!force && dedupeMs > 0 && nowMs - lastChimeEpochMs < dedupeMs) {
       return false;
     }
     lastChimeEpochMs = nowMs;
+    const volScale = Math.max(0.08, Math.min(1, (Number(volume) || 75) / 100));
+    const peakGain = 0.28 * volScale;
     try {
       const ctx = getOrCreateAudioContext(win);
       if (ctx) {
@@ -342,23 +450,22 @@
         }
         if (ctx.state === "running") {
           const t0 = ctx.currentTime;
-          const notes = [
-            { offset: 0, dur: 0.24, freq: 523.25 },
-            { offset: 0.11, dur: 0.31, freq: 783.99 }
-          ];
-          for (const n of notes) {
+          for (const n of spec.notes) {
             const osc = ctx.createOscillator();
             const overtone = ctx.createOscillator();
             const gain = ctx.createGain();
             const overtoneGain = ctx.createGain();
-            osc.type = "triangle";
+            osc.type = spec.wave || "triangle";
             osc.frequency.setValueAtTime(n.freq, t0 + n.offset);
             overtone.type = "sine";
-            overtone.frequency.setValueAtTime(n.freq * 2, t0 + n.offset);
-            overtoneGain.gain.setValueAtTime(0.22, t0 + n.offset);
+            overtone.frequency.setValueAtTime(
+              n.freq * (spec.overtoneRatio || 2),
+              t0 + n.offset
+            );
+            overtoneGain.gain.setValueAtTime(spec.overtoneGain || 0.2, t0 + n.offset);
             gain.gain.setValueAtTime(1e-4, t0 + n.offset);
-            gain.gain.linearRampToValueAtTime(0.24, t0 + n.offset + 0.014);
-            gain.gain.exponentialRampToValueAtTime(8e-4, t0 + n.offset + n.dur);
+            gain.gain.linearRampToValueAtTime(peakGain, t0 + n.offset + 0.012);
+            gain.gain.exponentialRampToValueAtTime(7e-4, t0 + n.offset + n.dur);
             osc.connect(gain);
             overtone.connect(overtoneGain);
             overtoneGain.connect(gain);
@@ -373,7 +480,291 @@
       }
     } catch {
     }
-    return playWavElementFallback(win);
+    return playWavElementFallback(win, spec.id, volume);
+  }
+
+  // src/lib/stats-model.js
+  function formatMegabytesValue(bytes) {
+    const b = Math.max(0, Number(bytes) || 0);
+    if (b >= 1073741824) {
+      return `${(b / 1073741824).toFixed(2)} GB`;
+    }
+    return `${(b / 1048576).toFixed(1)} MB`;
+  }
+  function formatMinutesLabel(totalSeconds) {
+    const sec = Math.max(0, Number(totalSeconds) || 0);
+    const mins = Math.round(sec / 60);
+    if (mins >= 60) {
+      const h = Math.floor(mins / 60);
+      const rem = mins % 60;
+      return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
+    }
+    return `${mins} min`;
+  }
+  function buildLast14DayKeys(now = /* @__PURE__ */ new Date()) {
+    const keys = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 864e5);
+      keys.push(d.toISOString().slice(0, 10));
+    }
+    return keys;
+  }
+  function buildUnifiedStatsReport({
+    cacheList = [],
+    historyList = [],
+    notebookLmStats = null,
+    cloudStats = null,
+    now = /* @__PURE__ */ new Date()
+  } = {}) {
+    const dayKeys = buildLast14DayKeys(now);
+    const dailyMap = new Map(
+      dayKeys.map((date) => [
+        date,
+        { date, videos: 0, cues: 0, savedBytes: 0, studyMinutes: 0 }
+      ])
+    );
+    const seenKeys = /* @__PURE__ */ new Set();
+    const localRecords = [];
+    for (const item of [...cacheList || [], ...historyList || []]) {
+      if (!item) continue;
+      const key = item.cacheKey || item.artifactId || `${item.title || "overview"}_${item.createdAt || ""}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      localRecords.push(item);
+    }
+    let localCues = 0;
+    let localSavedBytes = 0;
+    let localSpokenSec = 0;
+    let localFailovers = 0;
+    let localBookmarksInCues = 0;
+    const latencies = [];
+    const providerAgg = /* @__PURE__ */ new Map();
+    for (const rec of localRecords) {
+      const cueCount = Number(rec.cueCount || rec.cues?.length || 0);
+      localCues += cueCount;
+      if (Array.isArray(rec.cues) && rec.cues.length > 0) {
+        const lastCue = rec.cues[rec.cues.length - 1];
+        localSpokenSec += Math.max(
+          Number(rec.durationSeconds) || 0,
+          Number(lastCue?.endSec) || 0
+        );
+        for (const c of rec.cues) {
+          if (c?.bookmarked) localBookmarksInCues += 1;
+        }
+      } else if (Number(rec.durationSeconds) > 0) {
+        localSpokenSec += Number(rec.durationSeconds);
+      }
+      const byteInfo = resolveAvoidedVideoBytes({
+        originalBytes: rec.originalBytes,
+        extractedBytes: rec.extractedBytes,
+        durationSeconds: rec.durationSeconds,
+        cues: rec.cues
+      });
+      localSavedBytes += byteInfo.savedBytes;
+      if (rec.failoverUsed) localFailovers += 1;
+      if (Number(rec.latencyMs) > 0) latencies.push(Number(rec.latencyMs));
+      const prov = String(rec.provider || "groq").toLowerCase();
+      const prevProv = providerAgg.get(prov) || {
+        provider: prov,
+        videos: 0,
+        totalLatencyMs: 0,
+        latencySamples: 0
+      };
+      prevProv.videos += 1;
+      if (Number(rec.latencyMs) > 0) {
+        prevProv.totalLatencyMs += Number(rec.latencyMs);
+        prevProv.latencySamples += 1;
+      }
+      providerAgg.set(prov, prevProv);
+      const createdDay = String(rec.updatedAt || rec.createdAt || "").slice(0, 10);
+      if (dailyMap.has(createdDay)) {
+        const slot = dailyMap.get(createdDay);
+        slot.videos += 1;
+        slot.cues += cueCount;
+        slot.savedBytes += byteInfo.savedBytes;
+      }
+    }
+    latencies.sort((a, b) => a - b);
+    const localMedianLatencyMs = latencies.length > 0 ? latencies[Math.floor(latencies.length / 2)] : null;
+    const rawNotebooks = notebookLmStats?.notebooks && typeof notebookLmStats.notebooks === "object" ? notebookLmStats.notebooks : {};
+    const nbMap = Array.isArray(rawNotebooks) ? Object.fromEntries(
+      rawNotebooks.map((nb, idx) => [nb?.notebookId || `notebook_${idx}`, nb])
+    ) : rawNotebooks;
+    const nbEntries = Object.values(nbMap).sort(
+      (a, b) => String(b.lastSeenAt || "").localeCompare(String(a.lastSeenAt || ""))
+    );
+    let totalSourcesIndexed = 0;
+    let totalVideosFound = 0;
+    let totalAudiosFound = 0;
+    let totalStudioArtifacts = 0;
+    for (const nb of nbEntries) {
+      totalSourcesIndexed += Math.max(0, Number(nb.sourceCount) || 0);
+      totalVideosFound += Math.max(0, Number(nb.videoCount) || 0);
+      totalAudiosFound += Math.max(0, Number(nb.audioCount) || 0);
+      totalStudioArtifacts += Math.max(
+        Number(nb.studioArtifactCount) || 0,
+        (Number(nb.videoCount) || 0) + (Number(nb.audioCount) || 0) + (Number(nb.reportCount) || 0)
+      );
+    }
+    const nbTotals = notebookLmStats?.totals || {};
+    const watchSeconds = Math.max(0, Number(nbTotals.watchSeconds) || 0);
+    const listenSeconds = Math.max(0, Number(nbTotals.listenSeconds) || 0);
+    const activeStudySeconds = watchSeconds + listenSeconds;
+    const speedSavedSeconds = Math.max(0, Number(nbTotals.speedSavedSeconds) || 0);
+    if (notebookLmStats?.dailyStudy) {
+      for (const [dayKey, ds] of Object.entries(notebookLmStats.dailyStudy)) {
+        if (dailyMap.has(dayKey)) {
+          dailyMap.get(dayKey).studyMinutes = Math.round(
+            (Number(ds?.activeSeconds) || 0) / 60
+          );
+        }
+      }
+    }
+    const cloudTotals = cloudStats?.totals || null;
+    const videosCaptioned = Math.max(
+      Number(cloudTotals?.videosCaptioned) || 0,
+      localRecords.length
+    );
+    const totalCues = Math.max(Number(cloudTotals?.totalCues) || 0, localCues);
+    const spokenMinutes = Math.max(
+      Number(cloudTotals?.spokenMinutes) || 0,
+      Math.round(localSpokenSec / 60)
+    );
+    const bandwidthSavedBytes = Math.max(
+      Number(cloudTotals?.bandwidthSavedBytes) || 0,
+      localSavedBytes
+    );
+    const medianLatencyMs = cloudTotals?.medianLatencyMs || localMedianLatencyMs || null;
+    const failoverCount = Math.max(
+      Number(cloudTotals?.failoverCount) || 0,
+      localFailovers
+    );
+    const exportCount = Math.max(
+      Number(cloudTotals?.exportCount) || 0,
+      Number(nbTotals.exportsCount) || 0
+    );
+    const cloudHitCount = Number(cloudTotals?.cloudHitCount) || 0;
+    const cloudSeriesByDate = new Map(
+      (cloudStats?.dailySeries || []).map((d) => [d.date, d])
+    );
+    const dailySeries = dayKeys.map((date) => {
+      const loc = dailyMap.get(date);
+      const cld = cloudSeriesByDate.get(date);
+      return {
+        date,
+        videos: Math.max(loc.videos, Number(cld?.videos) || 0),
+        cues: Math.max(loc.cues, Number(cld?.cues) || 0),
+        savedBytes: Math.max(loc.savedBytes, Number(cld?.savedBytes) || 0),
+        studyMinutes: loc.studyMinutes || 0
+      };
+    });
+    let byProvider = [];
+    if (Array.isArray(cloudStats?.byProvider) && cloudStats.byProvider.length > 0) {
+      byProvider = cloudStats.byProvider;
+    } else if (providerAgg.size > 0) {
+      const totalProvVideos = Math.max(
+        1,
+        [...providerAgg.values()].reduce((acc, p) => acc + p.videos, 0)
+      );
+      byProvider = [...providerAgg.values()].sort((a, b) => b.videos - a.videos).map((p) => ({
+        provider: p.provider,
+        videos: p.videos,
+        sharePct: Math.round(p.videos / totalProvVideos * 100),
+        avgLatencyMs: p.latencySamples > 0 ? Math.round(p.totalLatencyMs / p.latencySamples) : null
+      }));
+    }
+    let recentVideos = [];
+    if (Array.isArray(cloudStats?.recentVideos) && cloudStats.recentVideos.length > 0) {
+      recentVideos = cloudStats.recentVideos;
+    } else {
+      recentVideos = localRecords.slice(0, 8).map((r) => {
+        const byteInfo = resolveAvoidedVideoBytes({
+          originalBytes: r.originalBytes,
+          extractedBytes: r.extractedBytes,
+          durationSeconds: r.durationSeconds,
+          cues: r.cues
+        });
+        return {
+          cacheKey: r.cacheKey || "",
+          title: r.title || "NotebookLM Overview",
+          provider: r.provider || "groq",
+          language: r.language || "en",
+          cueCount: Number(r.cueCount || r.cues?.length || 0),
+          savedBytes: byteInfo.savedBytes,
+          latencyMs: r.latencyMs || null,
+          updatedAt: r.updatedAt || r.createdAt || null
+        };
+      });
+    }
+    const cloudNotebookLm = cloudStats?.notebookLm || null;
+    const notebooksCount = Math.max(
+      nbEntries.length,
+      Number(cloudNotebookLm?.notebooksCount) || 0,
+      videosCaptioned > 0 && nbEntries.length === 0 ? 1 : 0
+    );
+    return {
+      totals: {
+        videosCaptioned,
+        totalCues,
+        spokenMinutes,
+        bandwidthSavedBytes,
+        medianLatencyMs,
+        failoverCount,
+        exportCount,
+        cloudHitCount
+      },
+      notebookLm: {
+        notebooksCount,
+        sourcesIndexed: Math.max(
+          totalSourcesIndexed,
+          Number(cloudNotebookLm?.sourcesIndexed) || 0
+        ),
+        studioArtifactsCount: Math.max(
+          totalStudioArtifacts,
+          videosCaptioned,
+          Number(cloudNotebookLm?.studioArtifactsCount) || 0
+        ),
+        videoOverviewsCount: Math.max(
+          totalVideosFound,
+          Number(cloudNotebookLm?.videoOverviewsCount) || 0
+        ),
+        audioOverviewsCount: Math.max(
+          totalAudiosFound,
+          Number(cloudNotebookLm?.audioOverviewsCount) || 0
+        ),
+        activeStudyMinutes: Math.max(
+          Math.round(activeStudySeconds / 60),
+          Number(cloudNotebookLm?.activeStudyMinutes) || 0
+        ),
+        watchSeconds,
+        listenSeconds,
+        speedSavedMinutes: Math.max(
+          Math.round(speedSavedSeconds / 60),
+          Number(cloudNotebookLm?.speedSavedMinutes) || 0
+        ),
+        bookmarksCount: Math.max(
+          Number(nbTotals.bookmarksCount) || 0,
+          localBookmarksInCues,
+          Number(cloudNotebookLm?.bookmarksCount) || 0
+        ),
+        citationsCount: Math.max(
+          Number(nbTotals.citationsCount) || 0,
+          Number(cloudNotebookLm?.citationsCount) || 0
+        ),
+        loopsCount: Math.max(
+          Number(nbTotals.loopsCount) || 0,
+          Number(cloudNotebookLm?.loopsCount) || 0
+        ),
+        pipSessionsCount: Math.max(
+          Number(nbTotals.pipSessionsCount) || 0,
+          Number(cloudNotebookLm?.pipSessionsCount) || 0
+        ),
+        notebooks: nbEntries.slice(0, 8)
+      },
+      dailySeries,
+      byProvider,
+      recentVideos
+    };
   }
 
   // src/lib/providers/registry.js
@@ -395,8 +786,17 @@
     groq: Object.freeze({
       id: "groq",
       name: "Groq",
-      badge: "Best Free Tier \xB7 8 hrs/day",
+      badge: "Best Free Tier, 8 hrs/day",
       freeTierSummary: "Permanent free plan, no card: 20 RPM, 2,000 req/day, 7,200 audio sec/hr (2h/hr), 28,800 sec/day (8h/day).",
+      accountRequirements: "Free Google, GitHub, or email sign-in. No credit card needed.",
+      keyFormatHint: "Starts with gsk_ (about 56 characters)",
+      setupSteps: Object.freeze([
+        "Open console.groq.com/keys in a new tab.",
+        "Click Log in or Sign up and continue with your Google account, GitHub account, or email address.",
+        "Once inside GroqCloud, click API Keys in the left navigation bar.",
+        "Click the Create API Key button, type LM Subs as the display name, and click Submit.",
+        "Click Copy beside the new gsk_... key right away (Groq shows it once), paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "whisper-large-v3-turbo",
       models: ["whisper-large-v3-turbo", "whisper-large-v3"],
       requiresKey: true,
@@ -404,15 +804,23 @@
       keyUrl: "https://console.groq.com/keys",
       originPattern: "https://api.groq.com/*",
       maxUploadBytes: 24 * 1024 * 1024,
-      // 25 MB hard cap -> 24 MB safety margin
       protocol: "openai-stt",
       endpoint: "https://api.groq.com/openai/v1/audio/transcriptions"
     }),
     mistral: Object.freeze({
       id: "mistral",
       name: "Mistral (Voxtral)",
-      badge: "Free Studio Tier \xB7 No Card",
+      badge: "Free Studio Tier, No Card",
       freeTierSummary: "Mistral Studio Experiment plan (free, no card). Voxtral Transcribe 3 returns accurate segment timestamps in 50+ languages.",
+      accountRequirements: "Free Google, Microsoft, Apple, or email sign-in with phone verification on Experiment tier.",
+      keyFormatHint: "32-character alphanumeric Mistral key",
+      setupSteps: Object.freeze([
+        "Open console.mistral.ai/api-keys in a new tab.",
+        "Sign up or sign in using Google, Microsoft, Apple, or your email and password.",
+        "If prompted to choose a workspace plan, select the free Experiment plan (no credit card required).",
+        "Open API Keys in the left sidebar, click Create new key, name it LM Subs, and click Create new key.",
+        "Copy the generated key string immediately, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "voxtral-mini-transcribe-3",
       models: [
         "voxtral-mini-transcribe-3",
@@ -430,8 +838,17 @@
     gemini: Object.freeze({
       id: "gemini",
       name: "Google Gemini (AI Studio)",
-      badge: "Free Daily Tier \xB7 + Translation",
+      badge: "Free Daily Tier + Translation",
       freeTierSummary: "Google AI Studio free tier, no card. Multimodal audio-to-SRT with optional single-pass subtitle translation.",
+      accountRequirements: "Uses the same Google account you already use for Google NotebookLM. No billing setup needed for free tier.",
+      keyFormatHint: "Starts with AIzaSy (39 characters)",
+      setupSteps: Object.freeze([
+        "Open aistudio.google.com/apikey while signed into your Google account.",
+        "Accept the Google AI Studio terms prompt if this is your first visit.",
+        "Click the blue Create API key button near the top-right corner.",
+        "Select Create API key in new project (or pick an existing Google Cloud project).",
+        "Click Copy on the AIzaSy... key, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "gemini-2.5-flash",
       models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
       requiresKey: true,
@@ -439,15 +856,23 @@
       keyUrl: "https://aistudio.google.com/apikey",
       originPattern: "https://generativelanguage.googleapis.com/*",
       maxUploadBytes: 18 * 1024 * 1024,
-      // Inline base64 stays comfortably under 20 MB request cap
       protocol: "gemini-stt",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models"
     }),
     deepgram: Object.freeze({
       id: "deepgram",
       name: "Deepgram",
-      badge: "$200 Free Credit \xB7 ~700 hrs",
+      badge: "$200 Free Credit, ~700 hrs",
       freeTierSummary: "$200 signup credit with no credit card (~700+ hours of Nova-3 batch audio with word-level timestamps).",
+      accountRequirements: "Free Google, GitHub, or email sign-up. Includes $200 promotional credit without entering a card.",
+      keyFormatHint: "40-character hexadecimal secret key",
+      setupSteps: Object.freeze([
+        "Open console.deepgram.com in a new tab.",
+        "Click Sign Up (or Log In) with Google, GitHub, or email to claim the free $200 credit.",
+        "In the left sidebar of your Default Project, click API Keys.",
+        "Click Create a New API Key, enter LM Subs as the friendly name, leave Member permissions selected, and click Create Key.",
+        "Copy the secret key before closing the modal, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "nova-3",
       models: ["nova-3", "nova-2"],
       requiresKey: true,
@@ -461,8 +886,17 @@
     assemblyai: Object.freeze({
       id: "assemblyai",
       name: "AssemblyAI",
-      badge: "$50 Free Credit \xB7 ~330 hrs",
+      badge: "$50 Free Credit, ~330 hrs",
       freeTierSummary: "$50 free signup credit with no card (~330 hours on Universal-2 with word-level timestamps).",
+      accountRequirements: "Free Google, GitHub, or email sign-up with $50 starter credit.",
+      keyFormatHint: "32-character lowercase hexadecimal API key",
+      setupSteps: Object.freeze([
+        "Open assemblyai.com/app/account in a new tab.",
+        "Create a free account or sign in using Google, GitHub, or email.",
+        "After signing in, open the API Keys section on your dashboard home or Account page.",
+        "Click Copy next to your Default API key (or click Create new API key and name it LM Subs).",
+        "Paste the key into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "universal",
       models: ["universal", "nano"],
       requiresKey: true,
@@ -476,8 +910,17 @@
     gladia: Object.freeze({
       id: "gladia",
       name: "Gladia",
-      badge: "\u20AC50 Free Credit \xB7 ~80 hrs",
-      freeTierSummary: "\u20AC50 free credit (~80+ hours of Solaria-1 pre-recorded transcription with native SRT/VTT generation).",
+      badge: "Free Monthly Hours, Solaria-1",
+      freeTierSummary: "Free monthly transcription hours on Solaria-1 pre-recorded speech-to-text with native SRT/VTT generation.",
+      accountRequirements: "Free Google, GitHub, or email sign-up.",
+      keyFormatHint: "UUID-formatted Gladia API key (xxxxxxxx-xxxx-...)",
+      setupSteps: Object.freeze([
+        "Open app.gladia.io in a new tab.",
+        "Sign up or log in with Google, GitHub, or your email address.",
+        "Click API keys in the left dashboard menu (or copy the default key shown on the home card).",
+        "Click Generate new key if needed, label it LM Subs, and copy the UUID token.",
+        "Paste the token into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "solaria-1",
       models: ["solaria-1"],
       requiresKey: true,
@@ -493,6 +936,15 @@
       name: "Cloudflare Workers AI",
       badge: "Free 10k Neurons/day",
       freeTierSummary: "10,000 free Neurons every day. Enter credentials as ACCOUNT_ID:API_TOKEN.",
+      accountRequirements: "Free Cloudflare account (email, Google, or Apple). Uses combined ACCOUNT_ID:API_TOKEN format.",
+      keyFormatHint: "Combined format: your_account_id:your_api_token",
+      setupSteps: Object.freeze([
+        "Open dash.cloudflare.com and sign in or create a free Cloudflare account.",
+        "In the left sidebar, expand AI and click Workers AI, then click Use REST API.",
+        "Click Create a Workers AI API Token, confirm permissions (Workers AI Read/Edit), and copy the generated API Token.",
+        "On that same REST API page, copy your 32-character Account ID.",
+        "Combine both values with a colon in between as account_id:api_token, paste into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "@cf/openai/whisper-large-v3-turbo",
       models: ["@cf/openai/whisper-large-v3-turbo", "@cf/openai/whisper"],
       requiresKey: true,
@@ -508,6 +960,15 @@
       name: "ElevenLabs (Scribe v2)",
       badge: "10k Free Credits/mo",
       freeTierSummary: "10,000 monthly free credits (~30 min/month on Scribe v2) with word-level timestamps in 90+ languages.",
+      accountRequirements: "Free ElevenLabs account via Google, Apple, GitHub, or email.",
+      keyFormatHint: "Starts with sk_...",
+      setupSteps: Object.freeze([
+        "Open elevenlabs.io/app/settings/api-keys in a new tab.",
+        "Sign in or register for a free ElevenLabs account.",
+        "Click Create API Key in the API Keys panel and name it LM Subs.",
+        "Ensure the Speech-to-Text endpoint permission is enabled (or leave unrestricted), then click Create.",
+        "Copy the sk_... key, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "scribe_v2",
       models: ["scribe_v2"],
       requiresKey: true,
@@ -522,7 +983,16 @@
       id: "huggingface",
       name: "Hugging Face Inference",
       badge: "Free HF Token Quota",
-      freeTierSummary: "Free monthly Serverless Inference credits using any `hf_...` read/inference token.",
+      freeTierSummary: "Free monthly Serverless Inference credits using any hf_... inference token.",
+      accountRequirements: "Free Hugging Face account with verified email address.",
+      keyFormatHint: "Starts with hf_...",
+      setupSteps: Object.freeze([
+        "Open huggingface.co/settings/tokens in a new tab and sign in (or click Sign Up to register and verify your email).",
+        "Click the Create new token button.",
+        "Choose Fine-grained (and check Make calls to Inference Providers) or Read, and name the token LM Subs.",
+        "Click Create token at the bottom of the form.",
+        "Copy the hf_... token immediately, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "openai/whisper-large-v3-turbo",
       models: ["openai/whisper-large-v3-turbo", "openai/whisper-large-v3"],
       requiresKey: true,
@@ -537,7 +1007,16 @@
       id: "openrouter",
       name: "OpenRouter",
       badge: "Unified BYOK Router",
-      freeTierSummary: "Unified OpenAI-compatible `/api/v1/audio/transcriptions` router across Voxtral & Whisper backends.",
+      freeTierSummary: "Unified OpenAI-compatible /api/v1/audio/transcriptions router across Voxtral and Whisper backends.",
+      accountRequirements: "OpenRouter account (Google, GitHub, MetaMask, or email); audio models use pay-as-you-go credits.",
+      keyFormatHint: "Starts with sk-or-v1-...",
+      setupSteps: Object.freeze([
+        "Open openrouter.ai/keys in a new tab and sign in with Google, GitHub, or email.",
+        "If your credit balance is $0, add a small prepaid balance under Credits for audio transcription endpoints.",
+        "Click Create Key, enter LM Subs as the name, optionally set a spending limit, and click Create.",
+        "Copy the sk-or-v1-... secret string right away.",
+        "Paste the key into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "mistralai/voxtral-mini-transcribe",
       models: ["mistralai/voxtral-mini-transcribe", "openai/whisper-1"],
       requiresKey: true,
@@ -552,7 +1031,16 @@
       id: "openai",
       name: "OpenAI Whisper",
       badge: "Standard Pay-As-You-Go",
-      freeTierSummary: "Official OpenAI `whisper-1` endpoint ($0.006/min) with word & segment `verbose_json` timestamps.",
+      freeTierSummary: "Official OpenAI whisper-1 endpoint ($0.006/min) with word and segment verbose_json timestamps.",
+      accountRequirements: "OpenAI Platform developer account (separate billing from ChatGPT Plus, minimum $5 prepaid credit).",
+      keyFormatHint: "Starts with sk-proj-... or sk-...",
+      setupSteps: Object.freeze([
+        "Open platform.openai.com/api-keys and log in with your OpenAI developer account.",
+        "Note that ChatGPT Plus subscriptions do not include API credits; ensure Billing has an active balance.",
+        "Click Create new secret key in the top-right corner, name it LM Subs, and keep All permissions (or Audio enabled).",
+        "Click Create secret key and copy the sk-proj-... token.",
+        "Paste the key into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "whisper-1",
       models: ["whisper-1"],
       requiresKey: true,
@@ -566,8 +1054,17 @@
     custom: Object.freeze({
       id: "custom",
       name: "Local / Custom Whisper URL",
-      badge: "100% Free \xB7 Unlimited Local",
-      freeTierSummary: "Point at local `speaches`, `faster-whisper-server`, `whisper.cpp`, or `LocalAI` (`http://localhost:8000/v1`) for unlimited offline transcription.",
+      badge: "100% Free, Unlimited Local",
+      freeTierSummary: "Point at local speaches, faster-whisper-server, whisper.cpp, or LocalAI (http://localhost:8000/v1) for unlimited offline transcription.",
+      accountRequirements: "Zero account, zero sign-up, and zero API key required. Runs 100% offline on your own CPU or GPU.",
+      keyFormatHint: "Base URL http://localhost:8000/v1 (API key optional / blank)",
+      setupSteps: Object.freeze([
+        "Install Docker or Python and start an OpenAI-compatible local Whisper server such as speaches (docker run -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu).",
+        "Verify http://localhost:8000/v1 is reachable on your machine.",
+        "In LM Subs, enter http://localhost:8000/v1 as the OpenAI-compatible base URL.",
+        "Leave the API key field blank unless your local server requires a custom Bearer token.",
+        "Enable Local / Custom Whisper and click Save URL / Enable so audio stays completely on your machine."
+      ]),
       defaultModel: "Systran/faster-whisper-small",
       models: ["Systran/faster-whisper-small", "whisper-1"],
       requiresKey: false,
@@ -617,7 +1114,8 @@
     UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret",
-    SETUP_STATE: "setupState"
+    SETUP_STATE: "setupState",
+    NOTEBOOKLM_STATS: "notebooklmStats"
   });
   var CAPTION_FONT_SIZES = Object.freeze([
     "small",
@@ -649,7 +1147,25 @@
   ]);
   var CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
   var CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
-  var PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
+  var PLAYBAR_DOCK_MODES = Object.freeze(["native", "hover", "always"]);
+  var NOTIFICATION_SOUND_PRESETS = Object.freeze([
+    "chime",
+    "marimba",
+    "bell",
+    "pulse",
+    "soft-pop",
+    "none"
+  ]);
+  var PLAYBACK_SPEEDS = Object.freeze([
+    0.5,
+    0.75,
+    1,
+    1.25,
+    1.5,
+    1.75,
+    2,
+    2.5
+  ]);
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     debugMode: false,
@@ -685,9 +1201,47 @@
     clickCaptionToCopy: true,
     defaultPlaybackSpeed: 1,
     subtitleOffsetSec: 0,
+    fineGrainedControls: false,
+    dynamicCaptionScaling: true,
+    captionScaleFactor: 100,
+    // 50..200 (%)
+    captionMinFontPx: 10,
+    // 8..18 (px)
+    captionMaxFontPx: 42,
+    // 20..64 (px)
+    captionPaddingY: 7,
+    // 2..20 (px)
+    captionPaddingX: 15,
+    // 6..40 (px)
+    captionBorderRadius: 7,
+    // 0..32 (px)
+    captionLineHeight: 142,
+    // 115..185 (%)
+    captionBottomOffsetPx: 54,
+    // 24..180 (px)
+    captionTextStrokePx: 0,
+    // 0..3 (px)
+    karaokeHighlightOpacity: 48,
+    // 15..95 (%)
+    upcomingWordOpacity: 64,
+    // 25..100 (%)
+    playBarDockMode: "native",
+    // "native" | "hover" | "always"
+    hoverFadeDelayMs: 2200,
+    // 400..6000 (ms)
+    keepSubtitlesInPiP: true,
+    skipSilenceEnabled: false,
+    skipSilenceGapSec: 1.6,
+    // 0.6..5.0 (s)
+    skipSilenceRate: 2.2,
+    // 1.4..3.0 (x)
+    audioBoostPercent: 100,
+    // 100..250 (%)
     showToast: true,
     desktopNotifications: true,
-    soundAlerts: false,
+    soundAlerts: true,
+    notificationSoundPreset: "chime",
+    notificationSoundVolume: 75,
     badgeAlerts: true,
     notifyOnFailover: true,
     notifyOnSync: false,
@@ -775,9 +1329,33 @@
       clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
       defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed)) ? Number(saved.defaultPlaybackSpeed) : DEFAULT_SETTINGS.defaultPlaybackSpeed,
       subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
+      fineGrainedControls: typeof saved.fineGrainedControls === "boolean" ? saved.fineGrainedControls : DEFAULT_SETTINGS.fineGrainedControls,
+      dynamicCaptionScaling: typeof saved.dynamicCaptionScaling === "boolean" ? saved.dynamicCaptionScaling : DEFAULT_SETTINGS.dynamicCaptionScaling,
+      captionScaleFactor: Number.isFinite(Number(saved.captionScaleFactor)) ? Math.max(50, Math.min(200, Math.round(Number(saved.captionScaleFactor)))) : DEFAULT_SETTINGS.captionScaleFactor,
+      captionMinFontPx: Number.isFinite(Number(saved.captionMinFontPx)) ? Math.max(8, Math.min(18, Math.round(Number(saved.captionMinFontPx)))) : DEFAULT_SETTINGS.captionMinFontPx,
+      captionMaxFontPx: Number.isFinite(Number(saved.captionMaxFontPx)) ? Math.max(20, Math.min(64, Math.round(Number(saved.captionMaxFontPx)))) : DEFAULT_SETTINGS.captionMaxFontPx,
+      captionPaddingY: Number.isFinite(Number(saved.captionPaddingY)) ? Math.max(2, Math.min(20, Math.round(Number(saved.captionPaddingY)))) : DEFAULT_SETTINGS.captionPaddingY,
+      captionPaddingX: Number.isFinite(Number(saved.captionPaddingX)) ? Math.max(6, Math.min(40, Math.round(Number(saved.captionPaddingX)))) : DEFAULT_SETTINGS.captionPaddingX,
+      captionBorderRadius: Number.isFinite(Number(saved.captionBorderRadius)) ? Math.max(0, Math.min(32, Math.round(Number(saved.captionBorderRadius)))) : DEFAULT_SETTINGS.captionBorderRadius,
+      captionLineHeight: Number.isFinite(Number(saved.captionLineHeight)) ? Math.max(115, Math.min(185, Math.round(Number(saved.captionLineHeight)))) : DEFAULT_SETTINGS.captionLineHeight,
+      captionBottomOffsetPx: Number.isFinite(Number(saved.captionBottomOffsetPx)) ? Math.max(24, Math.min(180, Math.round(Number(saved.captionBottomOffsetPx)))) : DEFAULT_SETTINGS.captionBottomOffsetPx,
+      captionTextStrokePx: Number.isFinite(Number(saved.captionTextStrokePx)) ? Math.max(0, Math.min(3, Math.round(Number(saved.captionTextStrokePx) * 2) / 2)) : DEFAULT_SETTINGS.captionTextStrokePx,
+      karaokeHighlightOpacity: Number.isFinite(Number(saved.karaokeHighlightOpacity)) ? Math.max(15, Math.min(95, Math.round(Number(saved.karaokeHighlightOpacity)))) : DEFAULT_SETTINGS.karaokeHighlightOpacity,
+      upcomingWordOpacity: Number.isFinite(Number(saved.upcomingWordOpacity)) ? Math.max(25, Math.min(100, Math.round(Number(saved.upcomingWordOpacity)))) : DEFAULT_SETTINGS.upcomingWordOpacity,
+      playBarDockMode: PLAYBAR_DOCK_MODES.includes(saved.playBarDockMode) ? saved.playBarDockMode : DEFAULT_SETTINGS.playBarDockMode,
+      hoverFadeDelayMs: Number.isFinite(Number(saved.hoverFadeDelayMs)) ? Math.max(400, Math.min(6e3, Math.round(Number(saved.hoverFadeDelayMs) / 100) * 100)) : DEFAULT_SETTINGS.hoverFadeDelayMs,
+      keepSubtitlesInPiP: typeof saved.keepSubtitlesInPiP === "boolean" ? saved.keepSubtitlesInPiP : DEFAULT_SETTINGS.keepSubtitlesInPiP,
+      skipSilenceEnabled: typeof saved.skipSilenceEnabled === "boolean" ? saved.skipSilenceEnabled : DEFAULT_SETTINGS.skipSilenceEnabled,
+      skipSilenceGapSec: Number.isFinite(Number(saved.skipSilenceGapSec)) ? Math.max(0.6, Math.min(5, Math.round(Number(saved.skipSilenceGapSec) * 10) / 10)) : DEFAULT_SETTINGS.skipSilenceGapSec,
+      skipSilenceRate: Number.isFinite(Number(saved.skipSilenceRate)) ? Math.max(1.4, Math.min(3, Math.round(Number(saved.skipSilenceRate) * 10) / 10)) : DEFAULT_SETTINGS.skipSilenceRate,
+      audioBoostPercent: Number.isFinite(Number(saved.audioBoostPercent)) ? Math.max(100, Math.min(250, Math.round(Number(saved.audioBoostPercent) / 5) * 5)) : DEFAULT_SETTINGS.audioBoostPercent,
       showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
       desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
       soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+      notificationSoundPreset: NOTIFICATION_SOUND_PRESETS.includes(
+        saved.notificationSoundPreset
+      ) ? saved.notificationSoundPreset : DEFAULT_SETTINGS.notificationSoundPreset,
+      notificationSoundVolume: Number.isFinite(Number(saved.notificationSoundVolume)) ? Math.max(10, Math.min(100, Math.round(Number(saved.notificationSoundVolume)))) : DEFAULT_SETTINGS.notificationSoundVolume,
       badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
       notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
       notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
@@ -934,9 +1512,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.5",
+          currentVersion: "0.2.6",
           currentBuildId: "",
-          latestVersion: "0.2.5",
+          latestVersion: "0.2.6",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -948,9 +1526,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.5"),
+        currentVersion: String(saved.currentVersion || "0.2.6"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.6"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -962,9 +1540,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.5",
+        currentVersion: "0.2.6",
         currentBuildId: "",
-        latestVersion: "0.2.5",
+        latestVersion: "0.2.6",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -1593,6 +2171,10 @@ ${rows.join("\n")}
     const copyLatestTxtBtn = document.getElementById("copy-latest-txt-btn");
     const popupNotifBadge = document.getElementById("popup-notif-badge");
     const popupNotifSummary = document.getElementById("popup-notif-summary");
+    const popupSoundPreset = document.getElementById("popup-sound-preset");
+    const popupPreviewSoundBtn = document.getElementById("popup-preview-sound-btn");
+    const popupRefreshStatsBtn = document.getElementById("popup-refresh-stats-btn");
+    const popupOpenStatsBtn = document.getElementById("popup-open-stats-btn");
     const popupEnableOsNotifBtn = document.getElementById("popup-enable-os-notif-btn");
     const popupCheckUpdatesBtn = document.getElementById("popup-check-updates-btn");
     const popupUpdateStatusHint = document.getElementById("popup-update-status-hint");
@@ -1752,6 +2334,48 @@ ${rows.join("\n")}
         if (popupOpenSyncBtn) popupOpenSyncBtn.textContent = "Settings";
       }
     }
+    async function renderPopupStats() {
+      const el = (id) => document.getElementById(id);
+      const notebookStatsRes = await sendRuntime({
+        type: RUNTIME_MESSAGE.GET_NOTEBOOKLM_STATS
+      });
+      const notebookLmStats = notebookStatsRes?.ok ? notebookStatsRes.stats : null;
+      let cloudStats = null;
+      if (syncProfile?.connected) {
+        const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
+        if (res?.ok && res.totals) cloudStats = res;
+      }
+      const report = buildUnifiedStatsReport({
+        cacheList,
+        notebookLmStats,
+        cloudStats
+      });
+      const t = report.totals;
+      const nb = report.notebookLm;
+      const set = (id, value) => {
+        const node = el(id);
+        if (node) node.textContent = value;
+      };
+      set("popup-stat-videos", String(t.videosCaptioned || 0));
+      set("popup-stat-cues", String(t.totalCues || 0));
+      set("popup-stat-saved", formatMegabytesValue(t.bandwidthSavedBytes || 0));
+      set(
+        "popup-stat-latency",
+        t.medianLatencyMs ? `${(t.medianLatencyMs / 1e3).toFixed(1)}s` : "n/a"
+      );
+      set("popup-stat-notebooks", String(nb.notebooksCount || 0));
+      set("popup-stat-sources", String(nb.sourcesIndexed || 0));
+      set("popup-stat-study", formatMinutesLabel((nb.activeStudyMinutes || 0) * 60));
+      set("popup-stat-citations", String(nb.citationsCount || 0));
+      const summary = el("popup-stats-summary");
+      if (summary) {
+        summary.textContent = `${t.videosCaptioned || 0} captioned \xB7 ${nb.notebooksCount || 0} notebooks`;
+      }
+      const note = el("popup-stats-note");
+      if (note) {
+        note.textContent = syncProfile?.connected ? "Merged live account telemetry with this browser's local cache." : "Computed on this device. Sign in to merge cross-device numbers.";
+      }
+    }
     function renderLastStatus() {
       if (!lastStatus) {
         lastStatusCard.style.display = "none";
@@ -1857,7 +2481,7 @@ ${rows.join("\n")}
     async function renderUpdateBanner() {
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.5";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.6";
       if (popupUpdateStatusHint) {
         const folderPart = dirInfo.linked ? `Folder linked (${dirInfo.folderName})` : "Auto-check active";
         popupUpdateStatusHint.textContent = updateStatus?.updateAvailable ? `Update v${updateStatus.latestVersion} available \xB7 ${folderPart}` : `Installed v${curVer} \xB7 ${folderPart}`;
@@ -1949,6 +2573,16 @@ ${rows.join("\n")}
     renderUpdateBanner();
     inspectGoogleHostPermissions();
     inspectActiveTab();
+    if (popupSoundPreset) {
+      popupSoundPreset.textContent = "";
+      for (const preset of SOUND_PRESETS) {
+        const option = document.createElement("option");
+        option.value = preset.id;
+        option.textContent = preset.label;
+        popupSoundPreset.appendChild(option);
+      }
+      popupSoundPreset.value = settings.notificationSoundPreset || "chime";
+    }
     sendRuntime({
       type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
       includeUpdateCheck: true
@@ -2290,7 +2924,20 @@ ${rows.join("\n")}
       });
       chrome.runtime?.onMessage?.addListener((msg) => {
         if (msg?.type === RUNTIME_MESSAGE.SUBTITLES_READY && settings.soundAlerts) {
-          playCompletionChimeSound({ win: window }).catch(() => {
+          playCompletionChimeSound({
+            win: window,
+            preset: settings.notificationSoundPreset || "chime",
+            volume: Number(settings.notificationSoundVolume) || 75
+          }).catch(() => {
+          });
+        }
+        if (msg?.type === RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND) {
+          playCompletionChimeSound({
+            win: window,
+            preset: msg.preset || settings.notificationSoundPreset || "chime",
+            volume: Number(msg.volume ?? settings.notificationSoundVolume) || 75,
+            force: true
+          }).catch(() => {
           });
         }
         return false;
@@ -2301,6 +2948,39 @@ ${rows.join("\n")}
     openQueueBtn.addEventListener("click", openOptions);
     openOptionsBtn.addEventListener("click", openOptions);
     popupOpenSyncBtn?.addEventListener("click", openOptions);
+    popupOpenStatsBtn?.addEventListener("click", () => {
+      const url = "https://lm-subs.vercel.app/stats";
+      if (chrome.tabs?.create) {
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    });
+    popupRefreshStatsBtn?.addEventListener("click", () => {
+      renderPopupStats();
+    });
+    popupSoundPreset?.addEventListener("change", async () => {
+      unlockChimeAudio(window);
+      settings = await saveSettings({
+        notificationSoundPreset: popupSoundPreset.value || "chime"
+      });
+      await playCompletionChimeSound({
+        win: window,
+        preset: popupSoundPreset.value,
+        volume: Number(settings.notificationSoundVolume) || 75,
+        force: true
+      });
+    });
+    popupPreviewSoundBtn?.addEventListener("click", async () => {
+      unlockChimeAudio(window);
+      await playCompletionChimeSound({
+        win: window,
+        preset: popupSoundPreset?.value || settings.notificationSoundPreset || "chime",
+        volume: Number(settings.notificationSoundVolume) || 75,
+        force: true
+      });
+    });
+    await renderPopupStats();
   }
   document.addEventListener("DOMContentLoaded", initPopup);
 })();

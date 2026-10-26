@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Switch, Tooltip } from "radix-ui";
 import { buildSampleStatsDataset } from "./demo-data.jsx";
+import {
+  buildUnifiedStatsReport,
+  formatMegabytesValue,
+  formatMinutesLabel,
+} from "../lib/stats-model.js";
 
 const numFmt = new Intl.NumberFormat("en-US");
 
 function formatMegabytes(bytes) {
-  const b = Number(bytes) || 0;
-  if (b >= 1073741824) {
-    return `${(b / 1073741824).toFixed(2)} GB`;
-  }
-  return `${(b / 1048576).toFixed(1)} MB`;
+  return formatMegabytesValue(bytes);
 }
 
 export function StatsView({ token, user, onOpenSignIn }) {
@@ -49,25 +50,39 @@ export function StatsView({ token, user, onOpenSignIn }) {
 
   const sampleDataset = useMemo(() => buildSampleStatsDataset(), []);
 
-  const hasLiveVideos = Boolean(liveStats?.totals?.videosCaptioned > 0);
-  const activeStats = showSample ? sampleDataset : liveStats;
-  const totals = activeStats?.totals || {
-    videosCaptioned: 0,
-    totalCues: 0,
-    spokenMinutes: 0,
-    bandwidthSavedBytes: 0,
-    medianLatencyMs: null,
-    failoverCount: 0,
-    exportCount: 0,
-    cloudHitCount: 0,
-  };
+  const [notebookLmStats, setNotebookLmStats] = useState(null);
 
-  const dailySeries = activeStats?.dailySeries || sampleDataset.dailySeries.map((d) => ({
-    ...d,
-    videos: 0,
-    cues: 0,
-    savedBytes: 0,
-  }));
+  useEffect(() => {
+    if (!token) {
+      setNotebookLmStats(null);
+      return;
+    }
+    fetch("/api/notebooklm/stats", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setNotebookLmStats(d?.ok ? d.stats : null))
+      .catch(() => setNotebookLmStats(null));
+  }, [token]);
+
+  // One unified report powers the website, the extension settings page, and the
+  // toolbar popup, so every surface shows identical numbers.
+  const unified = useMemo(
+    () =>
+      buildUnifiedStatsReport({
+        cacheList: [],
+        notebookLmStats: showSample ? sampleDataset.notebookLm : notebookLmStats,
+        cloudStats: showSample ? sampleDataset : liveStats,
+      }),
+    [liveStats, notebookLmStats, sampleDataset, showSample]
+  );
+
+  const hasLiveVideos = Boolean(unified?.totals?.videosCaptioned > 0);
+  const activeStats = unified;
+  const totals = unified.totals;
+  const notebookLm = unified.notebookLm;
+
+  const dailySeries = unified.dailySeries;
 
   const maxDailyVideos = Math.max(
     1,
@@ -312,12 +327,99 @@ export function StatsView({ token, user, onOpenSignIn }) {
           </div>
         </section>
 
+        {/* Google NotebookLM Workspace & Study Statistics (same as the extension) */}
+        <section className="section-block">
+          <h2 className="section-heading" style={{ fontSize: "1.35rem" }}>
+            Your Google NotebookLM workspace
+          </h2>
+          <p className="section-prose" style={{ fontSize: "14.5px" }}>
+            Study and workspace telemetry beyond captioning, reported with the exact same numbers as the LM Subs extension settings page and toolbar popup.
+          </p>
+
+          <div className="kpi-strip">
+            <div className="kpi-cell">
+              <div className="kpi-value">{numFmt.format(notebookLm.notebooksCount || 0)}</div>
+              <div className="kpi-label">Notebooks used</div>
+              <div className="kpi-sub">
+                {numFmt.format(notebookLm.sourcesIndexed || 0)} sources indexed
+              </div>
+            </div>
+
+            <div className="kpi-cell">
+              <div className="kpi-value">
+                {formatMinutesLabel((notebookLm.activeStudyMinutes || 0) * 60)}
+              </div>
+              <div className="kpi-label">Time watched and listened</div>
+              <div className="kpi-sub">
+                {formatMinutesLabel((notebookLm.speedSavedMinutes || 0) * 60)} saved by playback speed
+              </div>
+            </div>
+
+            <div className="kpi-cell">
+              <div className="kpi-value">
+                {numFmt.format(notebookLm.studioArtifactsCount || 0)}
+              </div>
+              <div className="kpi-label">Studio artifacts</div>
+              <div className="kpi-sub">
+                {numFmt.format(notebookLm.videoOverviewsCount || 0)} video, {" "}
+                {numFmt.format(notebookLm.audioOverviewsCount || 0)} audio
+              </div>
+            </div>
+
+            <div className="kpi-cell">
+              <div className="kpi-value">
+                {numFmt.format(notebookLm.citationsCount || 0)}
+              </div>
+              <div className="kpi-label">Citations sent to chat</div>
+              <div className="kpi-sub">
+                {numFmt.format(notebookLm.bookmarksCount || 0)} bookmarked moments
+              </div>
+            </div>
+          </div>
+
+          {(notebookLm.notebooks?.length || 0) > 0 ? (
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Notebook</th>
+                    <th data-num="true">Sources</th>
+                    <th data-num="true">Video</th>
+                    <th data-num="true">Audio</th>
+                    <th data-num="true">Study time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {notebookLm.notebooks.map((nb) => (
+                    <tr key={nb.notebookId}>
+                      <td style={{ fontWeight: 600 }}>{nb.title}</td>
+                      <td data-num="true">{numFmt.format(nb.sourceCount || 0)}</td>
+                      <td data-num="true">{numFmt.format(nb.videoCount || 0)}</td>
+                      <td data-num="true">{numFmt.format(nb.audioCount || 0)}</td>
+                      <td data-num="true">
+                        {formatMinutesLabel(
+                          (Number(nb.watchSeconds) || 0) +
+                            (Number(nb.listenSeconds) || 0)
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p style={{ fontSize: "14px", color: "var(--ink-tertiary)" }}>
+              Open a notebook with LM Subs installed and this table fills with real per-notebook study time and Studio artifact counts.
+            </p>
+          )}
+        </section>
+
         {/* Recent Captioned Videos Log */}
         <section className="section-block">
           <h2 className="section-heading" style={{ fontSize: "1.35rem" }}>
             Recent captioned videos
           </h2>
-          {(activeStats?.recentTranscripts?.length || 0) === 0 ? (
+          {(activeStats?.recentVideos?.length || 0) === 0 ? (
             <p style={{ fontSize: "14px", color: "var(--ink-tertiary)" }}>
               Completed Video Overview runs will appear here once synced.
             </p>
@@ -335,8 +437,8 @@ export function StatsView({ token, user, onOpenSignIn }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {activeStats.recentTranscripts.map((item) => (
-                    <tr key={item.cacheKey}>
+                  {activeStats.recentVideos.map((item) => (
+                    <tr key={item.cacheKey || item.title}>
                       <td style={{ fontWeight: 500 }}>{item.title}</td>
                       <td>{item.language || "en"}</td>
                       <td>

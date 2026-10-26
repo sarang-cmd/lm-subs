@@ -37,6 +37,107 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="canonical" href="https://lm-subs.vercel.app/" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "LM Subs",
+            "url": "https://lm-subs.vercel.app",
+            "applicationCategory": "BrowserApplication",
+            "applicationSubCategory": "Chrome Extension",
+            "operatingSystem": "Chrome, Edge, Brave, Chromium",
+            "softwareVersion": "0.2.6",
+            "isAccessibleForFree": true,
+            "description": "LM Subs adds synchronized closed captions, word-by-word highlighting, smart chapters, and six-format transcript export to Google NotebookLM Video Overviews and Audio Overview podcasts, with client-side audio extraction and optional encrypted cloud sync.",
+            "image": "https://lm-subs.vercel.app/assets/banner-social-1280x640.png",
+            "screenshot": "https://lm-subs.vercel.app/assets/screenshots/01-player-subtitles.png",
+            "featureList": [
+              "Synchronized closed captions for Google NotebookLM Video Overviews",
+              "Captions for Audio Overview podcasts with speaker labels",
+              "Word-by-word highlighting with adjustable delay from -1500 ms to +3000 ms",
+              "Sub-5 second caption generation via client-side audio stream extraction",
+              "Export to SRT, VTT, TXT, MD, CSV, and JSON",
+              "Caption controls docked inside the NotebookLM bottom play bar",
+              "Picture-in-Picture with captions kept on screen",
+              "12 bring-your-own-key speech-to-text providers with automatic failover",
+              "Optional encrypted cloud sync on a hosted Neon Postgres database"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            },
+            "author": {
+              "@type": "Person",
+              "name": "Sarang",
+              "alternateName": "@sarang-cmd",
+              "url": "https://github.com/sarang-cmd"
+            },
+            "publisher": {
+              "@type": "Person",
+              "name": "Sarang",
+              "alternateName": "@sarang-cmd",
+              "url": "https://github.com/sarang-cmd"
+            },
+            "codeRepository": "https://github.com/sarang-cmd/lm-subs",
+            "license": "https://opensource.org/licenses/MIT"
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Does Google NotebookLM have captions or subtitles?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Google NotebookLM ships no closed captions and no timed text track for Video Overviews or Audio Overviews. LM Subs generates captions in your browser from the audio-only stream and renders them inside the player, with export to SRT, VTT, TXT, MD, CSV, and JSON."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is LM Subs free to use?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "The extension is free and MIT licensed. You bring your own speech-to-text API key, and the two recommended providers, Groq and Mistral, both offer permanent free tiers with no credit card. You can also point LM Subs at a local Whisper server and pay nothing."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does LM Subs upload my NotebookLM videos anywhere?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Audio extraction happens entirely in the browser, and only the compact audio track is sent to the provider whose key you entered. Captions stay in local browser storage unless you sign in and turn on encrypted sync."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I get captions for NotebookLM Audio Overview podcasts?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. LM Subs detects Audio Overview audio elements, including detached players inside shadow DOM, and renders captions in a caption dock with both host labels preserved."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Who created LM Subs?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "LM Subs was created by Sarang, known online as @sarang-cmd, a computer science student and agentic engineer based in Germany. The project is open source under the MIT license at github.com/sarang-cmd/lm-subs and is not affiliated with Google LLC."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <link rel="stylesheet" href="/styles.css?v=4" />
   </head>
   <body>

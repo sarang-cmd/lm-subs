@@ -408,6 +408,70 @@ export async function initContentCoordinator({
     });
   }
 
+  /**
+   * Aggregates Google NotebookLM workspace and study telemetry (watch time,
+   * listen time, sources indexed, Studio artifact counts, citations, bookmarks)
+   * and forwards it to `service-worker.js` so the website dashboard, the
+   * extension settings page, and the toolbar popup all report identical numbers.
+   */
+  function buildNotebookScope() {
+    let videoCount = 0;
+    let audioCount = 0;
+    let reportCount = 0;
+    let studioArtifactCount = 0;
+    for (const art of artifactsById.values()) {
+      studioArtifactCount += 1;
+      if (
+        art.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW ||
+        art.mediaKind === "audio"
+      ) {
+        audioCount += 1;
+      } else if (art.typeCode === ARTIFACT_TYPE.VIDEO_OVERVIEW) {
+        videoCount += 1;
+      } else if (
+        art.typeCode === ARTIFACT_TYPE.REPORT ||
+        art.typeCode === ARTIFACT_TYPE.INFOGRAPHIC ||
+        art.typeCode === ARTIFACT_TYPE.SLIDE_DECK ||
+        art.typeCode === ARTIFACT_TYPE.DATA_TABLE ||
+        art.typeCode === ARTIFACT_TYPE.MIND_MAP
+      ) {
+        reportCount += 1;
+      }
+    }
+    return {
+      notebookId: getNotebookIdFromUrl(),
+      notebookTitle: getNotebookTitleFallback(),
+      sourceCount: Number(win.__lmSubsSourceCount || 0),
+      videoCount,
+      audioCount,
+      reportCount,
+      studioArtifactCount,
+    };
+  }
+
+  let telemetryAccumulator = {};
+  let telemetryFlushTimer = null;
+
+  function recordNotebookTelemetry(patch = {}, mediaKind = "video") {
+    if (!patch || typeof patch !== "object") return;
+    telemetryAccumulator = { ...telemetryAccumulator, ...patch };
+    if (!telemetryAccumulator.__kind && mediaKind) {
+      telemetryAccumulator.__kind = mediaKind;
+    }
+    if (telemetryFlushTimer) return;
+    telemetryFlushTimer = setTimeout(() => {
+      telemetryFlushTimer = null;
+      const payload = { ...telemetryAccumulator };
+      delete payload.__kind;
+      telemetryAccumulator = {};
+      if (!Object.keys(payload).length) return;
+      sendRuntimeMessage({
+        type: RUNTIME_MESSAGE.RECORD_NOTEBOOKLM_TELEMETRY,
+        event: { ...payload, ...buildNotebookScope() },
+      }).catch(() => {});
+    }, 8000);
+  }
+
   function ensureToast() {
     if (!toast && doc.body) {
       toast = createToastManager(doc);
@@ -435,9 +499,24 @@ export async function initContentCoordinator({
     });
   }
 
-  function playCompletionChime() {
+  function playCompletionChime({ force = false } = {}) {
     if (!settings.soundAlerts || !settings.enabled) return;
-    playCompletionChimeSound({ win }).catch(() => {});
+    playCompletionChimeSound({
+      win,
+      preset: settings.notificationSoundPreset || "chime",
+      volume: Number(settings.notificationSoundVolume) || 75,
+      force,
+    }).catch(() => {});
+  }
+
+  function playNotificationSoundPreset(msg = {}) {
+    if (!settings.enabled) return;
+    playCompletionChimeSound({
+      win,
+      preset: msg.preset || settings.notificationSoundPreset || "chime",
+      volume: Number(msg.volume ?? settings.notificationSoundVolume) || 75,
+      force: true,
+    }).catch(() => {});
   }
 
   // Pre-unlock WebAudio on first user gesture or media playback so async completion chimes play reliably
@@ -1131,6 +1210,29 @@ export async function initContentCoordinator({
       initialClickCaptionToCopy: settings.clickCaptionToCopy,
       initialPlaybackSpeed: settings.defaultPlaybackSpeed,
       initialOffsetSec: settings.subtitleOffsetSec,
+      initialFineGrainedControls: settings.fineGrainedControls,
+      initialDynamicCaptionScaling: settings.dynamicCaptionScaling,
+      initialCaptionScaleFactor: settings.captionScaleFactor,
+      initialCaptionMinFontPx: settings.captionMinFontPx,
+      initialCaptionMaxFontPx: settings.captionMaxFontPx,
+      initialCaptionPaddingY: settings.captionPaddingY,
+      initialCaptionPaddingX: settings.captionPaddingX,
+      initialCaptionBorderRadius: settings.captionBorderRadius,
+      initialCaptionLineHeight: settings.captionLineHeight,
+      initialCaptionBottomOffsetPx: settings.captionBottomOffsetPx,
+      initialCaptionTextStrokePx: settings.captionTextStrokePx,
+      initialKaraokeHighlightOpacity: settings.karaokeHighlightOpacity,
+      initialUpcomingWordOpacity: settings.upcomingWordOpacity,
+      initialPlayBarDockMode: settings.playBarDockMode,
+      initialHoverFadeDelayMs: settings.hoverFadeDelayMs,
+      initialKeepSubtitlesInPiP: settings.keepSubtitlesInPiP,
+      initialSkipSilenceEnabled: settings.skipSilenceEnabled,
+      initialSkipSilenceGapSec: settings.skipSilenceGapSec,
+      initialSkipSilenceRate: settings.skipSilenceRate,
+      initialAudioBoostPercent: settings.audioBoostPercent,
+      onTelemetry: (patch) => {
+        recordNotebookTelemetry(patch, entry.mediaKind);
+      },
       onRequestGenerate: ({ force } = {}) => {
         ensureSubtitlesForEntry(entry, {
           force: Boolean(force),
@@ -1629,6 +1731,16 @@ export async function initContentCoordinator({
       active.controller.stepFontSize(1);
     } else if (key === "b" || key === "B") {
       active.controller.cycleCaptionStyle();
+    } else if (key === "x" || key === "X") {
+      active.controller.captureSnapshot?.();
+    } else if (key === "f" || key === "F") {
+      active.controller.toggleFullscreen?.();
+    } else if (key === "z" || key === "Z") {
+      active.controller.toggleSkipSilence?.();
+    } else if (key === "," || key === "<") {
+      active.controller.seekBySeconds?.(-10);
+    } else if (key === ".") {
+      active.controller.seekBySeconds?.(10);
     } else if (key === "?") {
       active.controller.toggleShortcutsHelp();
     }
@@ -1679,8 +1791,13 @@ export async function initContentCoordinator({
       return false;
     }
 
+    if (msg.type === RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND) {
+      playNotificationSoundPreset(msg);
+      return false;
+    }
+
     if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY) {
-      playCompletionChime();
+      playCompletionChime({ force: true });
       fireTabDesktopNotification(
         `Subtitles ready: ${msg.title || "Video Overview"}`,
         `${msg.cueCount || 0} cues generated via ${msg.provider || "AI"}.`
@@ -1890,6 +2007,26 @@ export async function initContentCoordinator({
           clickCaptionToCopy: settings.clickCaptionToCopy,
           defaultPlaybackSpeed: settings.defaultPlaybackSpeed,
           subtitleOffsetSec: settings.subtitleOffsetSec,
+          fineGrainedControls: settings.fineGrainedControls,
+          dynamicCaptionScaling: settings.dynamicCaptionScaling,
+          captionScaleFactor: settings.captionScaleFactor,
+          captionMinFontPx: settings.captionMinFontPx,
+          captionMaxFontPx: settings.captionMaxFontPx,
+          captionPaddingY: settings.captionPaddingY,
+          captionPaddingX: settings.captionPaddingX,
+          captionBorderRadius: settings.captionBorderRadius,
+          captionLineHeight: settings.captionLineHeight,
+          captionBottomOffsetPx: settings.captionBottomOffsetPx,
+          captionTextStrokePx: settings.captionTextStrokePx,
+          karaokeHighlightOpacity: settings.karaokeHighlightOpacity,
+          upcomingWordOpacity: settings.upcomingWordOpacity,
+          playBarDockMode: settings.playBarDockMode,
+          hoverFadeDelayMs: settings.hoverFadeDelayMs,
+          keepSubtitlesInPiP: settings.keepSubtitlesInPiP,
+          skipSilenceEnabled: settings.skipSilenceEnabled,
+          skipSilenceGapSec: settings.skipSilenceGapSec,
+          skipSilenceRate: settings.skipSilenceRate,
+          audioBoostPercent: settings.audioBoostPercent,
         });
       }
     });

@@ -266,8 +266,93 @@
               </button>
             </div>
           </div>
+          <div class="field" style="margin-bottom: 8px">
+            <label class="field-label" for="popup-sound-preset">
+              <span>Alert sound</span>
+              <button id="popup-preview-sound-btn" type="button" class="btn btn-sm">
+                Preview
+              </button>
+            </label>
+            <select id="popup-sound-preset">
+              <option value="chime">Acoustic fifth chime</option>
+              <option value="marimba">Studio triad marimba</option>
+              <option value="bell">Crystal desk bell</option>
+              <option value="pulse">Crisp double pulse</option>
+              <option value="soft-pop">Warm acoustic pluck</option>
+              <option value="none">Silent (visual only)</option>
+            </select>
+          </div>
           <div id="popup-update-status-hint" class="hint" style="margin: 0 0 6px"></div>
           <div id="popup-notif-list" class="notif-list"></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- Statistics: identical numbers to the website dashboard and settings page -->
+    <section class="popup-section">
+      <details id="popup-stats-disclosure" class="compact-disclosure">
+        <summary>
+          <span>Statistics</span>
+          <div class="row">
+            <span
+              id="popup-stats-summary"
+              style="font-size: 11.5px; font-weight: 500; color: var(--ink-secondary)"
+            >
+              0 captioned
+            </span>
+            <span class="disclosure-chevron" aria-hidden="true">▾</span>
+          </div>
+        </summary>
+        <div class="compact-disclosure-body" style="padding: 8px 10px 10px">
+          <div class="stats-strip" style="margin-bottom: 8px">
+            <div class="stats-cell">
+              <div id="popup-stat-videos" class="stats-num">0</div>
+              <div class="stats-lbl">Captioned</div>
+            </div>
+            <div class="stats-cell">
+              <div id="popup-stat-cues" class="stats-num">0</div>
+              <div class="stats-lbl">Cues</div>
+            </div>
+            <div class="stats-cell">
+              <div id="popup-stat-saved" class="stats-num">0.0 MB</div>
+              <div class="stats-lbl">Upload avoided</div>
+            </div>
+            <div class="stats-cell">
+              <div id="popup-stat-latency" class="stats-num">n/a</div>
+              <div class="stats-lbl">Median</div>
+            </div>
+          </div>
+
+          <div class="stats-strip" style="margin-bottom: 8px">
+            <div class="stats-cell">
+              <div id="popup-stat-notebooks" class="stats-num">0</div>
+              <div class="stats-lbl">Notebooks</div>
+            </div>
+            <div class="stats-cell">
+              <div id="popup-stat-sources" class="stats-num">0</div>
+              <div class="stats-lbl">Sources</div>
+            </div>
+            <div class="stats-cell">
+              <div id="popup-stat-study" class="stats-num">0 min</div>
+              <div class="stats-lbl">Study time</div>
+            </div>
+            <div class="stats-cell">
+              <div id="popup-stat-citations" class="stats-num">0</div>
+              <div class="stats-lbl">Citations</div>
+            </div>
+          </div>
+
+          <p id="popup-stats-note" class="hint" style="margin: 0">
+            Same numbers as the LM Subs website dashboard and the settings page.
+          </p>
+          <div class="row" style="margin-top: 8px">
+            <button id="popup-refresh-stats-btn" type="button" class="btn btn-sm" style="flex: 1">
+              Refresh statistics
+            </button>
+            <button id="popup-open-stats-btn" type="button" class="btn btn-sm">
+              Web dashboard
+            </button>
+          </div>
         </div>
       </details>
     </section>

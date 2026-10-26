@@ -31,6 +31,15 @@ import {
   parseSubtitleText,
   serializeSubtitles,
 } from "../lib/subtitles.js";
+import { unlockChimeAudio } from "../lib/chime.js";
+
+function unlockChimeForGesture() {
+  try {
+    unlockChimeAudio(globalThis);
+  } catch {
+    // Ignore restricted autoplay contexts
+  }
+}
 
 const FONT_SCALE_MAP = {
   small: "clamp(13px, 1.85cqh, 16px)",
@@ -39,6 +48,30 @@ const FONT_SCALE_MAP = {
   xlarge: "clamp(21px, 3.55cqh, 32px)",
   xxlarge: "clamp(24px, 4.2cqh, 38px)",
 };
+
+/**
+ * Reference font size (in CSS px at a 720p-tall player) for each caption size
+ * preset. `dynamicCaptionScaling` multiplies this by the real player height and
+ * by `captionScaleFactor`, then clamps it between `captionMinFontPx` and
+ * `captionMaxFontPx`, so Studio sidebar resizes, split views, small inline
+ * players, and fullscreen all stay proportionally readable.
+ */
+const FONT_BASE_PX = {
+  small: 17,
+  medium: 21,
+  large: 25,
+  xlarge: 30,
+  xxlarge: 35,
+};
+
+const REFERENCE_PLAYER_HEIGHT_PX = 720;
+
+/**
+ * Seconds a caption line stays on screen after its cue ends (and how early the
+ * next cue may start) so brief gaps between spoken lines never make captions
+ * or caption controls flicker.
+ */
+const CAPTION_LINGER_SEC = 0.28;
 
 const FONT_FAMILY_MAP = {
   sans: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -93,7 +126,22 @@ const OVERLAY_CSS = `
     pointer-events: auto;
     opacity: 0.96;
     font-variant-numeric: tabular-nums;
-    transition: opacity 150ms ease, background-color 120ms ease;
+    transition: opacity 180ms ease, background-color 120ms ease;
+  }
+  /* Controls follow NotebookLM's own play bar: they fade in together with the
+     native controls on hover and fade out together with them. Visibility never
+     depends on whether a caption happens to be on screen, so nothing blinks. */
+  .toolbar {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, background-color 120ms ease;
+  }
+  :host([data-controls-visible="true"]) .toolbar {
+    opacity: 0.96;
+    pointer-events: auto;
+  }
+  :host([data-dock="native"]) .toolbar {
+    display: none;
   }
   :host([data-mode="audio"]) .toolbar {
     bottom: 14px;
@@ -144,6 +192,7 @@ const OVERLAY_CSS = `
   .toolbar:hover,
   .toolbar:focus-within {
     opacity: 1 !important;
+    pointer-events: auto;
     background: rgba(18, 20, 24, 0.92);
   }
   .cc-pill {
@@ -288,7 +337,7 @@ const OVERLAY_CSS = `
     position: absolute;
     left: 5%;
     right: 5%;
-    bottom: 56px;
+    bottom: var(--lms-caption-bottom, 56px);
     display: flex;
     justify-content: center;
     align-items: flex-end;
@@ -296,7 +345,7 @@ const OVERLAY_CSS = `
     transition: top 120ms ease, bottom 120ms ease, right 120ms ease;
   }
   .caption-stage[data-pos="raised"] {
-    bottom: 98px;
+    bottom: calc(var(--lms-caption-bottom, 56px) + 42px);
   }
   .caption-stage[data-pos="top"] {
     top: 42px;
@@ -309,19 +358,22 @@ const OVERLAY_CSS = `
   .caption-box {
     display: none;
     max-width: min(92%, 780px);
-    padding: 7px 15px 8px;
-    border-radius: 7px;
+    padding: var(--lms-caption-pad-y, 7px) var(--lms-caption-pad-x, 15px)
+      calc(var(--lms-caption-pad-y, 7px) + 1px);
+    border-radius: var(--lms-caption-radius, 7px);
     background: rgba(11, 13, 16, 0.88);
     color: #fdfdfe;
     text-align: center;
     font-weight: 500;
-    line-height: 1.42;
+    font-size: var(--lms-caption-font, clamp(15px, 2.35cqh, 21px));
+    line-height: var(--lms-caption-leading, 1.42);
     letter-spacing: 0.005em;
     white-space: pre-line;
     border: 1px solid rgba(255, 255, 255, 0.12);
     pointer-events: auto;
     cursor: pointer;
     user-select: text;
+    text-shadow: var(--lms-caption-stroke, none);
   }
   .caption-box[data-font="dyslexic"] {
     letter-spacing: 0.045em;
@@ -357,7 +409,7 @@ const OVERLAY_CSS = `
     opacity: 1;
   }
   .caption-word-current {
-    background: rgba(29, 92, 246, 0.48);
+    background: rgba(29, 92, 246, var(--lms-karaoke-alpha, 0.48));
     color: #ffffff;
     padding: 1px 5px;
     margin: 0 1px;
@@ -365,11 +417,11 @@ const OVERLAY_CSS = `
     font-weight: 600;
   }
   .caption-box[data-style="paper"] .caption-word-current {
-    background: rgba(0, 85, 212, 0.16);
+    background: rgba(0, 85, 212, var(--lms-karaoke-alpha, 0.16));
     color: #0055d4;
   }
   .caption-word-upcoming {
-    opacity: 0.64;
+    opacity: var(--lms-upcoming-alpha, 0.64);
   }
   .caption-secondary {
     display: block;
@@ -656,6 +708,176 @@ const OVERLAY_CSS = `
   }
 `;
 
+/**
+ * Light-DOM stylesheet for the buttons we inject straight into Google
+ * NotebookLM's own bottom play bar (`playBarDockMode: "native"`).
+ * Deliberately mirrors NotebookLM's Material control language (circular
+ * hover affordance, currentColor fill, Google Sans / Roboto type) so the
+ * caption controls read as a built-in part of the player.
+ */
+const DOCK_STYLE_ID = "lm-subs-dock-style";
+export const DOCK_CSS = `
+  .lms-dock-btn {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    margin: 0 1px;
+    border-radius: 50%;
+    color: #f1f3f4;
+    fill: currentColor;
+    cursor: pointer;
+    opacity: 0.92;
+    font-family: "Google Sans", Roboto, "Plus Jakarta Sans", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    transition: background-color 120ms ease, opacity 120ms ease, color 120ms ease;
+  }
+  .lms-dock-btn:hover {
+    background-color: rgba(255, 255, 255, 0.14);
+    opacity: 1;
+  }
+  .lms-dock-btn:focus-visible {
+    outline: 2px solid #8ab4f8;
+    outline-offset: 1px;
+  }
+  .lms-dock-btn[data-active="true"] {
+    background-color: rgba(138, 180, 248, 0.22);
+    color: #8ab4f8;
+  }
+  .lms-dock-btn[data-disabled="true"] {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .lms-dock-cc {
+    width: auto;
+    min-width: 30px;
+    height: 24px;
+    padding: 0 6px;
+    margin: 0 3px;
+    border-radius: 4px;
+    border: 1.5px solid rgba(241, 243, 244, 0.82);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  .lms-dock-cc[data-active="true"] {
+    background-color: rgba(138, 180, 248, 0.24);
+    border-color: #8ab4f8;
+    color: #ffffff;
+  }
+  .lms-dock-cc[data-primary="true"] {
+    border-color: #8ab4f8;
+    background-color: rgba(138, 180, 248, 0.18);
+  }
+`;
+
+export function ensureDockStyle(doc) {
+  if (!doc || typeof doc.getElementById !== "function") return null;
+  let el = doc.getElementById(DOCK_STYLE_ID);
+  if (!el) {
+    const host = doc.head || doc.documentElement;
+    if (!host || typeof host.appendChild !== "function") return null;
+    el = doc.createElement("style");
+    el.id = DOCK_STYLE_ID;
+    el.textContent = DOCK_CSS;
+    host.appendChild(el);
+  }
+  return el;
+}
+
+/**
+ * Finds the host page's real player control bar so LM Subs buttons can be
+ * injected directly into it. Candidates are ranked by (a) how close the bar
+ * sits to the bottom of the media box and (b) how compact it is, which keeps
+ * the whole video wrapper from being mistaken for the control strip.
+ */
+export function findNativeControlBar(video, doc) {
+  if (!video || typeof video.closest !== "function") return null;
+  const labelRe =
+    /(play|pause|resume|rewind|forward|mute|unmute|full ?screen|subtitle|caption|closed caption|pip|picture)/i;
+
+  const safeRect = (el) => {
+    try {
+      return el?.getBoundingClientRect?.() || null;
+    } catch {
+      return null;
+    }
+  };
+  const videoRect = safeRect(video);
+  const videoHeight = Number(videoRect?.height) || 0;
+
+  const score = (node, depth) => {
+    if (!node || node === video) return null;
+    let buttons = [];
+    try {
+      buttons = [...(node.querySelectorAll?.("button, [role=button]") || [])];
+    } catch {
+      buttons = [];
+    }
+    if (buttons.length < 2 || buttons.length > 26) return null;
+
+    let hits = 0;
+    for (const b of buttons) {
+      const label = `${b.getAttribute?.("aria-label") || ""} ${
+        b.getAttribute?.("title") || ""
+      } ${b.getAttribute?.("data-tooltip") || ""}`;
+      if (labelRe.test(label)) hits += 1;
+    }
+    if (hits < 2) return null;
+
+    const rect = safeRect(node);
+    const height = Number(rect?.height) || 0;
+    let bottomAligned = false;
+    if (rect && videoHeight > 0) {
+      const delta = Math.abs(rect.bottom - videoRect.bottom);
+      bottomAligned = delta <= Math.max(10, videoHeight * 0.08);
+    }
+    return { node, hits, buttonCount: buttons.length, height, bottomAligned, depth };
+  };
+
+  const candidates = [];
+
+  // The control bar is usually a sibling of the media element (a compact strip
+  // pinned to the bottom of the player), so scan ancestors and their children.
+  let ancestor = video.parentElement;
+  let depth = 0;
+  while (ancestor && depth < 8) {
+    const own = score(ancestor, depth);
+    if (own) candidates.push(own);
+    let kids = [];
+    try {
+      kids = [...(ancestor.children || [])];
+    } catch {
+      kids = [];
+    }
+    for (const kid of kids) {
+      if (kid === video || kid.contains?.(video)) continue;
+      const kidScore = score(kid, depth + 1);
+      if (kidScore) candidates.push(kidScore);
+    }
+    ancestor = ancestor.parentElement;
+    depth += 1;
+  }
+
+  if (candidates.length === 0) return null;
+
+  const compact = candidates
+    .filter((c) => c.bottomAligned && c.height > 0 && c.height <= 120)
+    .sort((a, b) => a.buttonCount - b.buttonCount || a.depth - b.depth);
+  if (compact.length > 0) return compact[0].node;
+
+  const smallest = [...candidates].sort(
+    (a, b) => a.buttonCount - b.buttonCount || a.depth - b.depth
+  )[0];
+  return smallest ? smallest.node : candidates[0].node;
+}
+
 function formatBriefStamp(sec) {
   const full = formatTimestamp(sec, ".");
   return sec >= 3600 ? full.slice(0, 8) : full.slice(3, 8);
@@ -724,6 +946,26 @@ export class VideoSubtitleController {
       initialClickCaptionToCopy = true,
       initialPlaybackSpeed = 1,
       initialOffsetSec = 0,
+      initialFineGrainedControls = false,
+      initialDynamicCaptionScaling = true,
+      initialCaptionScaleFactor = 100,
+      initialCaptionMinFontPx = 11,
+      initialCaptionMaxFontPx = 40,
+      initialCaptionPaddingY = 7,
+      initialCaptionPaddingX = 15,
+      initialCaptionBorderRadius = 7,
+      initialCaptionLineHeight = 142,
+      initialCaptionBottomOffsetPx = 54,
+      initialCaptionTextStrokePx = 0,
+      initialKaraokeHighlightOpacity = 48,
+      initialUpcomingWordOpacity = 64,
+      initialPlayBarDockMode = "native",
+      initialHoverFadeDelayMs = 2200,
+      initialKeepSubtitlesInPiP = true,
+      initialSkipSilenceEnabled = false,
+      initialSkipSilenceGapSec = 1.6,
+      initialSkipSilenceRate = 2.2,
+      initialAudioBoostPercent = 100,
       onRequestGenerate = () => {},
       onOffsetChange = () => {},
       onFontSizeChange = () => {},
@@ -732,6 +974,7 @@ export class VideoSubtitleController {
       onCuesMutated = () => {},
       onCiteCue = null,
       onImportSubtitles = () => {},
+      onTelemetry = () => {},
     } = {}
   ) {
     this.video = video;
@@ -780,6 +1023,51 @@ export class VideoSubtitleController {
       ? Number(initialPlaybackSpeed)
       : 1;
 
+    this.fineGrainedControls = Boolean(initialFineGrainedControls);
+    this.dynamicCaptionScaling = initialDynamicCaptionScaling !== false;
+    this.captionScaleFactor = this._clamp(
+      initialCaptionScaleFactor,
+      50,
+      200,
+      100
+    );
+    this.captionMinFontPx = this._clamp(initialCaptionMinFontPx, 8, 18, 11);
+    this.captionMaxFontPx = this._clamp(initialCaptionMaxFontPx, 20, 64, 40);
+    this.captionPaddingY = this._clamp(initialCaptionPaddingY, 2, 20, 7);
+    this.captionPaddingX = this._clamp(initialCaptionPaddingX, 6, 40, 15);
+    this.captionBorderRadius = this._clamp(initialCaptionBorderRadius, 0, 32, 7);
+    this.captionLineHeight = this._clamp(initialCaptionLineHeight, 115, 185, 142);
+    this.captionBottomOffsetPx = this._clamp(
+      initialCaptionBottomOffsetPx,
+      24,
+      180,
+      54
+    );
+    this.captionTextStrokePx = this._clamp(initialCaptionTextStrokePx, 0, 3, 0);
+    this.karaokeHighlightOpacity = this._clamp(
+      initialKaraokeHighlightOpacity,
+      15,
+      95,
+      48
+    );
+    this.upcomingWordOpacity = this._clamp(
+      initialUpcomingWordOpacity,
+      25,
+      100,
+      64
+    );
+    this.playBarDockMode = ["native", "hover", "always"].includes(
+      initialPlayBarDockMode
+    )
+      ? initialPlayBarDockMode
+      : "native";
+    this.hoverFadeDelayMs = this._clamp(initialHoverFadeDelayMs, 400, 6000, 2200);
+    this.keepSubtitlesInPiP = initialKeepSubtitlesInPiP !== false;
+    this.skipSilenceEnabled = Boolean(initialSkipSilenceEnabled);
+    this.skipSilenceGapSec = this._clamp(initialSkipSilenceGapSec, 0.6, 5, 1.6);
+    this.skipSilenceRate = this._clamp(initialSkipSilenceRate, 1.4, 3, 2.2);
+    this.audioBoostPercent = this._clamp(initialAudioBoostPercent, 100, 250, 100);
+
     this.offsetSec = Number.isFinite(initialOffsetSec) ? initialOffsetSec : 0;
     this.statusState = "idle";
     this.statusLabel = "";
@@ -787,6 +1075,20 @@ export class VideoSubtitleController {
     this.inPiP = false;
     this.idleTimer = null;
     this.syncTimer = null;
+    this.pointerOverPlayer = false;
+    this.nativeControlsVisible = true;
+    this.controlsVisible = true;
+    this.nativeControlBar = null;
+    this.dockButtons = {};
+    this.dockObserver = null;
+    this.dockPollTimer = null;
+    this.sizeObserver = null;
+    this.watchAccumulatorSec = 0;
+    this.lastWatchTickMs = 0;
+    this.boostCtx = null;
+    this.boostSource = null;
+    this.pipWindow = null;
+    this.pipCaptionEl = null;
 
     this.drawerOpen = false;
     this.drawerTab = "lines"; // "lines" | "chapters" | "saved"
@@ -810,10 +1112,112 @@ export class VideoSubtitleController {
     this.onCuesMutated = onCuesMutated;
     this.onCiteCue = onCiteCue;
     this.onImportSubtitles = onImportSubtitles;
+    this.onTelemetry = onTelemetry;
 
     this._mount();
     this._bindEvents();
     this._applyPlaybackSpeed(this.playbackSpeed, false);
+    this._mountNativeDock();
+    this._startControlVisibilitySync();
+    this._applyCaptionMetrics();
+  }
+
+  _clamp(value, min, max, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  _emitTelemetry(patch = {}) {
+    try {
+      this.onTelemetry(patch);
+    } catch {
+      // Telemetry is strictly best-effort
+    }
+  }
+
+  /**
+   * Mirrors Google NotebookLM's own play bar: we read the host page's control
+   * bar opacity/visibility and match it, so caption controls appear and
+   * disappear exactly with the native controls instead of blinking on their own.
+   */
+  _startControlVisibilitySync() {
+    const bar = this.nativeControlBar;
+    if (!bar || typeof MutationObserver === "undefined") {
+      this.nativeControlsVisible = true;
+      this._updateControlsVisibility();
+      return;
+    }
+    const readNative = () => {
+      let visible = true;
+      try {
+        const cs = globalThis.getComputedStyle?.(bar);
+        if (cs) {
+          const opacity = Number(cs.opacity);
+          if (Number.isFinite(opacity) && opacity < 0.12) visible = false;
+          if (cs.visibility === "hidden" || cs.visibility === "collapse") {
+            visible = false;
+          }
+          if (cs.display === "none") visible = false;
+        }
+        if (
+          bar.hasAttribute?.("aria-hidden") &&
+          bar.getAttribute("aria-hidden") === "true"
+        ) {
+          visible = false;
+        }
+      } catch {
+        visible = true;
+      }
+      if (visible !== this.nativeControlsVisible) {
+        this.nativeControlsVisible = visible;
+        this._updateControlsVisibility();
+      }
+    };
+
+    try {
+      this.dockObserver = new MutationObserver(readNative);
+      this.dockObserver.observe(bar, {
+        attributes: true,
+        attributeFilter: ["class", "style", "aria-hidden", "hidden"],
+        subtree: false,
+      });
+    } catch {
+      this.dockObserver = null;
+    }
+    readNative();
+    // Cheap belt-and-braces poll for players that animate opacity via CSS vars
+    this.dockPollTimer = setInterval(readNative, 420);
+  }
+
+  _updateControlsVisibility() {
+    const anyPopoverOpen =
+      this.drawerOpen || this.styleOpen || this.shortcutsOpen || this.toolsOpen;
+    let visible = true;
+    if (this.playBarDockMode === "always" || this.mediaKind === "audio") {
+      visible = true;
+    } else if (anyPopoverOpen || this.statusState === "working") {
+      visible = true;
+    } else if (this.pointerOverPlayer || this.video?.paused) {
+      visible = true;
+    } else if (this.playBarDockMode === "native") {
+      visible = this.nativeControlsVisible;
+    } else {
+      visible = this.nativeControlsVisible;
+    }
+    if (visible === this.controlsVisible && this.host?.dataset) {
+      this.host.dataset.controlsVisible = visible ? "true" : "false";
+      return;
+    }
+    this.controlsVisible = visible;
+    if (this.host?.dataset) {
+      this.host.dataset.controlsVisible = visible ? "true" : "false";
+    }
+    for (const btn of Object.values(this.dockButtons)) {
+      if (!btn) continue;
+      btn.style.opacity = visible ? "" : "0";
+      btn.style.pointerEvents = visible ? "" : "none";
+    }
   }
 
   _resolveMountParent() {
@@ -856,6 +1260,292 @@ export class VideoSubtitleController {
       }
     }
     return true;
+  }
+
+  _svgIcon(size, nodes = []) {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = this.doc.createElementNS(NS, "svg");
+    svg.setAttribute("width", String(size || 20));
+    svg.setAttribute("height", String(size || 20));
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("focusable", "false");
+    svg.setAttribute("aria-hidden", "true");
+    for (const node of nodes) {
+      let el = null;
+      if (node.t === "path") {
+        el = this.doc.createElementNS(NS, "path");
+        el.setAttribute("d", node.d);
+        if (node.stroke) {
+          el.setAttribute("fill", "none");
+          el.setAttribute("stroke", "currentColor");
+          el.setAttribute("stroke-width", String(node.sw || 1.7));
+          el.setAttribute("stroke-linecap", "round");
+          el.setAttribute("stroke-linejoin", "round");
+        } else {
+          el.setAttribute("fill", "currentColor");
+        }
+      } else if (node.t === "rect") {
+        el = this.doc.createElementNS(NS, "rect");
+        el.setAttribute("x", String(node.x));
+        el.setAttribute("y", String(node.y));
+        el.setAttribute("width", String(node.w));
+        el.setAttribute("height", String(node.h));
+        el.setAttribute("rx", String(node.rx || 0));
+        if (node.stroke) {
+          el.setAttribute("fill", "none");
+          el.setAttribute("stroke", "currentColor");
+          el.setAttribute("stroke-width", String(node.sw || 1.7));
+        } else {
+          el.setAttribute("fill", "currentColor");
+        }
+      } else if (node.t === "circle") {
+        el = this.doc.createElementNS(NS, "circle");
+        el.setAttribute("cx", String(node.cx));
+        el.setAttribute("cy", String(node.cy));
+        el.setAttribute("r", String(node.r));
+        el.setAttribute("fill", node.stroke ? "none" : "currentColor");
+        if (node.stroke) {
+          el.setAttribute("stroke", "currentColor");
+          el.setAttribute("stroke-width", String(node.sw || 1.7));
+        }
+      }
+      if (el) svg.appendChild(el);
+    }
+    return svg;
+  }
+
+  _teardownNativeDock() {
+    try {
+      this.dockObserver?.disconnect?.();
+    } catch {
+      // Ignore
+    }
+    this.dockObserver = null;
+    if (this.dockPollTimer) {
+      clearInterval(this.dockPollTimer);
+      this.dockPollTimer = null;
+    }
+    for (const btn of Object.values(this.dockButtons)) {
+      try {
+        btn?.remove?.();
+      } catch {
+        // Ignore
+      }
+    }
+    this.dockButtons = {};
+    this.nativeControlBar = null;
+  }
+
+  /**
+   * Injects LM Subs caption controls directly into Google NotebookLM's own
+   * bottom play bar so they look and behave like native player buttons.
+   */
+  _mountNativeDock() {
+    this._teardownNativeDock();
+    this.host?.setAttribute?.("data-dock", this.playBarDockMode);
+    if (this.mediaKind === "audio" || this.playBarDockMode !== "native") {
+      return false;
+    }
+    if (!this.doc || typeof this.doc.createElement !== "function") return false;
+
+    const bar = findNativeControlBar(this.video, this.doc);
+    if (!bar) {
+      this.host?.setAttribute?.("data-dock", "hover");
+      return false;
+    }
+    ensureDockStyle(this.doc);
+    this.nativeControlBar = bar;
+
+    const makeDockButton = (key, label, iconNodes, onClick, { cc = false } = {}) => {
+      const btn = this.doc.createElement("button");
+      btn.type = "button";
+      btn.className = cc ? "lms-dock-btn lms-dock-cc" : "lms-dock-btn";
+      btn.setAttribute("aria-label", label);
+      btn.title = label;
+      if (cc) {
+        btn.textContent = "CC";
+      } else if (iconNodes === null) {
+        btn.textContent = label;
+      } else {
+        btn.appendChild(this._svgIcon(20, iconNodes));
+      }
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        unlockChimeForGesture();
+        onClick();
+      });
+      this.dockButtons[key] = btn;
+      return btn;
+    };
+
+    const ccBtn = makeDockButton(
+      "cc",
+      "Toggle LM Subs captions (C)",
+      null,
+      () => {
+        if (this.cues.length === 0 && this.statusState !== "working") {
+          this.onRequestGenerate({ force: true });
+          return;
+        }
+        this.toggleSubtitles();
+      },
+      { cc: true }
+    );
+
+    const optionsBtn = makeDockButton(
+      "options",
+      "LM Subs caption options (O)",
+      [
+        {
+          t: "path",
+          d: "M4 6h10v2H4V6zm0 5h6v2H4v-2zm0 5h10v2H4v-2zm13.5-9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zm0 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z",
+        },
+      ],
+      () => this.toggleToolsPopover()
+    );
+
+    const built = [ccBtn, optionsBtn];
+
+    if (this.fineGrainedControls) {
+      built.push(
+        makeDockButton("speed", "Playback speed", null, () =>
+          this.cyclePlaybackSpeed()
+        ),
+        makeDockButton(
+          "loop",
+          "Loop active caption sentence (L)",
+          [
+            {
+              t: "path",
+              d: "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z",
+            },
+          ],
+          () => this.toggleCueLoop()
+        ),
+        makeDockButton(
+          "pip",
+          "Picture-in-Picture with captions (P)",
+          [
+            { t: "rect", x: 3, y: 5, w: 18, h: 14, rx: 2, stroke: true },
+            { t: "rect", x: 12, y: 12, w: 7, h: 5, rx: 1 },
+          ],
+          () => this.togglePictureInPicture()
+        ),
+        makeDockButton(
+          "snapshot",
+          "Save frame with the caption burned in (X)",
+          [
+            {
+              t: "path",
+              d: "M9 3h6l1.5 2H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3.5L9 3zm3 5.2A4.3 4.3 0 1 0 12 17.8 4.3 4.3 0 0 0 12 8.2zm0 2a2.3 2.3 0 1 1 0 4.6 2.3 2.3 0 0 1 0-4.6z",
+            },
+          ],
+          () => this.captureSnapshot()
+        ),
+        makeDockButton("boost", "Volume boost", [
+          {
+            t: "path",
+            d: "M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z",
+          },
+        ], () => this.cycleAudioBoost()),
+        makeDockButton(
+          "silence",
+          "Skip silence",
+          [
+            {
+              t: "path",
+              d: "M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z",
+            },
+          ],
+          () => this.toggleSkipSilence()
+        )
+      );
+    }
+
+    // Insert right before the native fullscreen button when we can find it
+    let anchor = null;
+    try {
+      const kids = [...(bar.children || [])];
+      for (const child of kids) {
+        const label = `${child?.getAttribute?.("aria-label") || ""} ${
+          child?.getAttribute?.("title") || ""
+        }`;
+        if (/full ?screen|theater|pip|picture/i.test(label)) {
+          anchor = child;
+          break;
+        }
+      }
+    } catch {
+      anchor = null;
+    }
+
+    for (const btn of built) {
+      try {
+        if (anchor && btn.insertBefore) {
+          bar.insertBefore(btn, anchor);
+        } else {
+          bar.appendChild(btn);
+        }
+      } catch {
+        try {
+          bar.appendChild(btn);
+        } catch {
+          // Ignore hostile DOM
+        }
+      }
+    }
+
+    this.host?.setAttribute?.("data-dock", "native");
+    this._renderDockButtons();
+    this._startControlVisibilitySync();
+    return true;
+  }
+
+  _renderDockButtons() {
+    const hasCues = this.cues.length > 0;
+    const isWorking = this.statusState === "working";
+    const cc = this.dockButtons.cc;
+    if (cc) {
+      cc.dataset.active = hasCues && this.ccEnabled ? "true" : "false";
+      cc.dataset.primary = !hasCues && !isWorking ? "true" : "false";
+      cc.dataset.disabled = isWorking ? "true" : "false";
+      cc.title = hasCues
+        ? this.ccEnabled
+          ? "Hide LM Subs captions (C)"
+          : "Show LM Subs captions (C)"
+        : "Generate LM Subs captions";
+    }
+    const options = this.dockButtons.options;
+    if (options) {
+      options.dataset.active = this.toolsOpen ? "true" : "false";
+    }
+    const speed = this.dockButtons.speed;
+    if (speed) {
+      speed.textContent = `${this.playbackSpeed}x`;
+      speed.dataset.active = this.playbackSpeed !== 1 ? "true" : "false";
+      speed.title = `Playback speed: ${this.playbackSpeed}x (< / >)`;
+    }
+    const loop = this.dockButtons.loop;
+    if (loop) {
+      loop.dataset.active = this.loopCueIndex >= 0 ? "true" : "false";
+    }
+    const pip = this.dockButtons.pip;
+    if (pip) {
+      pip.dataset.active = this.inPiP ? "true" : "false";
+    }
+    const boost = this.dockButtons.boost;
+    if (boost) {
+      boost.dataset.active = this.audioBoostPercent > 100 ? "true" : "false";
+      boost.title = `Volume boost: ${this.audioBoostPercent}%`;
+    }
+    const silence = this.dockButtons.silence;
+    if (silence) {
+      silence.dataset.active = this.skipSilenceEnabled ? "true" : "false";
+      silence.title = this.skipSilenceEnabled
+        ? `Skip silence on (${this.skipSilenceGapSec}s gaps)`
+        : "Skip silence off";
+    }
   }
 
   _closePopoversExcept(keepName) {
@@ -920,6 +1610,10 @@ export class VideoSubtitleController {
       this.host.dataset.mode = this.mediaKind;
     }
     this.host.setAttribute?.("data-mode", this.mediaKind);
+    this.host.setAttribute?.("data-dock", this.playBarDockMode);
+    if (this.host.dataset) {
+      this.host.dataset.controlsVisible = "true";
+    }
     const shadow = this.host.attachShadow({ mode: "closed" });
     this.shadow = shadow;
 
@@ -1092,6 +1786,34 @@ export class VideoSubtitleController {
     );
     this.moreBtn.className = "bar-pill";
 
+    // Fine-grained playback controls (only rendered when advanced mode is on)
+    this.snapshotBtn = this._makeBtn(
+      "Shot",
+      "Save the current frame with the caption burned in (X)",
+      () => this.captureSnapshot()
+    );
+    this.boostBtn = this._makeBtn(
+      "Vol",
+      "Cycle volume boost for quiet NotebookLM narration",
+      () => this.cycleAudioBoost()
+    );
+    this.silenceBtn = this._makeBtn(
+      "Silence",
+      "Skip silent gaps between spoken sentences (Z)",
+      () => this.toggleSkipSilence()
+    );
+    this.fullscreenBtn = this._makeBtn(
+      "Full",
+      "Toggle fullscreen playback with captions (F)",
+      () => this.toggleFullscreen()
+    );
+    this.back10Btn = this._makeBtn("-10s", "Rewind 10 seconds (,)", () =>
+      this.seekBySeconds(-10)
+    );
+    this.fwd10Btn = this._makeBtn("+10s", "Forward 10 seconds (.)", () =>
+      this.seekBySeconds(10)
+    );
+
     // Build compact Player Subtitle Menu Popover above the bottom play bar
     this.toolsPopoverEl = this.doc.createElement("div");
     this.toolsPopoverEl.className = "tools-popover";
@@ -1148,7 +1870,25 @@ export class VideoSubtitleController {
       this.shortcutsBtn
     );
 
-    this.toolsPopoverEl.append(this.controlsGroup, utilitySection);
+    this.fineSection = makeToolsSection(
+      "Fine-grained playback",
+      this.snapshotBtn,
+      this.boostBtn,
+      this.silenceBtn,
+      this.fullscreenBtn,
+      this.back10Btn,
+      this.fwd10Btn
+    );
+    this.fineSection.dataset.fine = "true";
+    this.fineSection.style.display = this.fineGrainedControls
+      ? "flex"
+      : "none";
+
+    this.toolsPopoverEl.append(
+      this.controlsGroup,
+      utilitySection,
+      this.fineSection
+    );
 
     if (this.mediaKind === "audio" && this.pipBtn) {
       this.pipBtn.style.display = "none";
@@ -1200,6 +1940,10 @@ export class VideoSubtitleController {
       ["Timing -0.25s / +0.25s", "[ / ]"],
       ["Word delay -50 / +50ms", "{ / }"],
       ["Reset timing", "\\"],
+      ["Rewind / forward 10s", ", / ."],
+      ["Fullscreen", "F"],
+      ["Frame snapshot with caption", "X"],
+      ["Skip silence", "Z"],
     ];
     for (const [desc, keyLabel] of shortcutPairs) {
       const row = this.doc.createElement("div");
@@ -1270,6 +2014,8 @@ export class VideoSubtitleController {
     );
     parent.appendChild(this.host);
 
+    this._observePlayerSize();
+    this._applyCaptionMetrics();
     this._applyAllCaptionVisuals();
     this._renderToolbar();
   }
@@ -1547,6 +2293,7 @@ export class VideoSubtitleController {
     this._onTimeChange = () => {
       this._ensureMounted();
       this._enforceCueLoop();
+      this._applySkipSilence();
       this._renderActiveCue();
     };
     this._onPlay = () => {
@@ -1555,26 +2302,43 @@ export class VideoSubtitleController {
         this._applyPlaybackSpeed(this.playbackSpeed, false);
       }
       this._startHighFreqSync();
-      this._scheduleIdleFade();
+      this._startWatchClock();
+      this._updateControlsVisibility();
     };
     this._onPause = () => {
       this._stopHighFreqSync();
-      if (this.toolbar) this.toolbar.dataset.idle = "false";
+      this._flushWatchClock();
+      this._updateControlsVisibility();
       this._renderActiveCue();
     };
     this._onEnterPiP = () => {
       this.inPiP = true;
+      this._emitTelemetry({ pipDelta: 1 });
       if (this.pipBtn) this.pipBtn.dataset.active = "true";
+      this._renderDockButtons();
       this._syncTrackVisibility();
       this._renderActiveCue();
     };
     this._onLeavePiP = () => {
       this.inPiP = false;
       if (this.pipBtn) this.pipBtn.dataset.active = "false";
+      this._renderDockButtons();
       this._syncTrackVisibility();
       this._renderActiveCue();
     };
-    this._onPointerMove = () => this._scheduleIdleFade();
+    this._onPointerEnter = () => {
+      this.pointerOverPlayer = true;
+      this._updateControlsVisibility();
+    };
+    this._onPointerLeave = () => {
+      this.pointerOverPlayer = false;
+      this._updateControlsVisibility();
+    };
+    this._onFullscreenChange = () => {
+      this._ensureMounted();
+      this._applyCaptionMetrics();
+      this._updateControlsVisibility();
+    };
 
     this.video.addEventListener("timeupdate", this._onTimeChange);
     this.video.addEventListener("seeking", this._onTimeChange);
@@ -1583,8 +2347,53 @@ export class VideoSubtitleController {
     this.video.addEventListener("pause", this._onPause);
     this.video.addEventListener("enterpictureinpicture", this._onEnterPiP);
     this.video.addEventListener("leavepictureinpicture", this._onLeavePiP);
-    this.video.parentElement?.addEventListener("mousemove", this._onPointerMove, {
+
+    // Hover state is tracked with enter/leave (not mousemove) so caption
+    // controls never flicker while the pointer rests over the player.
+    const container = this.host?.parentElement || this.video.parentElement;
+    if (container) {
+      container.addEventListener?.("pointerenter", this._onPointerEnter, {
+        passive: true,
+      });
+      container.addEventListener?.("pointerleave", this._onPointerLeave, {
+        passive: true,
+      });
+      container.addEventListener?.("mouseenter", this._onPointerEnter, {
+        passive: true,
+      });
+      container.addEventListener?.("mouseleave", this._onPointerLeave, {
+        passive: true,
+      });
+    }
+    this.doc.addEventListener?.("fullscreenchange", this._onFullscreenChange, {
       passive: true,
+    });
+    globalThis.addEventListener?.("resize", this._onFullscreenChange, {
+      passive: true,
+    });
+  }
+
+  _startWatchClock() {
+    this.lastWatchTickMs = Date.now();
+  }
+
+  _flushWatchClock() {
+    if (!this.lastWatchTickMs) return;
+    const elapsedMs = Date.now() - this.lastWatchTickMs;
+    this.lastWatchTickMs = 0;
+    if (elapsedMs < 500) return;
+    const seconds = elapsedMs / 1000;
+    this.watchAccumulatorSec += seconds;
+    if (this.watchAccumulatorSec < 5) return;
+    const whole = Math.round(this.watchAccumulatorSec);
+    this.watchAccumulatorSec = 0;
+    const speedSaved =
+      this.playbackSpeed > 1
+        ? Math.round(whole * (this.playbackSpeed - 1))
+        : 0;
+    this._emitTelemetry({
+      [this.mediaKind === "audio" ? "listenSeconds" : "watchSeconds"]: whole,
+      speedSavedSeconds: speedSaved,
     });
   }
 
@@ -1603,24 +2412,252 @@ export class VideoSubtitleController {
     }
   }
 
+  /**
+   * Controls stay visible while the pointer is over the player, while any
+   * popover is open, while paused, and while NotebookLM's own controls are
+   * on screen. They never toggle on cue presence, which is what used to make
+   * the caption options blink between sentences.
+   */
   _scheduleIdleFade() {
-    if (!this.toolbar) return;
-    this.toolbar.dataset.idle = "false";
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.mediaKind === "audio") return;
-    const anyPopoverOpen =
-      this.drawerOpen || this.styleOpen || this.shortcutsOpen || this.toolsOpen;
-    if (!this.video.paused && this.statusState !== "working" && !anyPopoverOpen) {
-      this.idleTimer = setTimeout(() => {
-        const stillClosed =
-          !this.drawerOpen &&
-          !this.styleOpen &&
-          !this.shortcutsOpen &&
-          !this.toolsOpen;
-        if (this.toolbar && !this.video.paused && stillClosed) {
-          this.toolbar.dataset.idle = "true";
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    if (this.toolbar) this.toolbar.dataset.idle = "false";
+    this._updateControlsVisibility();
+  }
+
+  seekBySeconds(deltaSec) {
+    try {
+      const next = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(this.video.duration) && this.video.duration > 0
+            ? this.video.duration - 0.05
+            : Number.MAX_SAFE_INTEGER,
+          (this.video.currentTime || 0) + deltaSec
+        )
+      );
+      this.video.currentTime = next;
+      this._renderActiveCue();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async toggleFullscreen() {
+    try {
+      const target = this.host?.parentElement || this.video.parentElement;
+      if (this.doc.fullscreenElement) {
+        await this.doc.exitFullscreen?.();
+        return false;
+      }
+      if (target?.requestFullscreen) {
+        await target.requestFullscreen();
+        return true;
+      }
+      if (this.video.requestFullscreen) {
+        await this.video.requestFullscreen();
+        return true;
+      }
+    } catch {
+      // Ignore fullscreen rejection
+    }
+    return false;
+  }
+
+  /**
+   * Saves the current video frame with the live caption painted onto it.
+   * Uses a canvas snapshot rather than `innerHTML` so it stays Trusted Types safe.
+   */
+  captureSnapshot() {
+    try {
+      const w = this.video.videoWidth;
+      const h = this.video.videoHeight;
+      if (!w || !h) return false;
+      const canvas = this.doc.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext?.("2d");
+      if (!ctx) return false;
+      ctx.drawImage(this.video, 0, 0, w, h);
+
+      const active = this._getActiveCueObject();
+      if (active && this.ccEnabled) {
+        const prefix =
+          this.showSpeakerLabels && active.speaker ? `[${active.speaker}] ` : "";
+        const text = `${prefix}${active.text}`.replace(/\s*\n\s*/g, " ").trim();
+        const fontSize = Math.max(16, Math.round(h * 0.045));
+        ctx.font = `600 ${fontSize}px "Plus Jakarta Sans", Roboto, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        const maxWidth = w * 0.86;
+        const words = String(text).split(" ");
+        const lines = [];
+        let line = "";
+        for (const word of words) {
+          const candidate = line ? `${line} ${word}` : word;
+          if (ctx.measureText(candidate).width > maxWidth && line) {
+            lines.push(line);
+            line = word;
+          } else {
+            line = candidate;
+          }
         }
-      }, 2800);
+        if (line) lines.push(line);
+
+        const lineHeight = fontSize * 1.35;
+        const padX = fontSize * 0.7;
+        const padY = fontSize * 0.45;
+        const boxWidth = Math.min(
+          maxWidth + padX * 2,
+          Math.max(
+            ...lines.map((l) => ctx.measureText(l).width + padX * 2),
+            fontSize
+          )
+        );
+        const boxHeight = lines.length * lineHeight + padY * 2;
+        const boxX = (w - boxWidth) / 2;
+        const boxY = h - boxHeight - fontSize * 0.9;
+        ctx.fillStyle = "rgba(11, 13, 16, 0.86)";
+        if (typeof ctx.roundRect === "function") {
+          ctx.beginPath();
+          ctx.roundRect(boxX, boxY, boxWidth, boxHeight, fontSize * 0.4);
+          ctx.fill();
+        } else {
+          ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        }
+        ctx.fillStyle = "#fdfdfe";
+        lines.forEach((l, idx) => {
+          ctx.fillText(
+            l,
+            w / 2,
+            boxY + padY + lineHeight * (idx + 0.82),
+            maxWidth
+          );
+        });
+      }
+
+      const dataUrl = canvas.toDataURL?.("image/png");
+      if (!dataUrl) return false;
+      const a = this.doc.createElement("a");
+      a.href = dataUrl;
+      a.download = `lm-subs-shot-${Math.round((this.video.currentTime || 0) * 10) / 10}s.png`;
+      a.rel = "noopener";
+      a.style.display = "none";
+      (this.doc.body || this.doc.documentElement)?.appendChild?.(a);
+      a.click();
+      a.remove();
+      this._emitTelemetry({ snapshotsDelta: 1 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  cycleAudioBoost() {
+    const steps = [100, 125, 150, 175, 200];
+    const idx = steps.indexOf(this.audioBoostPercent);
+    const next = steps[(idx + 1) % steps.length];
+    this.applyAudioBoost(next);
+    return next;
+  }
+
+  applyAudioBoost(percent) {
+    this.audioBoostPercent = this._clamp(percent, 100, 250, 100);
+    try {
+      const AudioCtx =
+        globalThis.AudioContext || globalThis.webkitAudioContext;
+      if (this.audioBoostPercent <= 100) {
+        if (this.boostSource) {
+          try {
+            this.boostSource.disconnect();
+          } catch {
+            // Ignore
+          }
+          this.boostSource = null;
+        }
+        this.video.volume = 1;
+      } else if (AudioCtx && typeof AudioCtx.prototype.createMediaElementSource === "function") {
+        if (!this.boostCtx) {
+          this.boostCtx = new AudioCtx();
+          this.boostSource = this.boostCtx.createMediaElementSource(this.video);
+          this.boostGain = this.boostCtx.createGain();
+          this.boostSource.connect(this.boostGain);
+          this.boostGain.connect(this.boostCtx.destination);
+        }
+        if (this.boostCtx.state === "suspended") {
+          this.boostCtx.resume?.().catch?.(() => {});
+        }
+        if (this.boostGain) {
+          this.boostGain.gain.value = this.audioBoostPercent / 100;
+        }
+      }
+    } catch {
+      // Boost is best-effort; NotebookLM may block MediaElementSource routing
+    }
+    if (this.boostBtn) {
+      this.boostBtn.textContent =
+        this.audioBoostPercent > 100 ? `${this.audioBoostPercent}%` : "Vol";
+      this.boostBtn.dataset.active =
+        this.audioBoostPercent > 100 ? "true" : "false";
+    }
+    this._renderDockButtons();
+    return this.audioBoostPercent;
+  }
+
+  toggleSkipSilence(forceState) {
+    this.skipSilenceEnabled =
+      typeof forceState === "boolean" ? forceState : !this.skipSilenceEnabled;
+    if (this.silenceBtn) {
+      this.silenceBtn.dataset.active = this.skipSilenceEnabled
+        ? "true"
+        : "false";
+    }
+    this._renderDockButtons();
+    this.onStylePatchChange({ skipSilenceEnabled: this.skipSilenceEnabled });
+    this._applySkipSilence();
+    return this.skipSilenceEnabled;
+  }
+
+  /**
+   * Speeds playback through silent gaps between caption cues, then restores
+   * the chosen rate as soon as the next spoken line begins.
+   */
+  _applySkipSilence() {
+    if (!this.skipSilenceEnabled || this.cues.length === 0) return;
+    const t = this.video.currentTime || 0;
+    const shifted = this._shiftedCues();
+    const active = findActiveCue(shifted, t - this.offsetSec);
+    if (active) {
+      if (this.video.playbackRate !== this.playbackSpeed) {
+        this.video.playbackRate = this.playbackSpeed;
+      }
+      return;
+    }
+    let nextStart = null;
+    for (const cue of shifted) {
+      if (cue.startSec > t) {
+        nextStart = cue.startSec;
+        break;
+      }
+    }
+    let prevEnd = 0;
+    for (const cue of shifted) {
+      if (cue.endSec <= t) prevEnd = Math.max(prevEnd, cue.endSec);
+    }
+    const gap =
+      nextStart !== null
+        ? nextStart - t
+        : Number.POSITIVE_INFINITY;
+    const behindGap = t - prevEnd;
+    const inGap =
+      gap > this.skipSilenceGapSec || behindGap > this.skipSilenceGapSec;
+    if (inGap && this.video.playbackRate !== this.skipSilenceRate) {
+      this.video.playbackRate = this.skipSilenceRate;
+    } else if (!inGap && this.video.playbackRate !== this.playbackSpeed) {
+      this.video.playbackRate = this.playbackSpeed;
     }
   }
 
@@ -1644,12 +2681,15 @@ export class VideoSubtitleController {
     if (this.loopCueIndex >= 0) {
       this.loopCueIndex = -1;
       if (this.loopBtn) this.loopBtn.dataset.active = "false";
+      this._renderDockButtons();
       return false;
     }
     const idx = this.activeCueIndex >= 0 ? this.activeCueIndex : this._findNearestCueIndex();
     if (idx < 0) return false;
     this.loopCueIndex = idx;
+    this._emitTelemetry({ loopsDelta: 1 });
     if (this.loopBtn) this.loopBtn.dataset.active = "true";
+    this._renderDockButtons();
     return true;
   }
 
@@ -1718,13 +2758,83 @@ export class VideoSubtitleController {
     }
   }
 
+  /**
+   * Picture-in-Picture that keeps captions on screen.
+   *
+   * 1. If `keepSubtitlesInPiP` is on and the Document Picture-in-Picture API is
+   *    available, we open a real PiP window and render the live caption box into
+   *    it (full styling, speaker labels, and karaoke word highlight included).
+   * 2. Otherwise we fall back to the native `<video>` PiP window and populate a
+   *    programmatic `TextTrack` so the OS/browser renders captions inside it.
+   */
   async togglePictureInPicture() {
     try {
       if (this.doc.pictureInPictureElement) {
         await this.doc.exitPictureInPicture?.();
         return false;
       }
+      if (this.pipWindow && !this.pipWindow.closed) {
+        this.pipWindow.close();
+        return false;
+      }
+      if (
+        this.keepSubtitlesInPiP &&
+        this.cues.length > 0 &&
+        globalThis.documentPictureInPicture?.requestWindow
+      ) {
+        const win = await globalThis.documentPictureInPicture.requestWindow({
+          width: 480,
+          height: 270,
+        });
+        this.pipWindow = win;
+        const doc = win.document;
+        doc.title = "LM Subs captions";
+        const style = doc.createElement("style");
+        style.textContent = `
+          html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+          .lms-pip-caption {
+            position: absolute;
+            left: 4%; right: 4%; bottom: 6%;
+            display: inline-block;
+            max-width: 92%;
+            margin: 0 auto;
+            padding: 7px 15px 8px;
+            border-radius: 7px;
+            background: rgba(11, 13, 16, 0.88);
+            color: #fdfdfe;
+            text-align: center;
+            font-family: "Plus Jakarta Sans", Roboto, sans-serif;
+            font-weight: 500;
+            line-height: 1.42;
+            white-space: pre-line;
+          }
+          .lms-pip-caption[data-visible="false"] { display: none; }
+          .lms-pip-caption .caption-word-current {
+            background: rgba(29, 92, 246, 0.48);
+            color: #ffffff;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-weight: 600;
+          }
+          .lms-pip-caption .caption-word-upcoming { opacity: 0.64; }
+        `;
+        const captionEl = doc.createElement("div");
+        captionEl.className = "lms-pip-caption";
+        captionEl.dataset.visible = "false";
+        doc.body.append(style, captionEl);
+        this.pipCaptionEl = captionEl;
+        this.pipDoc = doc;
+        win.addEventListener("pagehide", () => {
+          this.pipWindow = null;
+          this.pipCaptionEl = null;
+          this.pipDoc = null;
+        });
+        this._renderPipCaption();
+        this._emitTelemetry({ pipDelta: 1 });
+        return true;
+      }
       if (typeof this.video?.requestPictureInPicture === "function") {
+        this._syncNativeTextTrack();
         await this.video.requestPictureInPicture();
         return true;
       }
@@ -1732,6 +2842,65 @@ export class VideoSubtitleController {
       // Ignore browser gesture / PiP restriction
     }
     return false;
+  }
+
+  _renderPipCaption() {
+    if (!this.pipCaptionEl || !this.pipDoc) return;
+    const effectiveTime = (this.video.currentTime || 0) - this.offsetSec;
+    const active =
+      findActiveCue(this.cues, effectiveTime) ||
+      (this.lastActiveCue &&
+      effectiveTime - this.lastActiveCue.endSec <= CAPTION_LINGER_SEC
+        ? this.lastActiveCue
+        : null);
+
+    if (!this.ccEnabled || !active) {
+      this.pipCaptionEl.dataset.visible = "false";
+      return;
+    }
+    const prefix =
+      this.showSpeakerLabels && active.speaker ? `[${active.speaker}] ` : "";
+    const fullText = `${prefix}${active.text}`;
+    while (this.pipCaptionEl.firstChild) {
+      this.pipCaptionEl.removeChild(this.pipCaptionEl.firstChild);
+    }
+    if (this.karaokeHighlight) {
+      const span = Math.max(0.25, active.endSec - active.startSec);
+      const delayedTime = effectiveTime - (this.karaokeDelayMs || 0) / 1000;
+      const progress = Math.max(
+        0,
+        Math.min(1, (delayedTime - active.startSec) / span)
+      );
+      const tokens = fullText.split(/(\s+)/);
+      const wordPositions = [];
+      for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].trim()) wordPositions.push(i);
+      }
+      const activeWordCount = Math.min(
+        wordPositions.length,
+        Math.max(1, Math.ceil(progress * wordPositions.length))
+      );
+      let seen = 0;
+      for (const tok of tokens) {
+        if (!tok.trim()) {
+          this.pipCaptionEl.appendChild(this.pipDoc.createTextNode(tok));
+          continue;
+        }
+        seen += 1;
+        const w = this.pipDoc.createElement("span");
+        w.className =
+          seen === activeWordCount
+            ? "caption-word-current"
+            : seen < activeWordCount
+              ? "caption-word-done"
+              : "caption-word-upcoming";
+        w.textContent = tok;
+        this.pipCaptionEl.appendChild(w);
+      }
+    } else {
+      this.pipCaptionEl.textContent = fullText;
+    }
+    this.pipCaptionEl.dataset.visible = "true";
   }
 
   toggleBookmarkCueAt(index) {
@@ -1744,6 +2913,8 @@ export class VideoSubtitleController {
     };
     if (!nextBookmarked) {
       delete this.cues[index].bookmarked;
+    } else {
+      this._emitTelemetry({ bookmarksDelta: 1 });
     }
     this.onCuesMutated(this.cues);
     if (this.drawerOpen) {
@@ -1812,19 +2983,122 @@ export class VideoSubtitleController {
     this.onStylePatchChange(patch);
   }
 
+  /**
+   * Computes the live caption font size from the real player box so captions
+   * shrink in the compact Studio sidebar preview and grow in fullscreen, then
+   * clamps the result between `captionMinFontPx` and `captionMaxFontPx`.
+   */
+  _resolveCaptionFontSizePx() {
+    const base = FONT_BASE_PX[this.fontSize] || FONT_BASE_PX.medium;
+    if (!this.dynamicCaptionScaling) {
+      return Math.max(
+        this.captionMinFontPx,
+        Math.min(this.captionMaxFontPx, base)
+      );
+    }
+    let height = 0;
+    let width = 0;
+    try {
+      const rect =
+        this.host?.getBoundingClientRect?.() ||
+        this.video?.getBoundingClientRect?.();
+      height = Number(rect?.height) || 0;
+      width = Number(rect?.width) || 0;
+    } catch {
+      height = 0;
+    }
+    if (!height && typeof this.video?.videoHeight === "number") {
+      height = this.video.videoHeight;
+      width = this.video.videoWidth || height * 1.777;
+    }
+    if (!height) height = REFERENCE_PLAYER_HEIGHT_PX;
+    if (!width) width = height * 1.777;
+
+    // Scale by the smaller dimension so ultrawide and tall crops stay balanced
+    const scaleBase = Math.min(height, width * 0.5625);
+    const raw =
+      base *
+      Math.max(0.35, Math.min(3, scaleBase / REFERENCE_PLAYER_HEIGHT_PX)) *
+      (this.captionScaleFactor / 100);
+    return Math.max(
+      this.captionMinFontPx,
+      Math.min(this.captionMaxFontPx, Math.round(raw * 10) / 10)
+    );
+  }
+
+  _applyCaptionMetrics() {
+    const root = this.host || this.stageEl;
+    if (!root || !root.style) return;
+    const box = this.captionBox?.style ? this.captionBox : null;
+    const setVar = (name, value) => {
+      if (typeof root.style?.setProperty === "function") {
+        root.style.setProperty(name, value);
+      }
+      // Fall back to the caption box itself for lightweight DOM environments
+      if (box && typeof box.setProperty === "function") {
+        box.setProperty(name, value);
+      }
+    };
+    const px = this._resolveCaptionFontSizePx();
+    setVar("--lms-caption-font", `${px}px`);
+    setVar(
+      "--lms-caption-pad-y",
+      `${Math.round((this.captionPaddingY * px) / 18.5)}px`
+    );
+    setVar(
+      "--lms-caption-pad-x",
+      `${Math.round((this.captionPaddingX * px) / 18.5)}px`
+    );
+    setVar("--lms-caption-radius", `${this.captionBorderRadius}px`);
+    setVar("--lms-caption-leading", String(this.captionLineHeight / 100));
+    setVar("--lms-caption-bottom", `${this.captionBottomOffsetPx}px`);
+    setVar("--lms-karaoke-alpha", String(this.karaokeHighlightOpacity / 100));
+    setVar("--lms-upcoming-alpha", String(this.upcomingWordOpacity / 100));
+    setVar(
+      "--lms-caption-stroke",
+      this.captionTextStrokePx > 0
+        ? `0 0 ${this.captionTextStrokePx}px rgba(0,0,0,0.92), 0 1px 2px rgba(0,0,0,0.85)`
+        : "none"
+    );
+    if (this.pipCaptionEl?.style) {
+      this.pipCaptionEl.style.fontSize = `${px}px`;
+    }
+  }
+
+  _observePlayerSize() {
+    if (typeof ResizeObserver === "undefined") return;
+    const targets = [];
+    if (this.host) targets.push(this.host);
+    const parent = this.video?.parentElement;
+    if (parent && parent !== this.host) targets.push(parent);
+    if (!targets.length) return;
+    try {
+      this.sizeObserver?.disconnect?.();
+      this.sizeObserver = new ResizeObserver(() => {
+        this._applyCaptionMetrics();
+      });
+      for (const t of targets) this.sizeObserver.observe(t);
+    } catch {
+      this.sizeObserver = null;
+    }
+  }
+
   _applyAllCaptionVisuals() {
     if (this.stageEl) {
       this.stageEl.dataset.pos = this.captionPosition;
     }
     if (this.captionBox) {
       this.captionBox.style.fontSize =
-        FONT_SCALE_MAP[this.fontSize] || FONT_SCALE_MAP.medium;
+        this.dynamicCaptionScaling && this.host?.style
+          ? ""
+          : FONT_SCALE_MAP[this.fontSize] || FONT_SCALE_MAP.medium;
       this.captionBox.style.fontFamily =
         FONT_FAMILY_MAP[this.captionFontFamily] || FONT_FAMILY_MAP.sans;
       this.captionBox.style.maxWidth =
         MAX_WIDTH_MAP[this.captionMaxWidth] || MAX_WIDTH_MAP.balanced;
       this.captionBox.dataset.style = this.captionStyle;
       this.captionBox.dataset.font = this.captionFontFamily;
+      this._applyCaptionMetrics();
 
       const alpha = this.captionBgOpacity / 100;
       let bgCss = hexToRgba("#0b0d10", alpha);
@@ -2029,23 +3303,139 @@ export class VideoSubtitleController {
       this._renderToolbar();
       this._renderTranscriptList();
     }
+    if (typeof patch.fineGrainedControls === "boolean") {
+      this.fineGrainedControls = patch.fineGrainedControls;
+      if (this.fineSection) {
+        this.fineSection.style.display = this.fineGrainedControls
+          ? "flex"
+          : "none";
+      }
+      this._mountNativeDock();
+    }
+    if (typeof patch.dynamicCaptionScaling === "boolean") {
+      this.dynamicCaptionScaling = patch.dynamicCaptionScaling;
+    }
+    if (Number.isFinite(Number(patch.captionScaleFactor))) {
+      this.captionScaleFactor = this._clamp(
+        patch.captionScaleFactor,
+        50,
+        200,
+        100
+      );
+    }
+    if (Number.isFinite(Number(patch.captionMinFontPx))) {
+      this.captionMinFontPx = this._clamp(patch.captionMinFontPx, 8, 18, 11);
+    }
+    if (Number.isFinite(Number(patch.captionMaxFontPx))) {
+      this.captionMaxFontPx = this._clamp(patch.captionMaxFontPx, 20, 64, 40);
+    }
+    if (Number.isFinite(Number(patch.captionPaddingY))) {
+      this.captionPaddingY = this._clamp(patch.captionPaddingY, 2, 20, 7);
+    }
+    if (Number.isFinite(Number(patch.captionPaddingX))) {
+      this.captionPaddingX = this._clamp(patch.captionPaddingX, 6, 40, 15);
+    }
+    if (Number.isFinite(Number(patch.captionBorderRadius))) {
+      this.captionBorderRadius = this._clamp(
+        patch.captionBorderRadius,
+        0,
+        32,
+        7
+      );
+    }
+    if (Number.isFinite(Number(patch.captionLineHeight))) {
+      this.captionLineHeight = this._clamp(
+        patch.captionLineHeight,
+        115,
+        185,
+        142
+      );
+    }
+    if (Number.isFinite(Number(patch.captionBottomOffsetPx))) {
+      this.captionBottomOffsetPx = this._clamp(
+        patch.captionBottomOffsetPx,
+        24,
+        180,
+        54
+      );
+    }
+    if (Number.isFinite(Number(patch.captionTextStrokePx))) {
+      this.captionTextStrokePx = this._clamp(
+        patch.captionTextStrokePx,
+        0,
+        3,
+        0
+      );
+    }
+    if (Number.isFinite(Number(patch.karaokeHighlightOpacity))) {
+      this.karaokeHighlightOpacity = this._clamp(
+        patch.karaokeHighlightOpacity,
+        15,
+        95,
+        48
+      );
+    }
+    if (Number.isFinite(Number(patch.upcomingWordOpacity))) {
+      this.upcomingWordOpacity = this._clamp(
+        patch.upcomingWordOpacity,
+        25,
+        100,
+        64
+      );
+    }
+    if (
+      patch.playBarDockMode &&
+      ["native", "hover", "always"].includes(patch.playBarDockMode)
+    ) {
+      this.playBarDockMode = patch.playBarDockMode;
+      this.host?.setAttribute?.("data-dock", this.playBarDockMode);
+      this._mountNativeDock();
+      this._updateControlsVisibility();
+    }
+    if (Number.isFinite(Number(patch.hoverFadeDelayMs))) {
+      this.hoverFadeDelayMs = this._clamp(patch.hoverFadeDelayMs, 400, 6000, 2200);
+    }
+    if (typeof patch.keepSubtitlesInPiP === "boolean") {
+      this.keepSubtitlesInPiP = patch.keepSubtitlesInPiP;
+      this._syncTrackVisibility();
+    }
+    if (typeof patch.skipSilenceEnabled === "boolean") {
+      this.skipSilenceEnabled = patch.skipSilenceEnabled;
+      if (this.silenceBtn) {
+        this.silenceBtn.dataset.active = this.skipSilenceEnabled
+          ? "true"
+          : "false";
+      }
+    }
+    if (Number.isFinite(Number(patch.skipSilenceGapSec))) {
+      this.skipSilenceGapSec = this._clamp(patch.skipSilenceGapSec, 0.6, 5, 1.6);
+    }
+    if (Number.isFinite(Number(patch.skipSilenceRate))) {
+      this.skipSilenceRate = this._clamp(patch.skipSilenceRate, 1.4, 3, 2.2);
+    }
+    if (Number.isFinite(Number(patch.audioBoostPercent))) {
+      this.audioBoostPercent = this._clamp(patch.audioBoostPercent, 100, 250, 100);
+    }
+    this._applyCaptionMetrics();
     this._applyAllCaptionVisuals();
+    this._renderDockButtons();
+    this._renderToolbar();
   }
 
   setStatus(state, label = "") {
     this._ensureMounted();
     this.statusState = state;
     this.statusLabel = label;
-    if (this.toolbar && state === "working") {
-      this.toolbar.dataset.idle = "false";
-    }
+    this._renderDockButtons();
     this._renderToolbar();
+    this._updateControlsVisibility();
   }
 
   toggleSubtitles() {
     if (this.cues.length === 0) return;
     this.ccEnabled = !this.ccEnabled;
     this._syncTrackVisibility();
+    this._renderDockButtons();
     this._renderToolbar();
     this.lastRenderedSignature = "";
     this._renderActiveCue();
@@ -2064,13 +3454,14 @@ export class VideoSubtitleController {
       this.drawerTitleEl.textContent = `Transcript (${this.cues.length})`;
     }
     this._syncNativeTextTrack();
+    this._renderDockButtons();
     this._renderToolbar();
     if (this.drawerOpen) {
       this._renderTranscriptList();
     }
     this.lastRenderedSignature = "";
     this._renderActiveCue();
-    this._scheduleIdleFade();
+    this._updateControlsVisibility();
   }
 
   getExportCues() {
@@ -2079,6 +3470,7 @@ export class VideoSubtitleController {
 
   exportSubtitles(format = "srt") {
     if (this.cues.length === 0) return false;
+    this._emitTelemetry({ exportsDelta: 1 });
     const { content, filename, mimeType } = serializeSubtitles(
       this._shiftedCues(),
       format,
@@ -2117,6 +3509,8 @@ export class VideoSubtitleController {
       } catch {
         // Ignore
       }
+    } else {
+      this._emitTelemetry({ citationsDelta: 1 });
     }
     flashButtonLabel(citeBtn, inserted ? "Cited" : "Copied", 1100);
   }
@@ -2319,7 +3713,12 @@ export class VideoSubtitleController {
   _syncTrackVisibility() {
     if (!this.nativeTrack) return;
     this.nativeTrack.mode =
-      this.ccEnabled && this.inPiP && this.cues.length > 0 ? "showing" : "hidden";
+      this.ccEnabled &&
+      this.keepSubtitlesInPiP &&
+      this.inPiP &&
+      this.cues.length > 0
+        ? "showing"
+        : "hidden";
   }
 
   _renderToolbar() {
@@ -2377,16 +3776,31 @@ export class VideoSubtitleController {
   _renderActiveCue() {
     if (!this.captionBox) return;
     const effectiveTime = (this.video.currentTime || 0) - this.offsetSec;
-    const active = findActiveCue(this.cues, effectiveTime);
+    let active = findActiveCue(this.cues, effectiveTime);
+
+    // Anti-flicker: hold the previous line through tiny gaps between cues so the
+    // caption box never blinks out for a fraction of a second between sentences.
+    if (!active && this.lastActiveCue) {
+      const endedAgo = effectiveTime - this.lastActiveCue.endSec;
+      if (endedAgo >= 0 && endedAgo <= CAPTION_LINGER_SEC) {
+        active = this.lastActiveCue;
+      }
+    }
+    if (active) this.lastActiveCue = active;
     const nextIdx = active ? this.cues.indexOf(active) : -1;
     if (nextIdx !== this.activeCueIndex) {
       this.activeCueIndex = nextIdx;
       this._highlightDrawerActiveCue(false);
     }
 
-    if (!this.ccEnabled || this.inPiP || !active) {
+    if (
+      !this.ccEnabled ||
+      (this.inPiP && !this.pipWindow) ||
+      !active
+    ) {
       this.captionBox.dataset.visible = "false";
       this.lastRenderedSignature = "";
+      this._renderPipCaption();
       return;
     }
 
@@ -2413,6 +3827,7 @@ export class VideoSubtitleController {
         }
       }
       this.captionBox.dataset.visible = "true";
+      this._renderPipCaption();
       return;
     }
 
@@ -2465,11 +3880,29 @@ export class VideoSubtitleController {
       }
     }
     this.captionBox.dataset.visible = "true";
+    this._renderPipCaption();
   }
 
   destroy() {
+    this._flushWatchClock();
     this._stopHighFreqSync();
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.dockPollTimer) clearInterval(this.dockPollTimer);
+    this.dockPollTimer = null;
+    try {
+      this.sizeObserver?.disconnect?.();
+    } catch {
+      // Ignore
+    }
+    this.sizeObserver = null;
+    this._teardownNativeDock();
+    try {
+      if (this.pipWindow && !this.pipWindow.closed) this.pipWindow.close();
+    } catch {
+      // Ignore
+    }
+    this.pipWindow = null;
+    this.pipCaptionEl = null;
     this.video.removeEventListener("timeupdate", this._onTimeChange);
     this.video.removeEventListener("seeking", this._onTimeChange);
     this.video.removeEventListener("seeked", this._onTimeChange);
@@ -2477,6 +3910,16 @@ export class VideoSubtitleController {
     this.video.removeEventListener("pause", this._onPause);
     this.video.removeEventListener("enterpictureinpicture", this._onEnterPiP);
     this.video.removeEventListener("leavepictureinpicture", this._onLeavePiP);
+
+    const container = this.host?.parentElement || this.video.parentElement;
+    if (container) {
+      container.removeEventListener?.("pointerenter", this._onPointerEnter);
+      container.removeEventListener?.("pointerleave", this._onPointerLeave);
+      container.removeEventListener?.("mouseenter", this._onPointerEnter);
+      container.removeEventListener?.("mouseleave", this._onPointerLeave);
+    }
+    this.doc.removeEventListener?.("fullscreenchange", this._onFullscreenChange);
+    globalThis.removeEventListener?.("resize", this._onFullscreenChange);
     this.host?.remove();
   }
 }

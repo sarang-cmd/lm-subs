@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>Captioning NotebookLM Audio Overviews (the two-host podcast format) | LM Subs</title>
+    <meta name="description" content="Audio Overviews hide their audio element inside a detached player. Here is how captions attach to the podcast format, including speaker labels and the caption dock." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=4" />
+    <link rel="shortcut icon" href="/favicon.ico?v=4" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="Captioning NotebookLM Audio Overviews (the two-host podcast format)" />
+    <meta property="og:description" content="Audio Overviews hide their audio element inside a detached player. Here is how captions attach to the podcast format, including speaker labels and the caption dock." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta property="article:author" content="https://github.com/sarang-cmd" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Captioning NotebookLM Audio Overviews (the two-host podcast format)" />
+    <meta name="twitter:description" content="Audio Overviews hide their audio element inside a detached player. Here is how captions attach to the podcast format, including speaker labels and the caption dock." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=4" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"Captioning NotebookLM Audio Overviews (the two-host podcast format)","description":"Audio Overviews hide their audio element inside a detached player. Here is how captions attach to the podcast format, including speaker labels and the caption dock.","url":"https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM Audio Overview captions, NotebookLM podcast subtitles, NotebookLM deep dive transcript","isAccessibleForFree":true}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does LM Subs work on the two-host Deep Dive podcast?","acceptedAnswer":{"@type":"Answer","text":"Yes. Deep Dive sessions are NotebookLM Audio Overviews, and LM Subs captions them with the same pipeline it uses for Video Overviews, including speaker labels."}},{"@type":"Question","name":"Where do captions appear if there is no video?","acceptedAnswer":{"@type":"Answer","text":"Captions render in a caption dock at the bottom of the window, styled with the same typography settings you use for Video Overviews."}},{"@type":"Question","name":"Can I turn Audio Overview captions off but keep Video Overview captions on?","acceptedAnswer":{"@type":"Answer","text":"Yes. The Caption Audio Overviews automatically switch in the settings page controls podcasts independently of Video Overviews."}}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"Captioning NotebookLM Audio Overviews (the two-host podcast format)","item":"https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions"}]}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link">
+          <span class="brand-mark-text">LM Subs</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-tab" href="/">Overview</a>
+          <a class="nav-tab" href="/guide">Setup guide</a>
+          <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
+          <a class="nav-tab" href="/library">Library</a>
+          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/about">About</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content" class="page-wrap">
+      <article class="section-block">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 14px">
+          <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / Audio Overview podcast captions
+        </nav>
+
+        <h1 class="section-heading">Captioning NotebookLM Audio Overviews (the two-host podcast format)</h1>
+        <p class="hint" style="margin-top: 8px">
+          By <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>, creator of LM Subs. Published 2026-10-26.
+        </p>
+        <p class="section-prose" style="font-size: 17px">NotebookLM's Audio Overview produces a two-host podcast discussion of your sources. It is the most useful format for commuting and the hardest one to read along with, because the audio element is not where you expect it to be.</p>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Why the podcast format is different</h2>
+        <p class="section-prose">Video Overviews render a normal <code>&lt;video&gt;</code> element inside the Studio panel. Audio Overviews often attach to a detached <code>new Audio()</code> object created by NotebookLM's player code, so an extension that only scans the DOM for media elements finds nothing. LM Subs watches for both, including elements buried inside open shadow roots, and bridges the detached audio through a proxy so captions stay synchronized.</p>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">What captions look like for a podcast</h2>
+        <p class="section-prose">Because there is no video frame, captions render in a caption dock near the bottom of the window with the two host labels intact. Word-by-word highlighting, chapter navigation, search, bookmarking, and the full six-format export all work exactly as they do for Video Overviews.</p>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Turning captions on for Audio Overviews</h2>
+        <ol class="prose-list">
+          <li>Open the LM Subs settings page and confirm the Caption Audio Overviews automatically switch is on. It is on by default.</li>
+          <li>Open a notebook and play an Audio Overview.</li>
+          <li>Captions generate automatically and the dock appears at the bottom of the window.</li>
+          <li>Press T to open the transcript drawer if you want to search or jump between hosts.</li>
+        </ol>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Studying from a podcast transcript</h2>
+        <ul class="prose-list">
+          <li>Filter the transcript for a term to find every moment both hosts mention it.</li>
+          <li>Bookmark the moments that matter and export the Markdown notes for review later.</li>
+          <li>Send a timestamped quote into the NotebookLM chat panel to ask for clarification without retyping it.</li>
+          <li>Loop a single sentence with the L key when a definition is worth hearing twice.</li>
+        </ul>
+        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="/welcome">Try captions on an Audio Overview</a><a class="btn" href="/guide">Read the setup guide</a></div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Frequently asked questions</h2>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Does LM Subs work on the two-host Deep Dive podcast?</h3>
+          <p class="section-prose">Yes. Deep Dive sessions are NotebookLM Audio Overviews, and LM Subs captions them with the same pipeline it uses for Video Overviews, including speaker labels.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Where do captions appear if there is no video?</h3>
+          <p class="section-prose">Captions render in a caption dock at the bottom of the window, styled with the same typography settings you use for Video Overviews.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Can I turn Audio Overview captions off but keep Video Overview captions on?</h3>
+          <p class="section-prose">Yes. The Caption Audio Overviews automatically switch in the settings page controls podcasts independently of Video Overviews.</p>
+        </div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Related reading</h2>
+        <ul class="prose-list">
+          <li><a class="link" href="/blog/does-notebooklm-have-captions">Does Google NotebookLM have captions or subtitles?</a></li>
+          <li><a class="link" href="/blog/notebooklm-video-overview-subtitles">How to add subtitles to NotebookLM Video Overviews (step by step)</a></li>
+          <li><a class="link" href="/blog/free-speech-to-text-api-keys">Free speech-to-text API keys that actually work for captioning in 2026</a></li>
+        </ul>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

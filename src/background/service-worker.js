@@ -55,6 +55,7 @@ import {
   getDebugLogs,
   getLastStatus,
   getModelForProvider,
+  getNotebookLmStats,
   getNotifications,
   getSavedKeyPresenceMap,
   getSecretApiKeysMap,
@@ -68,6 +69,7 @@ import {
   mergeCloudSubtitlesIntoCache,
   mergeSecretApiKeysFromCloud,
   normalizeSyncServerUrl,
+  recordNotebookLmTelemetry,
   sanitizeDebugMessage,
   saveCachedSubtitles,
   saveCloudSyncProfile,
@@ -188,6 +190,65 @@ export function createRuntimeDispatcher({
     }
   }
 
+  /**
+   * Plays the LM Subs notification sound inside every open NotebookLM tab and
+   * every open extension page, so alerts get a distinct branded chime instead of
+   * (or in addition to) the default OS beep.
+   */
+  async function broadcastNotificationSound() {
+    try {
+      const settings = await getSettings(storageArea);
+      if (!settings.soundAlerts) return false;
+      if (settings.notificationSoundPreset === "none") return false;
+      const payload = {
+        type: RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND,
+        preset: settings.notificationSoundPreset || "chime",
+        volume: Number(settings.notificationSoundVolume) || 75,
+      };
+
+      // 1. Extension pages (options / popup) respond to `runtime.sendMessage`
+      try {
+        runtimeApi?.sendMessage?.(payload, () => {
+          void globalThis.chrome?.runtime?.lastError;
+        });
+      } catch {
+        // No extension page receiver is listening
+      }
+
+      // 2. NotebookLM tabs (content scripts hold an unlocked AudioContext)
+      if (!tabsApi?.query) return true;
+      const tabs = await new Promise((resolve) => {
+        try {
+          const maybe = tabsApi.query(
+            {
+              url: [
+                "https://notebooklm.google.com/*",
+                "https://notebook.google.com/*",
+                "https://notebook.cloud.google.com/*",
+              ],
+            },
+            (res) => resolve(Array.isArray(res) ? res : [])
+          );
+          if (maybe && typeof maybe.then === "function") {
+            maybe
+              .then((res) => resolve(Array.isArray(res) ? res : []))
+              .catch(() => resolve([]));
+          } else if (tabsApi.query.length < 2) {
+            resolve([]);
+          }
+        } catch {
+          resolve([]);
+        }
+      });
+      for (const tab of tabs) {
+        notifyTabMessage(tab.id, payload);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function fireDesktopAlertIfPermitted({ id, title, body, silent = false }) {
     if (!notificationsApi?.create) return false;
     try {
@@ -269,12 +330,19 @@ export function createRuntimeDispatcher({
     );
     await syncToolbarBadge();
     if (!quiet && kind !== "sync" && fireDesktop && settings.desktopNotifications) {
+      const brandedChime =
+        Boolean(settings.soundAlerts) &&
+        (settings.notificationSoundPreset || "chime") !== "none";
       await fireDesktopAlertIfPermitted({
         id: notification.id,
         title: notification.title,
         body: notification.body,
-        silent: !settings.soundAlerts,
+        // Suppress the generic OS beep only when LM Subs plays its own preset
+        silent: brandedChime,
       });
+      if (brandedChime) {
+        await broadcastNotificationSound();
+      }
     }
     return notification;
   }
@@ -705,7 +773,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.5";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.6";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -2392,6 +2460,44 @@ export function createRuntimeDispatcher({
       return true;
     }
 
+    if (msg.type === RUNTIME_MESSAGE.RECORD_NOTEBOOKLM_TELEMETRY && msg.event) {
+      recordNotebookLmTelemetry(msg.event, storageArea)
+        .then((stats) => sendResponse({ ok: true, stats }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.GET_NOTEBOOKLM_STATS) {
+      getNotebookLmStats(storageArea)
+        .then((stats) => sendResponse({ ok: true, stats }))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND) {
+      (async () => {
+        const settings = await getSettings(storageArea);
+        if (!settings.soundAlerts) return { ok: false, reason: "sound_off" };
+        const { playCompletionChimeSound } = await import("../lib/chime.js");
+        const played = await playCompletionChimeSound({
+          win: globalThis,
+          preset: msg.preset || settings.notificationSoundPreset || "chime",
+          volume: Number(msg.volume ?? settings.notificationSoundVolume) || 75,
+          force: true,
+        });
+        return { ok: played };
+      })()
+        .then((res) => sendResponse(res))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
     if (msg.type === RUNTIME_MESSAGE.APPEND_DEBUG_LOG && msg.entry) {
       Promise.all([
         getSecretApiKeysMap(storageArea).catch(() => ({})),
@@ -2435,7 +2541,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.5";
+          runtimeApi?.getManifest?.()?.version || "0.2.6";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),
@@ -2597,7 +2703,7 @@ export function createExternalMessageDispatcher(
     return {
       ok: true,
       extensionId: runtimeApi?.id || "",
-      version: runtimeApi?.getManifest?.()?.version || "0.2.5",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.6",
       configuredProviders,
       primaryProvider: settings.primaryProvider,
       settings: {
@@ -2793,7 +2899,7 @@ export function installBackgroundAutomation(
     if (details?.reason === "install") {
       const nowIso = new Date().toISOString();
       const extId = runtimeApi?.id || "";
-      const ver = runtimeApi?.getManifest?.()?.version || "0.2.5";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.6";
       const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
       const qs = new URLSearchParams({ installed: "1", v: ver });
       if (extId) qs.set("extId", extId);

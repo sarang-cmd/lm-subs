@@ -1,3 +1,301 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/lib/chime.js
+var chime_exports = {};
+__export(chime_exports, {
+  SOUND_PRESETS: () => SOUND_PRESETS,
+  SOUND_PRESET_IDS: () => SOUND_PRESET_IDS,
+  buildChimeWavBytes: () => buildChimeWavBytes,
+  getChimeWavDataUri: () => getChimeWavDataUri,
+  getSoundPresetSpec: () => getSoundPresetSpec,
+  playCompletionChimeSound: () => playCompletionChimeSound,
+  playNotificationSound: () => playNotificationSound,
+  unlockChimeAudio: () => unlockChimeAudio
+});
+function getSoundPresetSpec(presetId = "chime") {
+  return SOUND_PRESETS.find((p) => p.id === presetId) || SOUND_PRESETS[0];
+}
+function bytesToBase64(bytes) {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  let binary = "";
+  const chunk = 32768;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return globalThis.btoa(binary);
+}
+function buildChimeWavBytes(sampleRate = 44100, presetId = "chime") {
+  const spec = presetId === "none" ? SOUND_PRESETS[0] : getSoundPresetSpec(presetId);
+  const durationSec = Math.max(0.28, spec.durationSec || 0.44);
+  const numSamples = Math.floor(sampleRate * durationSec);
+  const dataBytes = numSamples * 2;
+  const buf = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buf);
+  const writeAscii = (offset, str) => {
+    for (let i = 0; i < str.length; i += 1) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  view.setUint32(40, dataBytes, true);
+  for (let i = 0; i < numSamples; i += 1) {
+    const t = i / sampleRate;
+    let sample = 0;
+    for (const note of spec.notes) {
+      if (t >= note.offset && t <= note.offset + note.dur) {
+        const lt = t - note.offset;
+        const attack = Math.min(1, lt / 0.01);
+        const decay = Math.exp(-lt * spec.decayRate);
+        const env = attack * decay;
+        const fundamental = Math.sin(2 * Math.PI * note.freq * lt);
+        const harmonic = spec.overtoneGain * Math.sin(2 * Math.PI * note.freq * spec.overtoneRatio * lt);
+        sample += env * (fundamental + harmonic) * 0.34;
+      }
+    }
+    const clamped = Math.max(-0.95, Math.min(0.95, sample));
+    view.setInt16(44 + i * 2, Math.round(clamped * 32767), true);
+  }
+  return new Uint8Array(buf);
+}
+function getChimeWavDataUri(presetId = "chime") {
+  const key = SOUND_PRESET_IDS.includes(presetId) && presetId !== "none" ? presetId : "chime";
+  if (!cachedWavUris.has(key)) {
+    const wavBytes = buildChimeWavBytes(44100, key);
+    cachedWavUris.set(key, `data:audio/wav;base64,${bytesToBase64(wavBytes)}`);
+  }
+  return cachedWavUris.get(key);
+}
+function getOrCreateAudioContext(win = globalThis) {
+  if (sharedCtx && sharedCtx.state !== "closed") {
+    return sharedCtx;
+  }
+  const AudioCtx = win?.AudioContext || win?.webkitAudioContext;
+  if (!AudioCtx) return null;
+  try {
+    sharedCtx = new AudioCtx();
+    return sharedCtx;
+  } catch {
+    return null;
+  }
+}
+function unlockChimeAudio(win = globalThis) {
+  try {
+    const ctx = getOrCreateAudioContext(win);
+    if (!ctx) return false;
+    if (ctx.state === "suspended" && typeof ctx.resume === "function") {
+      ctx.resume().catch(() => {
+      });
+    }
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function playWavElementFallback(win = globalThis, presetId = "chime", volumePct = 75) {
+  try {
+    const AudioCtor = win?.Audio || globalThis.Audio;
+    if (typeof AudioCtor !== "function") return false;
+    const audio = new AudioCtor(getChimeWavDataUri(presetId));
+    audio.__lmSubsInternal = true;
+    audio.volume = Math.max(0.05, Math.min(1, (Number(volumePct) || 75) / 100));
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      await playPromise;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function playCompletionChimeSound({
+  win = globalThis,
+  preset = "chime",
+  volume = 75,
+  force = false,
+  dedupeMs = 1100
+} = {}) {
+  if (preset === "none") return false;
+  const spec = getSoundPresetSpec(preset);
+  if (!spec.notes.length) return false;
+  const nowMs = Date.now();
+  if (!force && dedupeMs > 0 && nowMs - lastChimeEpochMs < dedupeMs) {
+    return false;
+  }
+  lastChimeEpochMs = nowMs;
+  const volScale = Math.max(0.08, Math.min(1, (Number(volume) || 75) / 100));
+  const peakGain = 0.28 * volScale;
+  try {
+    const ctx = getOrCreateAudioContext(win);
+    if (ctx) {
+      if (ctx.state === "suspended" && typeof ctx.resume === "function") {
+        await Promise.race([
+          ctx.resume().catch(() => {
+          }),
+          new Promise((r) => setTimeout(r, 140))
+        ]);
+      }
+      if (ctx.state === "running") {
+        const t0 = ctx.currentTime;
+        for (const n of spec.notes) {
+          const osc = ctx.createOscillator();
+          const overtone = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const overtoneGain = ctx.createGain();
+          osc.type = spec.wave || "triangle";
+          osc.frequency.setValueAtTime(n.freq, t0 + n.offset);
+          overtone.type = "sine";
+          overtone.frequency.setValueAtTime(
+            n.freq * (spec.overtoneRatio || 2),
+            t0 + n.offset
+          );
+          overtoneGain.gain.setValueAtTime(spec.overtoneGain || 0.2, t0 + n.offset);
+          gain.gain.setValueAtTime(1e-4, t0 + n.offset);
+          gain.gain.linearRampToValueAtTime(peakGain, t0 + n.offset + 0.012);
+          gain.gain.exponentialRampToValueAtTime(7e-4, t0 + n.offset + n.dur);
+          osc.connect(gain);
+          overtone.connect(overtoneGain);
+          overtoneGain.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t0 + n.offset);
+          overtone.start(t0 + n.offset);
+          osc.stop(t0 + n.offset + n.dur + 0.02);
+          overtone.stop(t0 + n.offset + n.dur + 0.02);
+        }
+        return true;
+      }
+    }
+  } catch {
+  }
+  return playWavElementFallback(win, spec.id, volume);
+}
+async function playNotificationSound({
+  win = globalThis,
+  preset = "bell",
+  volume = 70,
+  force = false
+} = {}) {
+  return playCompletionChimeSound({
+    win,
+    preset: preset === "none" ? "none" : preset || "bell",
+    volume,
+    force,
+    dedupeMs: 900
+  });
+}
+var SOUND_PRESETS, SOUND_PRESET_IDS, sharedCtx, cachedWavUris, lastChimeEpochMs;
+var init_chime = __esm({
+  "src/lib/chime.js"() {
+    SOUND_PRESETS = Object.freeze([
+      {
+        id: "chime",
+        label: "Acoustic fifth chime (C5 to G5)",
+        durationSec: 0.46,
+        wave: "triangle",
+        decayRate: 10.2,
+        overtoneRatio: 2,
+        overtoneGain: 0.24,
+        notes: [
+          { offset: 0, dur: 0.24, freq: 523.25 },
+          { offset: 0.11, dur: 0.32, freq: 783.99 }
+        ]
+      },
+      {
+        id: "marimba",
+        label: "Studio triad marimba (C5, E5, G5)",
+        durationSec: 0.52,
+        wave: "sine",
+        decayRate: 14.5,
+        overtoneRatio: 4,
+        overtoneGain: 0.18,
+        notes: [
+          { offset: 0, dur: 0.18, freq: 523.25 },
+          { offset: 0.085, dur: 0.19, freq: 659.25 },
+          { offset: 0.17, dur: 0.31, freq: 783.99 }
+        ]
+      },
+      {
+        id: "bell",
+        label: "Crystal desk bell (A5 shimmer)",
+        durationSec: 0.56,
+        wave: "sine",
+        decayRate: 8.4,
+        overtoneRatio: 2.756,
+        overtoneGain: 0.2,
+        notes: [
+          { offset: 0, dur: 0.52, freq: 880 },
+          { offset: 0.03, dur: 0.46, freq: 1318.51 }
+        ]
+      },
+      {
+        id: "pulse",
+        label: "Crisp double pulse (F5 to A5)",
+        durationSec: 0.38,
+        wave: "triangle",
+        decayRate: 16,
+        overtoneRatio: 2,
+        overtoneGain: 0.15,
+        notes: [
+          { offset: 0, dur: 0.12, freq: 698.46 },
+          { offset: 0.11, dur: 0.22, freq: 880 }
+        ]
+      },
+      {
+        id: "soft-pop",
+        label: "Warm acoustic pluck (D5 to A5)",
+        durationSec: 0.34,
+        wave: "sine",
+        decayRate: 18.5,
+        overtoneRatio: 3,
+        overtoneGain: 0.14,
+        notes: [
+          { offset: 0, dur: 0.13, freq: 587.33 },
+          { offset: 0.07, dur: 0.22, freq: 880 }
+        ]
+      },
+      {
+        id: "none",
+        label: "Silent (visual alerts only)",
+        durationSec: 0,
+        wave: "sine",
+        decayRate: 10,
+        overtoneRatio: 2,
+        overtoneGain: 0,
+        notes: []
+      }
+    ]);
+    SOUND_PRESET_IDS = Object.freeze(SOUND_PRESETS.map((p) => p.id));
+    sharedCtx = null;
+    cachedWavUris = /* @__PURE__ */ new Map();
+    lastChimeEpochMs = 0;
+  }
+});
+
 // src/config/selectors.js
 var MESSAGE_NAMESPACE = "LM_SUBS_";
 var KEEPALIVE_PORT_NAME = "LM_SUBS_KEEPALIVE";
@@ -167,7 +465,10 @@ var RUNTIME_MESSAGE = Object.freeze({
   GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
   APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
   SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
-  BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
+  BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK",
+  RECORD_NOTEBOOKLM_TELEMETRY: "LM_SUBS_RECORD_NOTEBOOKLM_TELEMETRY",
+  GET_NOTEBOOKLM_STATS: "LM_SUBS_GET_NOTEBOOKLM_STATS",
+  PLAY_NOTIFICATION_SOUND: "LM_SUBS_PLAY_NOTIFICATION_SOUND"
 });
 
 // src/lib/audio-extract.js
@@ -1464,8 +1765,17 @@ var PROVIDERS = Object.freeze({
   groq: Object.freeze({
     id: "groq",
     name: "Groq",
-    badge: "Best Free Tier \xB7 8 hrs/day",
+    badge: "Best Free Tier, 8 hrs/day",
     freeTierSummary: "Permanent free plan, no card: 20 RPM, 2,000 req/day, 7,200 audio sec/hr (2h/hr), 28,800 sec/day (8h/day).",
+    accountRequirements: "Free Google, GitHub, or email sign-in. No credit card needed.",
+    keyFormatHint: "Starts with gsk_ (about 56 characters)",
+    setupSteps: Object.freeze([
+      "Open console.groq.com/keys in a new tab.",
+      "Click Log in or Sign up and continue with your Google account, GitHub account, or email address.",
+      "Once inside GroqCloud, click API Keys in the left navigation bar.",
+      "Click the Create API Key button, type LM Subs as the display name, and click Submit.",
+      "Click Copy beside the new gsk_... key right away (Groq shows it once), paste it into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "whisper-large-v3-turbo",
     models: ["whisper-large-v3-turbo", "whisper-large-v3"],
     requiresKey: true,
@@ -1473,15 +1783,23 @@ var PROVIDERS = Object.freeze({
     keyUrl: "https://console.groq.com/keys",
     originPattern: "https://api.groq.com/*",
     maxUploadBytes: 24 * 1024 * 1024,
-    // 25 MB hard cap -> 24 MB safety margin
     protocol: "openai-stt",
     endpoint: "https://api.groq.com/openai/v1/audio/transcriptions"
   }),
   mistral: Object.freeze({
     id: "mistral",
     name: "Mistral (Voxtral)",
-    badge: "Free Studio Tier \xB7 No Card",
+    badge: "Free Studio Tier, No Card",
     freeTierSummary: "Mistral Studio Experiment plan (free, no card). Voxtral Transcribe 3 returns accurate segment timestamps in 50+ languages.",
+    accountRequirements: "Free Google, Microsoft, Apple, or email sign-in with phone verification on Experiment tier.",
+    keyFormatHint: "32-character alphanumeric Mistral key",
+    setupSteps: Object.freeze([
+      "Open console.mistral.ai/api-keys in a new tab.",
+      "Sign up or sign in using Google, Microsoft, Apple, or your email and password.",
+      "If prompted to choose a workspace plan, select the free Experiment plan (no credit card required).",
+      "Open API Keys in the left sidebar, click Create new key, name it LM Subs, and click Create new key.",
+      "Copy the generated key string immediately, paste it into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "voxtral-mini-transcribe-3",
     models: [
       "voxtral-mini-transcribe-3",
@@ -1499,8 +1817,17 @@ var PROVIDERS = Object.freeze({
   gemini: Object.freeze({
     id: "gemini",
     name: "Google Gemini (AI Studio)",
-    badge: "Free Daily Tier \xB7 + Translation",
+    badge: "Free Daily Tier + Translation",
     freeTierSummary: "Google AI Studio free tier, no card. Multimodal audio-to-SRT with optional single-pass subtitle translation.",
+    accountRequirements: "Uses the same Google account you already use for Google NotebookLM. No billing setup needed for free tier.",
+    keyFormatHint: "Starts with AIzaSy (39 characters)",
+    setupSteps: Object.freeze([
+      "Open aistudio.google.com/apikey while signed into your Google account.",
+      "Accept the Google AI Studio terms prompt if this is your first visit.",
+      "Click the blue Create API key button near the top-right corner.",
+      "Select Create API key in new project (or pick an existing Google Cloud project).",
+      "Click Copy on the AIzaSy... key, paste it into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "gemini-2.5-flash",
     models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
     requiresKey: true,
@@ -1508,15 +1835,23 @@ var PROVIDERS = Object.freeze({
     keyUrl: "https://aistudio.google.com/apikey",
     originPattern: "https://generativelanguage.googleapis.com/*",
     maxUploadBytes: 18 * 1024 * 1024,
-    // Inline base64 stays comfortably under 20 MB request cap
     protocol: "gemini-stt",
     endpoint: "https://generativelanguage.googleapis.com/v1beta/models"
   }),
   deepgram: Object.freeze({
     id: "deepgram",
     name: "Deepgram",
-    badge: "$200 Free Credit \xB7 ~700 hrs",
+    badge: "$200 Free Credit, ~700 hrs",
     freeTierSummary: "$200 signup credit with no credit card (~700+ hours of Nova-3 batch audio with word-level timestamps).",
+    accountRequirements: "Free Google, GitHub, or email sign-up. Includes $200 promotional credit without entering a card.",
+    keyFormatHint: "40-character hexadecimal secret key",
+    setupSteps: Object.freeze([
+      "Open console.deepgram.com in a new tab.",
+      "Click Sign Up (or Log In) with Google, GitHub, or email to claim the free $200 credit.",
+      "In the left sidebar of your Default Project, click API Keys.",
+      "Click Create a New API Key, enter LM Subs as the friendly name, leave Member permissions selected, and click Create Key.",
+      "Copy the secret key before closing the modal, paste it into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "nova-3",
     models: ["nova-3", "nova-2"],
     requiresKey: true,
@@ -1530,8 +1865,17 @@ var PROVIDERS = Object.freeze({
   assemblyai: Object.freeze({
     id: "assemblyai",
     name: "AssemblyAI",
-    badge: "$50 Free Credit \xB7 ~330 hrs",
+    badge: "$50 Free Credit, ~330 hrs",
     freeTierSummary: "$50 free signup credit with no card (~330 hours on Universal-2 with word-level timestamps).",
+    accountRequirements: "Free Google, GitHub, or email sign-up with $50 starter credit.",
+    keyFormatHint: "32-character lowercase hexadecimal API key",
+    setupSteps: Object.freeze([
+      "Open assemblyai.com/app/account in a new tab.",
+      "Create a free account or sign in using Google, GitHub, or email.",
+      "After signing in, open the API Keys section on your dashboard home or Account page.",
+      "Click Copy next to your Default API key (or click Create new API key and name it LM Subs).",
+      "Paste the key into LM Subs and click Save key then Test."
+    ]),
     defaultModel: "universal",
     models: ["universal", "nano"],
     requiresKey: true,
@@ -1545,8 +1889,17 @@ var PROVIDERS = Object.freeze({
   gladia: Object.freeze({
     id: "gladia",
     name: "Gladia",
-    badge: "\u20AC50 Free Credit \xB7 ~80 hrs",
-    freeTierSummary: "\u20AC50 free credit (~80+ hours of Solaria-1 pre-recorded transcription with native SRT/VTT generation).",
+    badge: "Free Monthly Hours, Solaria-1",
+    freeTierSummary: "Free monthly transcription hours on Solaria-1 pre-recorded speech-to-text with native SRT/VTT generation.",
+    accountRequirements: "Free Google, GitHub, or email sign-up.",
+    keyFormatHint: "UUID-formatted Gladia API key (xxxxxxxx-xxxx-...)",
+    setupSteps: Object.freeze([
+      "Open app.gladia.io in a new tab.",
+      "Sign up or log in with Google, GitHub, or your email address.",
+      "Click API keys in the left dashboard menu (or copy the default key shown on the home card).",
+      "Click Generate new key if needed, label it LM Subs, and copy the UUID token.",
+      "Paste the token into LM Subs and click Save key then Test."
+    ]),
     defaultModel: "solaria-1",
     models: ["solaria-1"],
     requiresKey: true,
@@ -1562,6 +1915,15 @@ var PROVIDERS = Object.freeze({
     name: "Cloudflare Workers AI",
     badge: "Free 10k Neurons/day",
     freeTierSummary: "10,000 free Neurons every day. Enter credentials as ACCOUNT_ID:API_TOKEN.",
+    accountRequirements: "Free Cloudflare account (email, Google, or Apple). Uses combined ACCOUNT_ID:API_TOKEN format.",
+    keyFormatHint: "Combined format: your_account_id:your_api_token",
+    setupSteps: Object.freeze([
+      "Open dash.cloudflare.com and sign in or create a free Cloudflare account.",
+      "In the left sidebar, expand AI and click Workers AI, then click Use REST API.",
+      "Click Create a Workers AI API Token, confirm permissions (Workers AI Read/Edit), and copy the generated API Token.",
+      "On that same REST API page, copy your 32-character Account ID.",
+      "Combine both values with a colon in between as account_id:api_token, paste into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "@cf/openai/whisper-large-v3-turbo",
     models: ["@cf/openai/whisper-large-v3-turbo", "@cf/openai/whisper"],
     requiresKey: true,
@@ -1577,6 +1939,15 @@ var PROVIDERS = Object.freeze({
     name: "ElevenLabs (Scribe v2)",
     badge: "10k Free Credits/mo",
     freeTierSummary: "10,000 monthly free credits (~30 min/month on Scribe v2) with word-level timestamps in 90+ languages.",
+    accountRequirements: "Free ElevenLabs account via Google, Apple, GitHub, or email.",
+    keyFormatHint: "Starts with sk_...",
+    setupSteps: Object.freeze([
+      "Open elevenlabs.io/app/settings/api-keys in a new tab.",
+      "Sign in or register for a free ElevenLabs account.",
+      "Click Create API Key in the API Keys panel and name it LM Subs.",
+      "Ensure the Speech-to-Text endpoint permission is enabled (or leave unrestricted), then click Create.",
+      "Copy the sk_... key, paste it into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "scribe_v2",
     models: ["scribe_v2"],
     requiresKey: true,
@@ -1591,7 +1962,16 @@ var PROVIDERS = Object.freeze({
     id: "huggingface",
     name: "Hugging Face Inference",
     badge: "Free HF Token Quota",
-    freeTierSummary: "Free monthly Serverless Inference credits using any `hf_...` read/inference token.",
+    freeTierSummary: "Free monthly Serverless Inference credits using any hf_... inference token.",
+    accountRequirements: "Free Hugging Face account with verified email address.",
+    keyFormatHint: "Starts with hf_...",
+    setupSteps: Object.freeze([
+      "Open huggingface.co/settings/tokens in a new tab and sign in (or click Sign Up to register and verify your email).",
+      "Click the Create new token button.",
+      "Choose Fine-grained (and check Make calls to Inference Providers) or Read, and name the token LM Subs.",
+      "Click Create token at the bottom of the form.",
+      "Copy the hf_... token immediately, paste it into LM Subs, and click Save key then Test."
+    ]),
     defaultModel: "openai/whisper-large-v3-turbo",
     models: ["openai/whisper-large-v3-turbo", "openai/whisper-large-v3"],
     requiresKey: true,
@@ -1606,7 +1986,16 @@ var PROVIDERS = Object.freeze({
     id: "openrouter",
     name: "OpenRouter",
     badge: "Unified BYOK Router",
-    freeTierSummary: "Unified OpenAI-compatible `/api/v1/audio/transcriptions` router across Voxtral & Whisper backends.",
+    freeTierSummary: "Unified OpenAI-compatible /api/v1/audio/transcriptions router across Voxtral and Whisper backends.",
+    accountRequirements: "OpenRouter account (Google, GitHub, MetaMask, or email); audio models use pay-as-you-go credits.",
+    keyFormatHint: "Starts with sk-or-v1-...",
+    setupSteps: Object.freeze([
+      "Open openrouter.ai/keys in a new tab and sign in with Google, GitHub, or email.",
+      "If your credit balance is $0, add a small prepaid balance under Credits for audio transcription endpoints.",
+      "Click Create Key, enter LM Subs as the name, optionally set a spending limit, and click Create.",
+      "Copy the sk-or-v1-... secret string right away.",
+      "Paste the key into LM Subs and click Save key then Test."
+    ]),
     defaultModel: "mistralai/voxtral-mini-transcribe",
     models: ["mistralai/voxtral-mini-transcribe", "openai/whisper-1"],
     requiresKey: true,
@@ -1621,7 +2010,16 @@ var PROVIDERS = Object.freeze({
     id: "openai",
     name: "OpenAI Whisper",
     badge: "Standard Pay-As-You-Go",
-    freeTierSummary: "Official OpenAI `whisper-1` endpoint ($0.006/min) with word & segment `verbose_json` timestamps.",
+    freeTierSummary: "Official OpenAI whisper-1 endpoint ($0.006/min) with word and segment verbose_json timestamps.",
+    accountRequirements: "OpenAI Platform developer account (separate billing from ChatGPT Plus, minimum $5 prepaid credit).",
+    keyFormatHint: "Starts with sk-proj-... or sk-...",
+    setupSteps: Object.freeze([
+      "Open platform.openai.com/api-keys and log in with your OpenAI developer account.",
+      "Note that ChatGPT Plus subscriptions do not include API credits; ensure Billing has an active balance.",
+      "Click Create new secret key in the top-right corner, name it LM Subs, and keep All permissions (or Audio enabled).",
+      "Click Create secret key and copy the sk-proj-... token.",
+      "Paste the key into LM Subs and click Save key then Test."
+    ]),
     defaultModel: "whisper-1",
     models: ["whisper-1"],
     requiresKey: true,
@@ -1635,8 +2033,17 @@ var PROVIDERS = Object.freeze({
   custom: Object.freeze({
     id: "custom",
     name: "Local / Custom Whisper URL",
-    badge: "100% Free \xB7 Unlimited Local",
-    freeTierSummary: "Point at local `speaches`, `faster-whisper-server`, `whisper.cpp`, or `LocalAI` (`http://localhost:8000/v1`) for unlimited offline transcription.",
+    badge: "100% Free, Unlimited Local",
+    freeTierSummary: "Point at local speaches, faster-whisper-server, whisper.cpp, or LocalAI (http://localhost:8000/v1) for unlimited offline transcription.",
+    accountRequirements: "Zero account, zero sign-up, and zero API key required. Runs 100% offline on your own CPU or GPU.",
+    keyFormatHint: "Base URL http://localhost:8000/v1 (API key optional / blank)",
+    setupSteps: Object.freeze([
+      "Install Docker or Python and start an OpenAI-compatible local Whisper server such as speaches (docker run -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu).",
+      "Verify http://localhost:8000/v1 is reachable on your machine.",
+      "In LM Subs, enter http://localhost:8000/v1 as the OpenAI-compatible base URL.",
+      "Leave the API key field blank unless your local server requires a custom Bearer token.",
+      "Enable Local / Custom Whisper and click Save URL / Enable so audio stays completely on your machine."
+    ]),
     defaultModel: "Systran/faster-whisper-small",
     models: ["Systran/faster-whisper-small", "whisper-1"],
     requiresKey: false,
@@ -2709,7 +3116,8 @@ var STORAGE_KEYS = Object.freeze({
   UPDATE_STATUS: "updateStatus",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret",
-  SETUP_STATE: "setupState"
+  SETUP_STATE: "setupState",
+  NOTEBOOKLM_STATS: "notebooklmStats"
 });
 var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
@@ -2745,7 +3153,25 @@ var CAPTION_COLORS = Object.freeze([
 ]);
 var CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
 var CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
-var PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
+var PLAYBAR_DOCK_MODES = Object.freeze(["native", "hover", "always"]);
+var NOTIFICATION_SOUND_PRESETS = Object.freeze([
+  "chime",
+  "marimba",
+  "bell",
+  "pulse",
+  "soft-pop",
+  "none"
+]);
+var PLAYBACK_SPEEDS = Object.freeze([
+  0.5,
+  0.75,
+  1,
+  1.25,
+  1.5,
+  1.75,
+  2,
+  2.5
+]);
 var DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   debugMode: false,
@@ -2781,9 +3207,47 @@ var DEFAULT_SETTINGS = Object.freeze({
   clickCaptionToCopy: true,
   defaultPlaybackSpeed: 1,
   subtitleOffsetSec: 0,
+  fineGrainedControls: false,
+  dynamicCaptionScaling: true,
+  captionScaleFactor: 100,
+  // 50..200 (%)
+  captionMinFontPx: 10,
+  // 8..18 (px)
+  captionMaxFontPx: 42,
+  // 20..64 (px)
+  captionPaddingY: 7,
+  // 2..20 (px)
+  captionPaddingX: 15,
+  // 6..40 (px)
+  captionBorderRadius: 7,
+  // 0..32 (px)
+  captionLineHeight: 142,
+  // 115..185 (%)
+  captionBottomOffsetPx: 54,
+  // 24..180 (px)
+  captionTextStrokePx: 0,
+  // 0..3 (px)
+  karaokeHighlightOpacity: 48,
+  // 15..95 (%)
+  upcomingWordOpacity: 64,
+  // 25..100 (%)
+  playBarDockMode: "native",
+  // "native" | "hover" | "always"
+  hoverFadeDelayMs: 2200,
+  // 400..6000 (ms)
+  keepSubtitlesInPiP: true,
+  skipSilenceEnabled: false,
+  skipSilenceGapSec: 1.6,
+  // 0.6..5.0 (s)
+  skipSilenceRate: 2.2,
+  // 1.4..3.0 (x)
+  audioBoostPercent: 100,
+  // 100..250 (%)
   showToast: true,
   desktopNotifications: true,
-  soundAlerts: false,
+  soundAlerts: true,
+  notificationSoundPreset: "chime",
+  notificationSoundVolume: 75,
   badgeAlerts: true,
   notifyOnFailover: true,
   notifyOnSync: false,
@@ -2871,9 +3335,33 @@ async function getSettings(storageArea) {
     clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
     defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed)) ? Number(saved.defaultPlaybackSpeed) : DEFAULT_SETTINGS.defaultPlaybackSpeed,
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
+    fineGrainedControls: typeof saved.fineGrainedControls === "boolean" ? saved.fineGrainedControls : DEFAULT_SETTINGS.fineGrainedControls,
+    dynamicCaptionScaling: typeof saved.dynamicCaptionScaling === "boolean" ? saved.dynamicCaptionScaling : DEFAULT_SETTINGS.dynamicCaptionScaling,
+    captionScaleFactor: Number.isFinite(Number(saved.captionScaleFactor)) ? Math.max(50, Math.min(200, Math.round(Number(saved.captionScaleFactor)))) : DEFAULT_SETTINGS.captionScaleFactor,
+    captionMinFontPx: Number.isFinite(Number(saved.captionMinFontPx)) ? Math.max(8, Math.min(18, Math.round(Number(saved.captionMinFontPx)))) : DEFAULT_SETTINGS.captionMinFontPx,
+    captionMaxFontPx: Number.isFinite(Number(saved.captionMaxFontPx)) ? Math.max(20, Math.min(64, Math.round(Number(saved.captionMaxFontPx)))) : DEFAULT_SETTINGS.captionMaxFontPx,
+    captionPaddingY: Number.isFinite(Number(saved.captionPaddingY)) ? Math.max(2, Math.min(20, Math.round(Number(saved.captionPaddingY)))) : DEFAULT_SETTINGS.captionPaddingY,
+    captionPaddingX: Number.isFinite(Number(saved.captionPaddingX)) ? Math.max(6, Math.min(40, Math.round(Number(saved.captionPaddingX)))) : DEFAULT_SETTINGS.captionPaddingX,
+    captionBorderRadius: Number.isFinite(Number(saved.captionBorderRadius)) ? Math.max(0, Math.min(32, Math.round(Number(saved.captionBorderRadius)))) : DEFAULT_SETTINGS.captionBorderRadius,
+    captionLineHeight: Number.isFinite(Number(saved.captionLineHeight)) ? Math.max(115, Math.min(185, Math.round(Number(saved.captionLineHeight)))) : DEFAULT_SETTINGS.captionLineHeight,
+    captionBottomOffsetPx: Number.isFinite(Number(saved.captionBottomOffsetPx)) ? Math.max(24, Math.min(180, Math.round(Number(saved.captionBottomOffsetPx)))) : DEFAULT_SETTINGS.captionBottomOffsetPx,
+    captionTextStrokePx: Number.isFinite(Number(saved.captionTextStrokePx)) ? Math.max(0, Math.min(3, Math.round(Number(saved.captionTextStrokePx) * 2) / 2)) : DEFAULT_SETTINGS.captionTextStrokePx,
+    karaokeHighlightOpacity: Number.isFinite(Number(saved.karaokeHighlightOpacity)) ? Math.max(15, Math.min(95, Math.round(Number(saved.karaokeHighlightOpacity)))) : DEFAULT_SETTINGS.karaokeHighlightOpacity,
+    upcomingWordOpacity: Number.isFinite(Number(saved.upcomingWordOpacity)) ? Math.max(25, Math.min(100, Math.round(Number(saved.upcomingWordOpacity)))) : DEFAULT_SETTINGS.upcomingWordOpacity,
+    playBarDockMode: PLAYBAR_DOCK_MODES.includes(saved.playBarDockMode) ? saved.playBarDockMode : DEFAULT_SETTINGS.playBarDockMode,
+    hoverFadeDelayMs: Number.isFinite(Number(saved.hoverFadeDelayMs)) ? Math.max(400, Math.min(6e3, Math.round(Number(saved.hoverFadeDelayMs) / 100) * 100)) : DEFAULT_SETTINGS.hoverFadeDelayMs,
+    keepSubtitlesInPiP: typeof saved.keepSubtitlesInPiP === "boolean" ? saved.keepSubtitlesInPiP : DEFAULT_SETTINGS.keepSubtitlesInPiP,
+    skipSilenceEnabled: typeof saved.skipSilenceEnabled === "boolean" ? saved.skipSilenceEnabled : DEFAULT_SETTINGS.skipSilenceEnabled,
+    skipSilenceGapSec: Number.isFinite(Number(saved.skipSilenceGapSec)) ? Math.max(0.6, Math.min(5, Math.round(Number(saved.skipSilenceGapSec) * 10) / 10)) : DEFAULT_SETTINGS.skipSilenceGapSec,
+    skipSilenceRate: Number.isFinite(Number(saved.skipSilenceRate)) ? Math.max(1.4, Math.min(3, Math.round(Number(saved.skipSilenceRate) * 10) / 10)) : DEFAULT_SETTINGS.skipSilenceRate,
+    audioBoostPercent: Number.isFinite(Number(saved.audioBoostPercent)) ? Math.max(100, Math.min(250, Math.round(Number(saved.audioBoostPercent) / 5) * 5)) : DEFAULT_SETTINGS.audioBoostPercent,
     showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
     desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
     soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+    notificationSoundPreset: NOTIFICATION_SOUND_PRESETS.includes(
+      saved.notificationSoundPreset
+    ) ? saved.notificationSoundPreset : DEFAULT_SETTINGS.notificationSoundPreset,
+    notificationSoundVolume: Number.isFinite(Number(saved.notificationSoundVolume)) ? Math.max(10, Math.min(100, Math.round(Number(saved.notificationSoundVolume)))) : DEFAULT_SETTINGS.notificationSoundVolume,
     badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
     notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
     notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
@@ -3340,9 +3828,9 @@ async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.5",
+        currentVersion: "0.2.6",
         currentBuildId: "",
-        latestVersion: "0.2.5",
+        latestVersion: "0.2.6",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -3354,9 +3842,9 @@ async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.5"),
+      currentVersion: String(saved.currentVersion || "0.2.6"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.6"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -3368,9 +3856,9 @@ async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.5",
+      currentVersion: "0.2.6",
       currentBuildId: "",
-      latestVersion: "0.2.5",
+      latestVersion: "0.2.6",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -3424,6 +3912,147 @@ async function saveSetupState(partial, storageArea) {
   const current = await getSetupState(store);
   const next = { ...current, ...partial || {} };
   await store.set({ [STORAGE_KEYS.SETUP_STATE]: next });
+  return next;
+}
+function createEmptyNotebookLmStats() {
+  return {
+    notebooks: {},
+    totals: {
+      watchSeconds: 0,
+      listenSeconds: 0,
+      speedSavedSeconds: 0,
+      bookmarksCount: 0,
+      citationsCount: 0,
+      loopsCount: 0,
+      pipSessionsCount: 0,
+      snapshotsCount: 0,
+      exportsCount: 0
+    },
+    dailyStudy: {},
+    updatedAt: null
+  };
+}
+async function getNotebookLmStats(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.NOTEBOOKLM_STATS);
+    const saved = raw?.[STORAGE_KEYS.NOTEBOOKLM_STATS];
+    if (!saved || typeof saved !== "object") {
+      return createEmptyNotebookLmStats();
+    }
+    const base = createEmptyNotebookLmStats();
+    return {
+      notebooks: saved.notebooks && typeof saved.notebooks === "object" ? saved.notebooks : {},
+      totals: {
+        watchSeconds: Math.max(0, Number(saved.totals?.watchSeconds) || 0),
+        listenSeconds: Math.max(0, Number(saved.totals?.listenSeconds) || 0),
+        speedSavedSeconds: Math.max(
+          0,
+          Number(saved.totals?.speedSavedSeconds) || 0
+        ),
+        bookmarksCount: Math.max(0, Number(saved.totals?.bookmarksCount) || 0),
+        citationsCount: Math.max(0, Number(saved.totals?.citationsCount) || 0),
+        loopsCount: Math.max(0, Number(saved.totals?.loopsCount) || 0),
+        pipSessionsCount: Math.max(
+          0,
+          Number(saved.totals?.pipSessionsCount) || 0
+        ),
+        snapshotsCount: Math.max(0, Number(saved.totals?.snapshotsCount) || 0),
+        exportsCount: Math.max(0, Number(saved.totals?.exportsCount) || 0)
+      },
+      dailyStudy: saved.dailyStudy && typeof saved.dailyStudy === "object" ? saved.dailyStudy : base.dailyStudy,
+      updatedAt: saved.updatedAt || null
+    };
+  } catch {
+    return createEmptyNotebookLmStats();
+  }
+}
+async function recordNotebookLmTelemetry(event = {}, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getNotebookLmStats(store);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  const dayKey = nowIso.slice(0, 10);
+  const notebooks = { ...current.notebooks };
+  if (event.notebookId && typeof event.notebookId === "string") {
+    const nbId = event.notebookId.slice(0, 80);
+    const prev = notebooks[nbId] || {
+      notebookId: nbId,
+      title: "Untitled notebook",
+      sourceCount: 0,
+      videoCount: 0,
+      audioCount: 0,
+      reportCount: 0,
+      studioArtifactCount: 0,
+      watchSeconds: 0,
+      listenSeconds: 0,
+      firstSeenAt: nowIso,
+      lastSeenAt: nowIso
+    };
+    notebooks[nbId] = {
+      ...prev,
+      title: event.notebookTitle && event.notebookTitle !== "NotebookLM Video Overview" && event.notebookTitle !== "NotebookLM Audio Overview" ? String(event.notebookTitle).slice(0, 140) : prev.title,
+      sourceCount: Math.max(
+        prev.sourceCount || 0,
+        Number(event.sourceCount) || 0
+      ),
+      videoCount: Math.max(prev.videoCount || 0, Number(event.videoCount) || 0),
+      audioCount: Math.max(prev.audioCount || 0, Number(event.audioCount) || 0),
+      reportCount: Math.max(
+        prev.reportCount || 0,
+        Number(event.reportCount) || 0
+      ),
+      studioArtifactCount: Math.max(
+        prev.studioArtifactCount || 0,
+        Number(event.studioArtifactCount) || 0
+      ),
+      watchSeconds: (prev.watchSeconds || 0) + Math.max(0, Number(event.watchSeconds) || 0),
+      listenSeconds: (prev.listenSeconds || 0) + Math.max(0, Number(event.listenSeconds) || 0),
+      lastSeenAt: nowIso
+    };
+  }
+  const addWatch = Math.max(0, Number(event.watchSeconds) || 0);
+  const addListen = Math.max(0, Number(event.listenSeconds) || 0);
+  const addSpeedSaved = Math.max(0, Number(event.speedSavedSeconds) || 0);
+  const addBookmarks = Math.max(0, Number(event.bookmarksDelta) || 0);
+  const addCitations = Math.max(0, Number(event.citationsDelta) || 0);
+  const addLoops = Math.max(0, Number(event.loopsDelta) || 0);
+  const addPip = Math.max(0, Number(event.pipDelta) || 0);
+  const addSnapshots = Math.max(0, Number(event.snapshotsDelta) || 0);
+  const addExports = Math.max(0, Number(event.exportsDelta) || 0);
+  const totals = {
+    watchSeconds: current.totals.watchSeconds + addWatch,
+    listenSeconds: current.totals.listenSeconds + addListen,
+    speedSavedSeconds: current.totals.speedSavedSeconds + addSpeedSaved,
+    bookmarksCount: current.totals.bookmarksCount + addBookmarks,
+    citationsCount: current.totals.citationsCount + addCitations,
+    loopsCount: current.totals.loopsCount + addLoops,
+    pipSessionsCount: current.totals.pipSessionsCount + addPip,
+    snapshotsCount: current.totals.snapshotsCount + addSnapshots,
+    exportsCount: current.totals.exportsCount + addExports
+  };
+  const dailyStudy = { ...current.dailyStudy };
+  const prevDay = dailyStudy[dayKey] || {
+    activeSeconds: 0,
+    citations: 0,
+    bookmarks: 0
+  };
+  dailyStudy[dayKey] = {
+    activeSeconds: prevDay.activeSeconds + addWatch + addListen,
+    citations: prevDay.citations + addCitations,
+    bookmarks: prevDay.bookmarks + addBookmarks
+  };
+  const sortedDays = Object.keys(dailyStudy).sort();
+  while (sortedDays.length > 30) {
+    const oldest = sortedDays.shift();
+    delete dailyStudy[oldest];
+  }
+  const next = {
+    notebooks,
+    totals,
+    dailyStudy,
+    updatedAt: nowIso
+  };
+  await store.set({ [STORAGE_KEYS.NOTEBOOKLM_STATS]: next });
   return next;
 }
 
@@ -3785,6 +4414,52 @@ function createRuntimeDispatcher({
     } catch {
     }
   }
+  async function broadcastNotificationSound() {
+    try {
+      const settings = await getSettings(storageArea);
+      if (!settings.soundAlerts) return false;
+      if (settings.notificationSoundPreset === "none") return false;
+      const payload = {
+        type: RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND,
+        preset: settings.notificationSoundPreset || "chime",
+        volume: Number(settings.notificationSoundVolume) || 75
+      };
+      try {
+        runtimeApi?.sendMessage?.(payload, () => {
+          void globalThis.chrome?.runtime?.lastError;
+        });
+      } catch {
+      }
+      if (!tabsApi?.query) return true;
+      const tabs = await new Promise((resolve) => {
+        try {
+          const maybe = tabsApi.query(
+            {
+              url: [
+                "https://notebooklm.google.com/*",
+                "https://notebook.google.com/*",
+                "https://notebook.cloud.google.com/*"
+              ]
+            },
+            (res) => resolve(Array.isArray(res) ? res : [])
+          );
+          if (maybe && typeof maybe.then === "function") {
+            maybe.then((res) => resolve(Array.isArray(res) ? res : [])).catch(() => resolve([]));
+          } else if (tabsApi.query.length < 2) {
+            resolve([]);
+          }
+        } catch {
+          resolve([]);
+        }
+      });
+      for (const tab of tabs) {
+        notifyTabMessage(tab.id, payload);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
   async function fireDesktopAlertIfPermitted({ id, title, body, silent = false }) {
     if (!notificationsApi?.create) return false;
     try {
@@ -3864,12 +4539,17 @@ function createRuntimeDispatcher({
     );
     await syncToolbarBadge();
     if (!quiet && kind !== "sync" && fireDesktop && settings.desktopNotifications) {
+      const brandedChime = Boolean(settings.soundAlerts) && (settings.notificationSoundPreset || "chime") !== "none";
       await fireDesktopAlertIfPermitted({
         id: notification.id,
         title: notification.title,
         body: notification.body,
-        silent: !settings.soundAlerts
+        // Suppress the generic OS beep only when LM Subs plays its own preset
+        silent: brandedChime
       });
+      if (brandedChime) {
+        await broadcastNotificationSound();
+      }
     }
     return notification;
   }
@@ -4224,7 +4904,7 @@ function createRuntimeDispatcher({
     return { ok: true, profile: updatedProfile, mergeResult };
   }
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.5";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.6";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -5609,6 +6289,35 @@ function createRuntimeDispatcher({
       );
       return true;
     }
+    if (msg.type === RUNTIME_MESSAGE.RECORD_NOTEBOOKLM_TELEMETRY && msg.event) {
+      recordNotebookLmTelemetry(msg.event, storageArea).then((stats) => sendResponse({ ok: true, stats })).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.GET_NOTEBOOKLM_STATS) {
+      getNotebookLmStats(storageArea).then((stats) => sendResponse({ ok: true, stats })).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND) {
+      (async () => {
+        const settings = await getSettings(storageArea);
+        if (!settings.soundAlerts) return { ok: false, reason: "sound_off" };
+        const { playCompletionChimeSound: playCompletionChimeSound2 } = await Promise.resolve().then(() => (init_chime(), chime_exports));
+        const played = await playCompletionChimeSound2({
+          win: globalThis,
+          preset: msg.preset || settings.notificationSoundPreset || "chime",
+          volume: Number(msg.volume ?? settings.notificationSoundVolume) || 75,
+          force: true
+        });
+        return { ok: played };
+      })().then((res) => sendResponse(res)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
     if (msg.type === RUNTIME_MESSAGE.APPEND_DEBUG_LOG && msg.entry) {
       Promise.all([
         getSecretApiKeysMap(storageArea).catch(() => ({})),
@@ -5641,7 +6350,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.5";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.6";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,
@@ -5752,7 +6461,7 @@ function createExternalMessageDispatcher(runtimeDispatcher, {
     return {
       ok: true,
       extensionId: runtimeApi?.id || "",
-      version: runtimeApi?.getManifest?.()?.version || "0.2.5",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.6",
       configuredProviders,
       primaryProvider: settings.primaryProvider,
       settings: {
@@ -5926,7 +6635,7 @@ function installBackgroundAutomation(dispatcher, {
     if (details?.reason === "install") {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       const extId = runtimeApi?.id || "";
-      const ver = runtimeApi?.getManifest?.()?.version || "0.2.5";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.6";
       const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
       const qs = new URLSearchParams({ installed: "1", v: ver });
       if (extId) qs.set("extId", extId);

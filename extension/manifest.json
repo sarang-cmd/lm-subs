@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LM Subs",
   "short_name": "LM Subs",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Sub-5s synchronized captions, live caption styler, smart chapters, 6-format export, and encrypted Neon sync for NotebookLM Video and Audio Overviews.",
   "minimum_chrome_version": "116",
   "icons": {
