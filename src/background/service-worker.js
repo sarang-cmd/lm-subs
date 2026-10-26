@@ -36,7 +36,21 @@ import {
   isTrustedGoogleMediaUrl,
   summarizeMediaUrlForDebug,
 } from "../lib/batchexecute.js";
+import {
+  MEDIA_DOWNLOAD_DEADLINE_MS,
+  MEDIA_PARALLEL_MIN_BYTES,
+  MEDIA_PARALLEL_SEGMENTS,
+  downloadRangedParallel,
+  formatDownloadProgress,
+  isAudioOnlyVariantUrl,
+  orderMediaCandidates,
+  readResponseBodyWithProgress,
+} from "../lib/media-download.js";
 import { resolveExtensionLogoUrl } from "../lib/brand-logo.js";
+import {
+  buildUpdateNotification,
+  resolveReleaseNotes,
+} from "../lib/release-notes.js";
 import { resolveSubtitleCacheKey } from "../lib/decide.js";
 import {
   getProviderOriginPattern,
@@ -90,6 +104,7 @@ import {
 } from "../lib/unpacked-updater.js";
 
 const STAGED_AUDIO_TTL_MS = 5 * 60 * 1000;
+const JOB_HEARTBEAT_INTERVAL_MS = 20000;
 const MAX_SINGLE_M4A_FOR_ALL_PROVIDERS = 22 * 1024 * 1024;
 const MAX_SAFE_IPC_DECODE_BYTES = 38 * 1024 * 1024;
 const RANGE_EXTRACTION_THRESHOLD_BYTES = 3 * 1024 * 1024;
@@ -126,6 +141,20 @@ function formatMegabytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Touches an extension API so Chrome does not idle-terminate the worker while a
+ * transcript job is running. A `runtime.connect` keepalive port alone only buys
+ * about five minutes, which a 20 minute Audio Overview download can exceed.
+ */
+function defaultJobHeartbeat() {
+  const chromeNs = globalThis.chrome;
+  if (chromeNs?.storage?.session?.set) {
+    chromeNs.storage.session.set({ lmsubsJobHeartbeat: Date.now() });
+    return;
+  }
+  chromeNs?.runtime?.getPlatformInfo?.();
+}
+
 export function createRuntimeDispatcher({
   storageArea = globalThis.chrome?.storage?.local,
   fetchImpl = globalThis.fetch,
@@ -136,11 +165,39 @@ export function createRuntimeDispatcher({
   alarmsApi = globalThis.chrome?.alarms,
   runtimeApi = globalThis.chrome?.runtime,
   dirHandleLoader = loadLinkedExtensionDirHandle,
+  heartbeatImpl = defaultJobHeartbeat,
+  mediaDeadlineMs = MEDIA_DOWNLOAD_DEADLINE_MS,
 } = {}) {
   const inFlightPromises = new Map();
   const stagedAudioJobs = new Map();
   const memoryDebugLogs = [];
   let debugLogsHydrated = false;
+
+  let jobHeartbeatCount = 0;
+  let jobHeartbeatTimer = null;
+
+  function startJobKeepAlive() {
+    jobHeartbeatCount += 1;
+    if (jobHeartbeatTimer) return;
+    const ping = () => {
+      try {
+        heartbeatImpl?.();
+      } catch {
+        // Ignore heartbeat failures
+      }
+    };
+    ping();
+    if (typeof setInterval === "function") {
+      jobHeartbeatTimer = setInterval(ping, JOB_HEARTBEAT_INTERVAL_MS);
+    }
+  }
+
+  function stopJobKeepAlive() {
+    jobHeartbeatCount = Math.max(0, jobHeartbeatCount - 1);
+    if (jobHeartbeatCount > 0 || !jobHeartbeatTimer) return;
+    clearInterval(jobHeartbeatTimer);
+    jobHeartbeatTimer = null;
+  }
 
   async function syncToolbarBadge({ transientState = null } = {}) {
     if (!actionApi?.setBadgeText) return;
@@ -249,7 +306,13 @@ export function createRuntimeDispatcher({
     }
   }
 
-  async function fireDesktopAlertIfPermitted({ id, title, body, silent = false }) {
+  async function fireDesktopAlertIfPermitted({
+    id,
+    title,
+    body,
+    silent = false,
+    items = null,
+  }) {
     if (!notificationsApi?.create) return false;
     try {
       if (permissionsApi?.contains) {
@@ -270,30 +333,66 @@ export function createRuntimeDispatcher({
       }
 
       const iconUrl = resolveExtensionLogoUrl(runtimeApi, 128);
-      await new Promise((resolve) => {
-        try {
-          const maybe = notificationsApi.create(
-            id || `lmsubs_${Date.now()}`,
-            {
-              type: "basic",
-              iconUrl,
-              title: String(title || "LM Subs"),
-              message: String(body || ""),
-              silent: Boolean(silent),
-            },
-            () => {
-              void globalThis.chrome?.runtime?.lastError;
+      const listItems = Array.isArray(items)
+        ? items
+            .filter((item) => item && typeof item.title === "string")
+            .slice(0, 5)
+            .map((item) => ({
+              title: String(item.title).slice(0, 120),
+              message: String(item.message || "").slice(0, 120),
+            }))
+        : [];
+
+      const createAlert = (options) =>
+        new Promise((resolve) => {
+          try {
+            const maybe = notificationsApi.create(
+              id || `lmsubs_${Date.now()}`,
+              options,
+              () => {
+                const lastError = globalThis.chrome?.runtime?.lastError;
+                resolve(!lastError);
+              }
+            );
+            if (maybe && typeof maybe.then === "function") {
+              maybe.then(() => resolve(true)).catch(() => resolve(false));
+            } else if (notificationsApi.create.length < 3) {
               resolve(true);
             }
-          );
-          if (maybe && typeof maybe.then === "function") {
-            maybe.then(() => resolve(true)).catch(() => resolve(false));
-          } else if (notificationsApi.create.length < 3) {
-            resolve(true);
+          } catch {
+            resolve(false);
           }
-        } catch {
-          resolve(false);
-        }
+        });
+
+      const message = String(body || "");
+      const baseOptions = {
+        iconUrl,
+        title: String(title || "LM Subs"),
+        message,
+        silent: Boolean(silent),
+      };
+
+      // Chrome renders `type: "list"` as one row per change where the platform
+      // supports it, and rejects it elsewhere, so fall back to a plain alert.
+      if (listItems.length > 0) {
+        const listed = await createAlert({
+          ...baseOptions,
+          type: "list",
+          items: listItems,
+        });
+        if (listed) return true;
+      }
+
+      await createAlert({
+        ...baseOptions,
+        type: "basic",
+        message:
+          listItems.length > 0
+            ? `${listItems
+                .map((item) => item.title)
+                .join("\n")
+                .slice(0, 400)}\n\n${message}`.trim()
+            : message,
       });
       return true;
     } catch {
@@ -309,6 +408,7 @@ export function createRuntimeDispatcher({
     provider = null,
     fireDesktop = false,
     quiet = false,
+    desktopItems = null,
   } = {}) {
     const settings = await getSettings(storageArea);
     if (kind === "failover" && !settings.notifyOnFailover) {
@@ -337,6 +437,7 @@ export function createRuntimeDispatcher({
         id: notification.id,
         title: notification.title,
         body: notification.body,
+        items: desktopItems,
         // Suppress the generic OS beep only when LM Subs plays its own preset
         silent: brandedChime,
       });
@@ -773,7 +874,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.6";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.7";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -808,6 +909,7 @@ export function createRuntimeDispatcher({
             zipUrl: String(json.zipUrl || "/releases/lm-subs-latest.zip"),
             zipSha256: String(json.zipSha256 || ""),
             serverBase: base,
+            notes: resolveReleaseNotes(String(json.version), json.notes || null),
           };
         }
       } catch {
@@ -988,18 +1090,28 @@ export function createRuntimeDispatcher({
         notifiedReleaseKey: releaseKey,
         checkedAt: new Date().toISOString(),
         linkedFolderName: dirInfo.folderName,
+        latestNotes: remote.notes || null,
       },
       storageArea
     );
 
     if (shouldNotify) {
+      const updateAlert = buildUpdateNotification({
+        latestVersion: remote.version,
+        notes: remote.notes || null,
+      });
+      const howToApply = dirInfo.linked
+        ? "Click LM Subs in your toolbar to apply the update and reload."
+        : "Open LM Subs to link your folder for one-click auto-updates or download the release.";
+
       await emitExtensionNotification({
         kind: "update",
-        title: `Update available: LM Subs v${remote.version}`,
-        body: dirInfo.linked
-          ? "Click LM Subs in your toolbar to apply the update and reload."
-          : "Open LM Subs to link your folder for one-click auto-updates or download the release.",
+        title: updateAlert.title,
+        body: updateAlert.body
+          ? `${updateAlert.body}\n\n${howToApply}`
+          : howToApply,
         fireDesktop: true,
+        desktopItems: updateAlert.items,
       }).catch(() => {});
     } else {
       await syncToolbarBadge();
@@ -1314,23 +1426,24 @@ export function createRuntimeDispatcher({
 
   async function fetchAndExtractCompactAudio(artifact, tabId, pageFetchError = null) {
     const seedUrl = artifact.progressiveUrl || artifact.mediaUrl;
-    const rawCandidates = [
+    const rawVariants = [
       ...deriveGoogleMediaVariants(seedUrl),
       ...deriveGoogleMediaVariants(artifact.mediaUrl),
       ...(Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : []),
-      artifact.progressiveUrl,
-      artifact.mediaUrl,
-    ].filter(Boolean);
-
-    // Ensure pure-audio `=m140` variants are always probed before any `=m18` / `=m22` video URLs
-    const audioFirstCandidates = [
-      ...rawCandidates.filter((u) => /=m140(?:-dv)?(?:$|\?)/i.test(u)),
-      ...rawCandidates.filter((u) => !/=m140(?:-dv)?(?:$|\?)/i.test(u)),
     ];
 
-    const allCandidateUrls = [...new Set(audioFirstCandidates)].filter(
-      (u) => isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u)
-    );
+    // Order matters: the stream already playing in the tab is attempted first
+    // (it is proven to resolve), then `=m140` audio-only renditions, then the
+    // rest. Audio Overviews used to sweep every muxed video variant first,
+    // which burned the whole service worker deadline before reaching audio.
+    const allCandidateUrls = orderMediaCandidates({
+      playingUrl: artifact.playingUrl,
+      mediaVariants: rawVariants,
+      progressiveUrl: artifact.progressiveUrl,
+      mediaUrl: artifact.mediaUrl,
+      isTrusted: isTrustedGoogleMediaUrl,
+      isManifest: isThumbnailOrManifestUrl,
+    });
 
     if (allCandidateUrls.length === 0) {
       if (String(artifact.mediaUrl || "").startsWith("blob:")) {
@@ -1348,8 +1461,31 @@ export function createRuntimeDispatcher({
       event: "media.candidates",
       detail: `Probing ${allCandidateUrls.length} Google stream(s); first=${summarizeMediaUrlForDebug(
         allCandidateUrls[0]
-      )}`,
+      )}${
+        artifact.playingUrl && artifact.playingUrl === allCandidateUrls[0]
+          ? " (playing in tab)"
+          : ""
+      }`,
     });
+
+    let lastProgressAt = 0;
+    const reportProgress = ({ receivedBytes, totalBytes }) => {
+      const now = Date.now();
+      if (now - lastProgressAt < 700) return;
+      lastProgressAt = now;
+      notifyTabProgress(tabId, {
+        cacheKey: artifact.cacheKey,
+        artifactId: artifact.artifactId,
+        mediaToken: artifact.mediaToken,
+        label: "Downloading audio stream…",
+        detail: formatDownloadProgress({ receivedBytes, totalBytes }),
+      });
+    };
+
+    const startedAt = Date.now();
+    const budgetLeft = () =>
+      Math.max(5000, mediaDeadlineMs - (Date.now() - startedAt));
+    const overBudget = () => Date.now() - startedAt >= mediaDeadlineMs;
 
     let downloadedBytes = null;
     let downloadedContentType = "";
@@ -1358,6 +1494,18 @@ export function createRuntimeDispatcher({
     const deadFifeSuffixes = new Set();
 
     for (const candidateUrl of allCandidateUrls) {
+      if (overBudget()) {
+        await appendDebugEntry({
+          layer: "SW",
+          event: "media.deadline",
+          detail: `Stopped probing after ${Math.round(
+            (Date.now() - startedAt) / 1000
+          )}s to keep the background worker responsive`,
+          level: "warn",
+        });
+        break;
+      }
+
       const fifeSuffixMatch = candidateUrl.match(
         /\/([A-Za-z0-9_-]{16,})(=[A-Za-z0-9_,.-]+)$/
       );
@@ -1375,18 +1523,24 @@ export function createRuntimeDispatcher({
         // Ignore
       }
 
+      const candidateStartedAt = Date.now();
       let skipCandidateVariant = false;
+
       for (const credentialsMode of ["include", "omit"]) {
-        const headerAbort = new AbortController();
+        if (overBudget()) break;
+
+        const controller =
+          typeof AbortController === "function" ? new AbortController() : null;
         const headerTimer = setTimeout(
-          () => headerAbort.abort(),
+          () => controller?.abort(),
           MEDIA_HEADER_TIMEOUT_MS
         );
+
         try {
           const res = await fetchImpl(candidateUrl, {
             method: "GET",
             credentials: credentialsMode,
-            signal: headerAbort.signal,
+            signal: controller ? controller.signal : undefined,
           });
           clearTimeout(headerTimer);
 
@@ -1420,112 +1574,170 @@ export function createRuntimeDispatcher({
             continue;
           }
           const contentLen = Number(res.headers?.get?.("content-length") || 0);
+          const audioOnlyVariant = isAudioOnlyVariantUrl(candidateUrl);
 
-          // FAST PATH A: If this is a (>=3 MB) video MP4 (`=m22` / `=m18`), cancel the
-          // full-video GET stream immediately and pull ONLY the `soun` track via HTTP 206 Range!
-          if (
-            contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES &&
-            ct.includes("video/mp4")
-          ) {
-            try {
-              await res.body?.cancel?.();
-            } catch {
-              // Ignore
-            }
-            headerAbort.abort();
-            notifyTabProgress(tabId, {
-              cacheKey: artifact.cacheKey,
-              artifactId: artifact.artifactId,
-              mediaToken: artifact.mediaToken,
-              label: "Streaming audio track via HTTP Range…",
-              detail: `Skipping ${formatMegabytes(contentLen)} video frames`,
-            });
+          // Re-arm the abort for the body so a trickling CDN stream can never
+          // outlive the Manifest V3 service worker window.
+          const bodyTimer = setTimeout(() => controller?.abort(), budgetLeft());
 
-            const ranged = await extractAudioViaHttpRange({
-              url: candidateUrl,
-              credentials: credentialsMode,
-              totalBytes: contentLen,
-              fetchImpl,
-            });
-
+          try {
+            // FAST PATH A: large muxed MP4 -> cancel the full GET and pull ONLY
+            // the `soun` audio track over HTTP 206 ranges.
             if (
-              ranged &&
-              ranged.bytes &&
-              ranged.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS
+              contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES &&
+              ct.includes("video/mp4") &&
+              !audioOnlyVariant
             ) {
+              try {
+                await res.body?.cancel?.();
+              } catch {
+                // Ignore
+              }
+              controller?.abort();
+
+              notifyTabProgress(tabId, {
+                cacheKey: artifact.cacheKey,
+                artifactId: artifact.artifactId,
+                mediaToken: artifact.mediaToken,
+                label: "Streaming audio track via HTTP Range…",
+                detail: `Skipping ${formatMegabytes(contentLen)} video frames`,
+              });
+
+              const ranged = await extractAudioViaHttpRange({
+                url: candidateUrl,
+                credentials: credentialsMode,
+                totalBytes: contentLen,
+                fetchImpl,
+              });
+
+              if (
+                ranged &&
+                ranged.bytes &&
+                ranged.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS
+              ) {
+                await appendDebugEntry({
+                  layer: "SW",
+                  event: "media.range_extracted",
+                  detail: `HTTP Range extracted ${formatMegabytes(
+                    ranged.extractedBytes
+                  )} .m4a (downloaded ${formatMegabytes(
+                    ranged.downloadedBytes
+                  )} of ${formatMegabytes(contentLen)} MP4) in ${Math.round(
+                    (Date.now() - candidateStartedAt) / 1000
+                  )}s`,
+                  level: "ok",
+                });
+                return {
+                  originalBytes: contentLen,
+                  extractedBytes: ranged.extractedBytes,
+                  durationSeconds: artifact.durationSeconds || null,
+                  chunks: [
+                    {
+                      bytes: ranged.bytes,
+                      mimeType: "audio/mp4",
+                      fileName: "overview-audio.m4a",
+                      startOffsetSec: 0,
+                      durationSec: artifact.durationSeconds || null,
+                    },
+                  ],
+                };
+              }
+
+              lastDownloadErr = "HTTP Range audio extraction failed.";
+              continue;
+            }
+
+            // FAST PATH A2: long Audio Overviews (10 MB to 25 MB `=m140`
+            // podcasts) download across 6 parallel ranges instead of one slow
+            // sequential stream that used to blow past the worker deadline.
+            if (contentLen >= MEDIA_PARALLEL_MIN_BYTES) {
+              try {
+                await res.body?.cancel?.();
+              } catch {
+                // Ignore
+              }
+              controller?.abort();
+
+              notifyTabProgress(tabId, {
+                cacheKey: artifact.cacheKey,
+                artifactId: artifact.artifactId,
+                mediaToken: artifact.mediaToken,
+                label: "Downloading Audio Overview…",
+                detail: formatDownloadProgress({
+                  receivedBytes: 0,
+                  totalBytes: contentLen,
+                }),
+              });
+
+              const ranged = await downloadRangedParallel(candidateUrl, {
+                credentials: credentialsMode,
+                fetchImpl,
+                totalBytes: contentLen,
+                deadlineMs: budgetLeft(),
+                onProgress: reportProgress,
+              });
+
+              if (ranged?.bytes?.byteLength) {
+                downloadedBytes = validateMediaPayload(ranged.bytes, ct);
+                downloadedContentType = ct;
+                downloadedTrackInfo = inspectMp4Tracks(downloadedBytes);
+                await appendDebugEntry({
+                  layer: "SW",
+                  event: "media.downloaded",
+                  detail: `Downloaded ${formatMegabytes(
+                    downloadedBytes.byteLength
+                  )} (${ct || "binary"}) in ${Math.round(
+                    (Date.now() - candidateStartedAt) / 1000
+                  )}s across ${MEDIA_PARALLEL_SEGMENTS} parallel ranges [${credentialsMode}]`,
+                  level: "ok",
+                });
+                break;
+              }
+
+              lastDownloadErr = `Parallel range download failed (${hostLabel}).`;
+              continue;
+            }
+
+            const buf = await readResponseBodyWithProgress(res, {
+              totalBytes: contentLen,
+              onProgress: reportProgress,
+            });
+            const validated = validateMediaPayload(buf, ct);
+
+            const trackInfo = inspectMp4Tracks(validated);
+            if (
+              trackInfo.isMp4 &&
+              trackInfo.hasVideo &&
+              !trackInfo.hasAudio &&
+              !trackInfo.isFragmented
+            ) {
+              lastDownloadErr = `Skipped silent video-only preview stream (${summarizeMediaUrlForDebug(
+                candidateUrl
+              )})`;
               await appendDebugEntry({
                 layer: "SW",
-                event: "media.range_extracted",
-                detail: `HTTP Range extracted ${formatMegabytes(
-                  ranged.extractedBytes
-                )} .m4a (downloaded ${formatMegabytes(
-                  ranged.downloadedBytes
-                )} of ${formatMegabytes(contentLen)} MP4)`,
-                level: "ok",
+                event: "media.skip_silent",
+                detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks) — advancing`,
               });
-              return {
-                originalBytes: contentLen,
-                extractedBytes: ranged.extractedBytes,
-                durationSeconds: artifact.durationSeconds || null,
-                chunks: [
-                  {
-                    bytes: ranged.bytes,
-                    mimeType: "audio/mp4",
-                    fileName: "overview-audio.m4a",
-                    startOffsetSec: 0,
-                    durationSec: artifact.durationSeconds || null,
-                  },
-                ],
-              };
+              skipCandidateVariant = true;
+              break;
             }
 
-            // Re-open stream if server did not support HTTP 206 Range
-            const fallbackRes = await fetchImpl(candidateUrl, {
-              method: "GET",
-              credentials: credentialsMode,
-            });
-            if (!fallbackRes.ok) continue;
-            const fullBuf = new Uint8Array(await fallbackRes.arrayBuffer());
-            downloadedBytes = validateMediaPayload(fullBuf, ct);
+            downloadedBytes = validated;
             downloadedContentType = ct;
-            downloadedTrackInfo = inspectMp4Tracks(downloadedBytes);
-            break;
-          }
-
-          const buf = new Uint8Array(await res.arrayBuffer());
-          const validated = validateMediaPayload(buf, ct);
-
-          const trackInfo = inspectMp4Tracks(validated);
-          if (
-            trackInfo.isMp4 &&
-            trackInfo.hasVideo &&
-            !trackInfo.hasAudio &&
-            !trackInfo.isFragmented
-          ) {
-            lastDownloadErr = `Skipped silent video-only preview stream (${summarizeMediaUrlForDebug(
-              candidateUrl
-            )})`;
+            downloadedTrackInfo = trackInfo;
             await appendDebugEntry({
               layer: "SW",
-              event: "media.skip_silent",
-              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks) — advancing`,
+              event: "media.downloaded",
+              detail: `Downloaded ${formatMegabytes(validated.byteLength)} (${
+                ct || "binary"
+              }) from ${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}]`,
+              level: "ok",
             });
-            skipCandidateVariant = true;
             break;
+          } finally {
+            clearTimeout(bodyTimer);
           }
-
-          downloadedBytes = validated;
-          downloadedContentType = ct;
-          downloadedTrackInfo = trackInfo;
-          await appendDebugEntry({
-            layer: "SW",
-            event: "media.downloaded",
-            detail: `Downloaded ${formatMegabytes(validated.byteLength)} (${
-              ct || "binary"
-            }) from ${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}]`,
-            level: "ok",
-          });
-          break;
         } catch (err) {
           clearTimeout(headerTimer);
           lastDownloadErr = `Media stream download failed (${hostLabel}): ${
@@ -1546,6 +1758,17 @@ export function createRuntimeDispatcher({
     }
 
     if (!downloadedBytes) {
+      if (overBudget()) {
+        const timeoutErr = new Error(
+          `Downloading this Audio Overview exceeded the ${Math.round(
+            mediaDeadlineMs / 1000
+          )}s background budget (${
+            lastDownloadErr || "slow Google CDN response"
+          }). Play it for a few seconds and press Retry, or reload the tab.`
+        );
+        throw timeoutErr;
+      }
+
       const permCheck = await checkGoogleHostPermissions();
       if (!permCheck.ok) {
         const permErr = new Error(
@@ -1787,6 +2010,8 @@ export function createRuntimeDispatcher({
     }
 
     const tabId = sender?.tab?.id || null;
+
+    startJobKeepAlive();
 
     const jobPromise = (async () => {
       const [settings, secretKeysMap] = await Promise.all([
@@ -2054,6 +2279,7 @@ export function createRuntimeDispatcher({
       })
       .finally(() => {
         inFlightPromises.delete(cacheKey);
+        stopJobKeepAlive();
       });
 
     inFlightPromises.set(cacheKey, jobPromise);
@@ -2541,7 +2767,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.6";
+          runtimeApi?.getManifest?.()?.version || "0.2.7";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),
@@ -2703,7 +2929,7 @@ export function createExternalMessageDispatcher(
     return {
       ok: true,
       extensionId: runtimeApi?.id || "",
-      version: runtimeApi?.getManifest?.()?.version || "0.2.6",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.7",
       configuredProviders,
       primaryProvider: settings.primaryProvider,
       settings: {
@@ -2899,7 +3125,7 @@ export function installBackgroundAutomation(
     if (details?.reason === "install") {
       const nowIso = new Date().toISOString();
       const extId = runtimeApi?.id || "";
-      const ver = runtimeApi?.getManifest?.()?.version || "0.2.6";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.7";
       const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
       const qs = new URLSearchParams({ installed: "1", v: ver });
       if (extId) qs.set("extId", extId);

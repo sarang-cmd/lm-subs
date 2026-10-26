@@ -8,6 +8,7 @@
 
 import { RUNTIME_MESSAGE } from "../config/selectors.js";
 import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
+import { renderReleaseNotes } from "../lib/release-notes.js";
 import {
   playCompletionChimeSound,
   SOUND_PRESETS,
@@ -204,6 +205,7 @@ async function initOptions() {
   const optUpdateCard = document.getElementById("opt-update-card");
   const optUpdateBadge = document.getElementById("opt-update-badge");
   const optUpdateSummary = document.getElementById("opt-update-summary");
+  const optUpdateNotes = document.getElementById("opt-update-notes");
   const optCheckUpdatesBtn = document.getElementById("opt-check-updates-btn");
   const optLinkFolderBtn = document.getElementById("opt-link-folder-btn");
   const optApplyUpdateBtn = document.getElementById("opt-apply-update-btn");
@@ -735,7 +737,7 @@ async function initOptions() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.6";
+      "0.2.7";
 
     const avail = Boolean(updateStatus?.updateAvailable);
     optUpdateCard.dataset.available = avail ? "true" : "false";
@@ -768,6 +770,12 @@ async function initOptions() {
           : `Installed v${curVer}. Link your unzipped lm-subs folder once so updates write directly without manual zip extraction.`;
       }
     }
+
+    // Always show what the newest release changes, even when this install is
+    // already current, so the changelog is never more than one click away.
+    renderReleaseNotes(optUpdateNotes, updateStatus.latestNotes, {
+      version: avail ? updateStatus.latestVersion : curVer,
+    });
   }
 
   function renderNotificationsPanel() {

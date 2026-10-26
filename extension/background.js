@@ -1365,6 +1365,173 @@ function deriveGoogleMediaVariants(mediaUrl) {
   return out;
 }
 
+// src/lib/media-download.js
+var MEDIA_DOWNLOAD_DEADLINE_MS = 15e4;
+var MEDIA_SEGMENT_BYTES = 4 * 1024 * 1024;
+var MEDIA_PARALLEL_SEGMENTS = 6;
+var MEDIA_PARALLEL_MIN_BYTES = 6 * 1024 * 1024;
+var AUDIO_ONLY_SUFFIX_REGEX = /=m(?:140|4a)(?:[-_,]|$)/i;
+function isAudioOnlyVariantUrl(rawUrl) {
+  if (typeof rawUrl !== "string" || !rawUrl) return false;
+  return AUDIO_ONLY_SUFFIX_REGEX.test(rawUrl);
+}
+function dedupeUrls(list) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const url of list) {
+    if (typeof url !== "string" || !url) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+function orderMediaCandidates({
+  playingUrl = "",
+  mediaVariants = [],
+  progressiveUrl = "",
+  mediaUrl = "",
+  isTrusted = () => true,
+  isManifest = () => false
+} = {}) {
+  const playing = [playingUrl];
+  const variants = Array.isArray(mediaVariants) ? mediaVariants : [];
+  const audioFirst = variants.filter((u) => isAudioOnlyVariantUrl(u));
+  const rest = [
+    ...variants.filter((u) => !isAudioOnlyVariantUrl(u)),
+    progressiveUrl,
+    mediaUrl
+  ];
+  return dedupeUrls([...playing, ...audioFirst, ...rest]).filter(
+    (u) => isTrusted(u) && !isManifest(u)
+  );
+}
+function planRangeSegments(totalBytes, { segmentBytes = MEDIA_SEGMENT_BYTES, maxSegments = MEDIA_PARALLEL_SEGMENTS } = {}) {
+  const total = Number(totalBytes) || 0;
+  if (total <= 0 || segmentBytes <= 0) return [];
+  const segmentCount = Math.min(
+    Math.max(1, Math.ceil(total / segmentBytes)),
+    Math.max(1, maxSegments)
+  );
+  const even = Math.ceil(total / segmentCount);
+  const segments = [];
+  for (let index = 0; index < segmentCount; index += 1) {
+    const start = index * even;
+    const end = Math.min(total - 1, start + even - 1);
+    if (start > end) break;
+    segments.push({ index, start, end });
+  }
+  return segments;
+}
+function makeAbortTimer(ms, controller) {
+  if (!ms || ms <= 0 || typeof setTimeout !== "function") return null;
+  return setTimeout(() => {
+    try {
+      controller.abort();
+    } catch {
+    }
+  }, ms);
+}
+async function readResponseBodyWithProgress(res, { onProgress, totalBytes = 0 } = {}) {
+  const reader = res?.body?.getReader?.();
+  if (!reader) {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    onProgress?.({
+      receivedBytes: buf.byteLength,
+      totalBytes: totalBytes || buf.byteLength
+    });
+    return buf;
+  }
+  const chunks = [];
+  let received = 0;
+  for (; ; ) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    chunks.push(value);
+    received += value.byteLength;
+    onProgress?.({ receivedBytes: received, totalBytes: totalBytes || 0 });
+  }
+  const out = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+async function downloadRangedParallel(url, {
+  credentials = "include",
+  fetchImpl = globalThis.fetch,
+  totalBytes = 0,
+  deadlineMs = MEDIA_DOWNLOAD_DEADLINE_MS,
+  segmentBytes = MEDIA_SEGMENT_BYTES,
+  concurrency = MEDIA_PARALLEL_SEGMENTS,
+  onProgress
+} = {}) {
+  const total = Number(totalBytes) || 0;
+  if (total <= 0) return null;
+  const segments = planRangeSegments(total, {
+    segmentBytes,
+    maxSegments: concurrency
+  });
+  if (segments.length === 0) return null;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller ? makeAbortTimer(deadlineMs, controller) : null;
+  const parts = new Array(segments.length).fill(null);
+  let received = 0;
+  const runSegment = async (segment) => {
+    const res = await fetchImpl(url, {
+      method: "GET",
+      credentials,
+      headers: { Range: `bytes=${segment.start}-${segment.end}` },
+      signal: controller ? controller.signal : void 0
+    });
+    if (!res || res.status !== 206) {
+      throw new Error(`Range request rejected (HTTP ${res?.status ?? "?"})`);
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    parts[segment.index] = buf;
+    received += buf.byteLength;
+    onProgress?.({ receivedBytes: received, totalBytes: total });
+    return buf;
+  };
+  try {
+    const queue = [...segments];
+    const workers = new Array(Math.min(concurrency, segments.length)).fill(0).map(async () => {
+      for (; ; ) {
+        const next = queue.shift();
+        if (!next) return;
+        await runSegment(next);
+      }
+    });
+    await Promise.all(workers);
+    if (parts.some((part) => !part)) return null;
+    const assembled = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      assembled.set(part, offset);
+      offset += part.byteLength;
+    }
+    return {
+      bytes: assembled,
+      contentType: "",
+      totalBytes: total,
+      ranged: true
+    };
+  } catch {
+    return null;
+  } finally {
+    if (timer && typeof clearTimeout === "function") clearTimeout(timer);
+  }
+}
+function formatDownloadProgress({ receivedBytes = 0, totalBytes = 0 } = {}) {
+  const mb = (value) => `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (!totalBytes) return mb(receivedBytes);
+  const pct = Math.min(100, Math.round(receivedBytes / totalBytes * 100));
+  return `${pct}% \xB7 ${mb(receivedBytes)} of ${mb(totalBytes)}`;
+}
+
 // src/lib/brand-logo.js
 var LM_SUBS_LOGO_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none"><rect width="128" height="128" rx="28" fill="#111315"/><path fill-rule="evenodd" clip-rule="evenodd" d="M45.8 21.5C48.2 20.4 51 22.2 51 24.9V103.5C51 106.5 47.5 108.2 45.1 106.4L22.6 89.2C20.1 87.3 18.6 84.3 18.6 81.1V41.6C18.6 37.3 21.1 33.4 25 31.6L45.8 21.5ZM24.5 81.8L42.6 95.6C43.7 96.4 45.2 95.6 45.2 94.3V83.1C45.2 81.7 44 80.5 42.6 80.5H25.1C23.8 80.5 23.4 81 24.5 81.8Z" fill="#F6F7F8"/><rect x="56.5" y="49.5" width="8" height="29" rx="4" fill="#F6F7F8"/><rect x="68.5" y="37" width="8.5" height="54" rx="4.25" fill="#F6F7F8"/><rect x="81" y="49.5" width="8" height="29" rx="4" fill="#F6F7F8"/><path d="M84.5 27H98.5C104.851 27 110 32.1487 110 38.5V89.5C110 95.8513 104.851 101 98.5 101H84.5C81.7386 101 79.5 98.7614 79.5 96C79.5 93.2386 81.7386 91 84.5 91H97C98.3807 91 99.5 89.8807 99.5 88.5V39.5C99.5 38.1193 98.3807 37 97 37H84.5C81.7386 37 79.5 34.7614 79.5 32C79.5 29.2386 81.7386 27 84.5 27Z" fill="#1D5CF6"/></svg>';
 var LM_SUBS_LOGO_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(
@@ -1381,6 +1548,72 @@ function resolveExtensionLogoUrl(runtime = globalThis.chrome?.runtime, size = 12
   } catch {
   }
   return relPath;
+}
+
+// src/lib/release-notes.js
+var RELEASE_NOTES = Object.freeze({
+  "0.2.7": Object.freeze({
+    headline: "Long Audio Overviews finish, and updates explain themselves",
+    highlights: Object.freeze([
+      "Audio Overviews download across six parallel streams, so a 20 minute podcast no longer outlives the background worker",
+      "The update alert now lists what the new version changes instead of only naming the version",
+      "Every page got roomier padding and wider content gutters, including the welcome page that opens on install",
+      "New social preview cards for the site, blog and install page"
+    ])
+  }),
+  "0.2.6": Object.freeze({
+    headline: "Controls live in the play bar, and captions scale with the player",
+    highlights: Object.freeze([
+      "CC and caption controls dock inside NotebookLM's own bottom play bar and fade with it, so nothing blinks between cues",
+      "Captions resize with the player and sidebar, from the compact Studio view to fullscreen",
+      "Picture in Picture keeps live subtitles",
+      "Statistics match across the website, settings page and popup",
+      "Six notification chime presets replace the system beep"
+    ])
+  })
+});
+function getReleaseNotes(version) {
+  const key = String(version || "").trim();
+  const entry = RELEASE_NOTES[key];
+  if (!entry) return null;
+  return {
+    version: key,
+    headline: String(entry.headline || ""),
+    highlights: Array.isArray(entry.highlights) ? [...entry.highlights] : []
+  };
+}
+function resolveReleaseNotes(version, remoteNotes = null) {
+  const local = getReleaseNotes(version);
+  const remoteHeadline = String(remoteNotes?.headline || "");
+  const remoteHighlights = Array.isArray(remoteNotes?.highlights) ? remoteNotes.highlights.filter((line) => typeof line === "string" && line.trim()) : [];
+  if (local && remoteHighlights.length === 0 && !remoteHeadline) return local;
+  if (remoteHighlights.length === 0 && !remoteHeadline && !local) return null;
+  return {
+    version: String(version || local?.version || ""),
+    headline: remoteHeadline || local?.headline || "",
+    highlights: remoteHighlights.length ? remoteHighlights : local?.highlights || []
+  };
+}
+function buildUpdateNotification({ latestVersion = "", notes = null } = {}) {
+  const resolved = resolveReleaseNotes(latestVersion, notes);
+  const title = `Update available: LM Subs v${latestVersion}`;
+  if (!resolved || resolved.highlights.length === 0) {
+    return {
+      title,
+      body: "Open LM Subs in your toolbar to apply the update and reload.",
+      items: []
+    };
+  }
+  const [first, ...rest] = resolved.highlights;
+  const more = rest.length > 0 ? ` +${rest.length} more` : "";
+  return {
+    title,
+    body: `${first}${more}`,
+    items: resolved.highlights.slice(0, 5).map((line) => ({
+      title: line,
+      message: ""
+    }))
+  };
 }
 
 // src/lib/decide.js
@@ -3820,6 +4053,14 @@ async function clearNotifications(storageArea) {
   await store.set({ [STORAGE_KEYS.NOTIFICATIONS]: [] });
   return [];
 }
+function normalizeReleaseNotes(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const highlights = Array.isArray(raw.highlights) ? raw.highlights.filter((line) => typeof line === "string" && line.trim()).slice(0, 6) : [];
+  const headline = String(raw.headline || "");
+  const version = String(raw.version || "");
+  if (!headline && highlights.length === 0) return null;
+  return { version, headline, highlights };
+}
 async function getUpdateStatus(storageArea) {
   try {
     const store = resolveStorage(storageArea);
@@ -3828,44 +4069,47 @@ async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.6",
+        currentVersion: "0.2.7",
         currentBuildId: "",
-        latestVersion: "0.2.6",
+        latestVersion: "0.2.7",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
         notifiedReleaseKey: "",
         checkedAt: null,
         autoAppliedAt: null,
-        linkedFolderName: ""
+        linkedFolderName: "",
+        latestNotes: null
       };
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.6"),
+      currentVersion: String(saved.currentVersion || "0.2.7"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.6"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.7"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
       notifiedReleaseKey: String(saved.notifiedReleaseKey || ""),
       checkedAt: saved.checkedAt || null,
       autoAppliedAt: saved.autoAppliedAt || null,
-      linkedFolderName: String(saved.linkedFolderName || "")
+      linkedFolderName: String(saved.linkedFolderName || ""),
+      latestNotes: normalizeReleaseNotes(saved.latestNotes)
     };
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.6",
+      currentVersion: "0.2.7",
       currentBuildId: "",
-      latestVersion: "0.2.6",
+      latestVersion: "0.2.7",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
       notifiedReleaseKey: "",
       checkedAt: null,
       autoAppliedAt: null,
-      linkedFolderName: ""
+      linkedFolderName: "",
+      latestNotes: null
     };
   }
 }
@@ -4326,6 +4570,7 @@ async function applyUpdateToDirectoryHandle(dirHandle, zipBytes, { expectedSha25
 
 // src/background/service-worker.js
 var STAGED_AUDIO_TTL_MS = 5 * 60 * 1e3;
+var JOB_HEARTBEAT_INTERVAL_MS = 2e4;
 var MAX_SINGLE_M4A_FOR_ALL_PROVIDERS = 22 * 1024 * 1024;
 var MAX_SAFE_IPC_DECODE_BYTES = 38 * 1024 * 1024;
 var RANGE_EXTRACTION_THRESHOLD_BYTES = 3 * 1024 * 1024;
@@ -4358,6 +4603,14 @@ function uint8ToBase642(bytes) {
 function formatMegabytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+function defaultJobHeartbeat() {
+  const chromeNs = globalThis.chrome;
+  if (chromeNs?.storage?.session?.set) {
+    chromeNs.storage.session.set({ lmsubsJobHeartbeat: Date.now() });
+    return;
+  }
+  chromeNs?.runtime?.getPlatformInfo?.();
+}
 function createRuntimeDispatcher({
   storageArea = globalThis.chrome?.storage?.local,
   fetchImpl = globalThis.fetch,
@@ -4367,12 +4620,36 @@ function createRuntimeDispatcher({
   notificationsApi = globalThis.chrome?.notifications,
   alarmsApi = globalThis.chrome?.alarms,
   runtimeApi = globalThis.chrome?.runtime,
-  dirHandleLoader = loadLinkedExtensionDirHandle
+  dirHandleLoader = loadLinkedExtensionDirHandle,
+  heartbeatImpl = defaultJobHeartbeat,
+  mediaDeadlineMs = MEDIA_DOWNLOAD_DEADLINE_MS
 } = {}) {
   const inFlightPromises = /* @__PURE__ */ new Map();
   const stagedAudioJobs = /* @__PURE__ */ new Map();
   const memoryDebugLogs = [];
   let debugLogsHydrated = false;
+  let jobHeartbeatCount = 0;
+  let jobHeartbeatTimer = null;
+  function startJobKeepAlive() {
+    jobHeartbeatCount += 1;
+    if (jobHeartbeatTimer) return;
+    const ping = () => {
+      try {
+        heartbeatImpl?.();
+      } catch {
+      }
+    };
+    ping();
+    if (typeof setInterval === "function") {
+      jobHeartbeatTimer = setInterval(ping, JOB_HEARTBEAT_INTERVAL_MS);
+    }
+  }
+  function stopJobKeepAlive() {
+    jobHeartbeatCount = Math.max(0, jobHeartbeatCount - 1);
+    if (jobHeartbeatCount > 0 || !jobHeartbeatTimer) return;
+    clearInterval(jobHeartbeatTimer);
+    jobHeartbeatTimer = null;
+  }
   async function syncToolbarBadge({ transientState = null } = {}) {
     if (!actionApi?.setBadgeText) return;
     try {
@@ -4460,7 +4737,13 @@ function createRuntimeDispatcher({
       return false;
     }
   }
-  async function fireDesktopAlertIfPermitted({ id, title, body, silent = false }) {
+  async function fireDesktopAlertIfPermitted({
+    id,
+    title,
+    body,
+    silent = false,
+    items = null
+  }) {
     if (!notificationsApi?.create) return false;
     try {
       if (permissionsApi?.contains) {
@@ -4480,20 +4763,18 @@ function createRuntimeDispatcher({
         if (!granted) return false;
       }
       const iconUrl = resolveExtensionLogoUrl(runtimeApi, 128);
-      await new Promise((resolve) => {
+      const listItems = Array.isArray(items) ? items.filter((item) => item && typeof item.title === "string").slice(0, 5).map((item) => ({
+        title: String(item.title).slice(0, 120),
+        message: String(item.message || "").slice(0, 120)
+      })) : [];
+      const createAlert = (options) => new Promise((resolve) => {
         try {
           const maybe = notificationsApi.create(
             id || `lmsubs_${Date.now()}`,
-            {
-              type: "basic",
-              iconUrl,
-              title: String(title || "LM Subs"),
-              message: String(body || ""),
-              silent: Boolean(silent)
-            },
+            options,
             () => {
-              void globalThis.chrome?.runtime?.lastError;
-              resolve(true);
+              const lastError = globalThis.chrome?.runtime?.lastError;
+              resolve(!lastError);
             }
           );
           if (maybe && typeof maybe.then === "function") {
@@ -4504,6 +4785,28 @@ function createRuntimeDispatcher({
         } catch {
           resolve(false);
         }
+      });
+      const message = String(body || "");
+      const baseOptions = {
+        iconUrl,
+        title: String(title || "LM Subs"),
+        message,
+        silent: Boolean(silent)
+      };
+      if (listItems.length > 0) {
+        const listed = await createAlert({
+          ...baseOptions,
+          type: "list",
+          items: listItems
+        });
+        if (listed) return true;
+      }
+      await createAlert({
+        ...baseOptions,
+        type: "basic",
+        message: listItems.length > 0 ? `${listItems.map((item) => item.title).join("\n").slice(0, 400)}
+
+${message}`.trim() : message
       });
       return true;
     } catch {
@@ -4517,7 +4820,8 @@ function createRuntimeDispatcher({
     cacheKey = null,
     provider = null,
     fireDesktop = false,
-    quiet = false
+    quiet = false,
+    desktopItems = null
   } = {}) {
     const settings = await getSettings(storageArea);
     if (kind === "failover" && !settings.notifyOnFailover) {
@@ -4544,6 +4848,7 @@ function createRuntimeDispatcher({
         id: notification.id,
         title: notification.title,
         body: notification.body,
+        items: desktopItems,
         // Suppress the generic OS beep only when LM Subs plays its own preset
         silent: brandedChime
       });
@@ -4904,7 +5209,7 @@ function createRuntimeDispatcher({
     return { ok: true, profile: updatedProfile, mergeResult };
   }
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.6";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.7";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -4936,7 +5241,8 @@ function createRuntimeDispatcher({
             buildId: String(json.buildId || ""),
             zipUrl: String(json.zipUrl || "/releases/lm-subs-latest.zip"),
             zipSha256: String(json.zipSha256 || ""),
-            serverBase: base
+            serverBase: base,
+            notes: resolveReleaseNotes(String(json.version), json.notes || null)
           };
         }
       } catch {
@@ -5085,16 +5391,25 @@ function createRuntimeDispatcher({
         zipSha256: remote.zipSha256,
         notifiedReleaseKey: releaseKey,
         checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        linkedFolderName: dirInfo.folderName
+        linkedFolderName: dirInfo.folderName,
+        latestNotes: remote.notes || null
       },
       storageArea
     );
     if (shouldNotify) {
+      const updateAlert = buildUpdateNotification({
+        latestVersion: remote.version,
+        notes: remote.notes || null
+      });
+      const howToApply = dirInfo.linked ? "Click LM Subs in your toolbar to apply the update and reload." : "Open LM Subs to link your folder for one-click auto-updates or download the release.";
       await emitExtensionNotification({
         kind: "update",
-        title: `Update available: LM Subs v${remote.version}`,
-        body: dirInfo.linked ? "Click LM Subs in your toolbar to apply the update and reload." : "Open LM Subs to link your folder for one-click auto-updates or download the release.",
-        fireDesktop: true
+        title: updateAlert.title,
+        body: updateAlert.body ? `${updateAlert.body}
+
+${howToApply}` : howToApply,
+        fireDesktop: true,
+        desktopItems: updateAlert.items
       }).catch(() => {
       });
     } else {
@@ -5374,20 +5689,19 @@ function createRuntimeDispatcher({
   }
   async function fetchAndExtractCompactAudio(artifact, tabId, pageFetchError = null) {
     const seedUrl = artifact.progressiveUrl || artifact.mediaUrl;
-    const rawCandidates = [
+    const rawVariants = [
       ...deriveGoogleMediaVariants(seedUrl),
       ...deriveGoogleMediaVariants(artifact.mediaUrl),
-      ...Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : [],
-      artifact.progressiveUrl,
-      artifact.mediaUrl
-    ].filter(Boolean);
-    const audioFirstCandidates = [
-      ...rawCandidates.filter((u) => /=m140(?:-dv)?(?:$|\?)/i.test(u)),
-      ...rawCandidates.filter((u) => !/=m140(?:-dv)?(?:$|\?)/i.test(u))
+      ...Array.isArray(artifact.mediaVariants) ? artifact.mediaVariants : []
     ];
-    const allCandidateUrls = [...new Set(audioFirstCandidates)].filter(
-      (u) => isTrustedGoogleMediaUrl(u) && !isThumbnailOrManifestUrl(u)
-    );
+    const allCandidateUrls = orderMediaCandidates({
+      playingUrl: artifact.playingUrl,
+      mediaVariants: rawVariants,
+      progressiveUrl: artifact.progressiveUrl,
+      mediaUrl: artifact.mediaUrl,
+      isTrusted: isTrustedGoogleMediaUrl,
+      isManifest: isThumbnailOrManifestUrl
+    });
     if (allCandidateUrls.length === 0) {
       if (String(artifact.mediaUrl || "").startsWith("blob:")) {
         throw new Error(
@@ -5403,14 +5717,41 @@ function createRuntimeDispatcher({
       event: "media.candidates",
       detail: `Probing ${allCandidateUrls.length} Google stream(s); first=${summarizeMediaUrlForDebug(
         allCandidateUrls[0]
-      )}`
+      )}${artifact.playingUrl && artifact.playingUrl === allCandidateUrls[0] ? " (playing in tab)" : ""}`
     });
+    let lastProgressAt = 0;
+    const reportProgress = ({ receivedBytes, totalBytes }) => {
+      const now = Date.now();
+      if (now - lastProgressAt < 700) return;
+      lastProgressAt = now;
+      notifyTabProgress(tabId, {
+        cacheKey: artifact.cacheKey,
+        artifactId: artifact.artifactId,
+        mediaToken: artifact.mediaToken,
+        label: "Downloading audio stream\u2026",
+        detail: formatDownloadProgress({ receivedBytes, totalBytes })
+      });
+    };
+    const startedAt = Date.now();
+    const budgetLeft = () => Math.max(5e3, mediaDeadlineMs - (Date.now() - startedAt));
+    const overBudget = () => Date.now() - startedAt >= mediaDeadlineMs;
     let downloadedBytes = null;
     let downloadedContentType = "";
     let downloadedTrackInfo = null;
     let lastDownloadErr = pageFetchError || "Failed to fetch Video Overview stream.";
     const deadFifeSuffixes = /* @__PURE__ */ new Set();
     for (const candidateUrl of allCandidateUrls) {
+      if (overBudget()) {
+        await appendDebugEntry({
+          layer: "SW",
+          event: "media.deadline",
+          detail: `Stopped probing after ${Math.round(
+            (Date.now() - startedAt) / 1e3
+          )}s to keep the background worker responsive`,
+          level: "warn"
+        });
+        break;
+      }
       const fifeSuffixMatch = candidateUrl.match(
         /\/([A-Za-z0-9_-]{16,})(=[A-Za-z0-9_,.-]+)$/
       );
@@ -5423,18 +5764,20 @@ function createRuntimeDispatcher({
         hostLabel = new URL(candidateUrl).hostname;
       } catch {
       }
+      const candidateStartedAt = Date.now();
       let skipCandidateVariant = false;
       for (const credentialsMode of ["include", "omit"]) {
-        const headerAbort = new AbortController();
+        if (overBudget()) break;
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
         const headerTimer = setTimeout(
-          () => headerAbort.abort(),
+          () => controller?.abort(),
           MEDIA_HEADER_TIMEOUT_MS
         );
         try {
           const res = await fetchImpl(candidateUrl, {
             method: "GET",
             credentials: credentialsMode,
-            signal: headerAbort.signal
+            signal: controller ? controller.signal : void 0
           });
           clearTimeout(headerTimer);
           if (!res.ok) {
@@ -5464,87 +5807,132 @@ function createRuntimeDispatcher({
             continue;
           }
           const contentLen = Number(res.headers?.get?.("content-length") || 0);
-          if (contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES && ct.includes("video/mp4")) {
-            try {
-              await res.body?.cancel?.();
-            } catch {
+          const audioOnlyVariant = isAudioOnlyVariantUrl(candidateUrl);
+          const bodyTimer = setTimeout(() => controller?.abort(), budgetLeft());
+          try {
+            if (contentLen > RANGE_EXTRACTION_THRESHOLD_BYTES && ct.includes("video/mp4") && !audioOnlyVariant) {
+              try {
+                await res.body?.cancel?.();
+              } catch {
+              }
+              controller?.abort();
+              notifyTabProgress(tabId, {
+                cacheKey: artifact.cacheKey,
+                artifactId: artifact.artifactId,
+                mediaToken: artifact.mediaToken,
+                label: "Streaming audio track via HTTP Range\u2026",
+                detail: `Skipping ${formatMegabytes(contentLen)} video frames`
+              });
+              const ranged = await extractAudioViaHttpRange({
+                url: candidateUrl,
+                credentials: credentialsMode,
+                totalBytes: contentLen,
+                fetchImpl
+              });
+              if (ranged && ranged.bytes && ranged.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
+                await appendDebugEntry({
+                  layer: "SW",
+                  event: "media.range_extracted",
+                  detail: `HTTP Range extracted ${formatMegabytes(
+                    ranged.extractedBytes
+                  )} .m4a (downloaded ${formatMegabytes(
+                    ranged.downloadedBytes
+                  )} of ${formatMegabytes(contentLen)} MP4) in ${Math.round(
+                    (Date.now() - candidateStartedAt) / 1e3
+                  )}s`,
+                  level: "ok"
+                });
+                return {
+                  originalBytes: contentLen,
+                  extractedBytes: ranged.extractedBytes,
+                  durationSeconds: artifact.durationSeconds || null,
+                  chunks: [
+                    {
+                      bytes: ranged.bytes,
+                      mimeType: "audio/mp4",
+                      fileName: "overview-audio.m4a",
+                      startOffsetSec: 0,
+                      durationSec: artifact.durationSeconds || null
+                    }
+                  ]
+                };
+              }
+              lastDownloadErr = "HTTP Range audio extraction failed.";
+              continue;
             }
-            headerAbort.abort();
-            notifyTabProgress(tabId, {
-              cacheKey: artifact.cacheKey,
-              artifactId: artifact.artifactId,
-              mediaToken: artifact.mediaToken,
-              label: "Streaming audio track via HTTP Range\u2026",
-              detail: `Skipping ${formatMegabytes(contentLen)} video frames`
-            });
-            const ranged = await extractAudioViaHttpRange({
-              url: candidateUrl,
-              credentials: credentialsMode,
+            if (contentLen >= MEDIA_PARALLEL_MIN_BYTES) {
+              try {
+                await res.body?.cancel?.();
+              } catch {
+              }
+              controller?.abort();
+              notifyTabProgress(tabId, {
+                cacheKey: artifact.cacheKey,
+                artifactId: artifact.artifactId,
+                mediaToken: artifact.mediaToken,
+                label: "Downloading Audio Overview\u2026",
+                detail: formatDownloadProgress({
+                  receivedBytes: 0,
+                  totalBytes: contentLen
+                })
+              });
+              const ranged = await downloadRangedParallel(candidateUrl, {
+                credentials: credentialsMode,
+                fetchImpl,
+                totalBytes: contentLen,
+                deadlineMs: budgetLeft(),
+                onProgress: reportProgress
+              });
+              if (ranged?.bytes?.byteLength) {
+                downloadedBytes = validateMediaPayload(ranged.bytes, ct);
+                downloadedContentType = ct;
+                downloadedTrackInfo = inspectMp4Tracks(downloadedBytes);
+                await appendDebugEntry({
+                  layer: "SW",
+                  event: "media.downloaded",
+                  detail: `Downloaded ${formatMegabytes(
+                    downloadedBytes.byteLength
+                  )} (${ct || "binary"}) in ${Math.round(
+                    (Date.now() - candidateStartedAt) / 1e3
+                  )}s across ${MEDIA_PARALLEL_SEGMENTS} parallel ranges [${credentialsMode}]`,
+                  level: "ok"
+                });
+                break;
+              }
+              lastDownloadErr = `Parallel range download failed (${hostLabel}).`;
+              continue;
+            }
+            const buf = await readResponseBodyWithProgress(res, {
               totalBytes: contentLen,
-              fetchImpl
+              onProgress: reportProgress
             });
-            if (ranged && ranged.bytes && ranged.extractedBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
+            const validated = validateMediaPayload(buf, ct);
+            const trackInfo = inspectMp4Tracks(validated);
+            if (trackInfo.isMp4 && trackInfo.hasVideo && !trackInfo.hasAudio && !trackInfo.isFragmented) {
+              lastDownloadErr = `Skipped silent video-only preview stream (${summarizeMediaUrlForDebug(
+                candidateUrl
+              )})`;
               await appendDebugEntry({
                 layer: "SW",
-                event: "media.range_extracted",
-                detail: `HTTP Range extracted ${formatMegabytes(
-                  ranged.extractedBytes
-                )} .m4a (downloaded ${formatMegabytes(
-                  ranged.downloadedBytes
-                )} of ${formatMegabytes(contentLen)} MP4)`,
-                level: "ok"
+                event: "media.skip_silent",
+                detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks) \u2014 advancing`
               });
-              return {
-                originalBytes: contentLen,
-                extractedBytes: ranged.extractedBytes,
-                durationSeconds: artifact.durationSeconds || null,
-                chunks: [
-                  {
-                    bytes: ranged.bytes,
-                    mimeType: "audio/mp4",
-                    fileName: "overview-audio.m4a",
-                    startOffsetSec: 0,
-                    durationSec: artifact.durationSeconds || null
-                  }
-                ]
-              };
+              skipCandidateVariant = true;
+              break;
             }
-            const fallbackRes = await fetchImpl(candidateUrl, {
-              method: "GET",
-              credentials: credentialsMode
-            });
-            if (!fallbackRes.ok) continue;
-            const fullBuf = new Uint8Array(await fallbackRes.arrayBuffer());
-            downloadedBytes = validateMediaPayload(fullBuf, ct);
+            downloadedBytes = validated;
             downloadedContentType = ct;
-            downloadedTrackInfo = inspectMp4Tracks(downloadedBytes);
-            break;
-          }
-          const buf = new Uint8Array(await res.arrayBuffer());
-          const validated = validateMediaPayload(buf, ct);
-          const trackInfo = inspectMp4Tracks(validated);
-          if (trackInfo.isMp4 && trackInfo.hasVideo && !trackInfo.hasAudio && !trackInfo.isFragmented) {
-            lastDownloadErr = `Skipped silent video-only preview stream (${summarizeMediaUrlForDebug(
-              candidateUrl
-            )})`;
+            downloadedTrackInfo = trackInfo;
             await appendDebugEntry({
               layer: "SW",
-              event: "media.skip_silent",
-              detail: `${summarizeMediaUrlForDebug(candidateUrl)} has vide track only (0 soun tracks) \u2014 advancing`
+              event: "media.downloaded",
+              detail: `Downloaded ${formatMegabytes(validated.byteLength)} (${ct || "binary"}) from ${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}]`,
+              level: "ok"
             });
-            skipCandidateVariant = true;
             break;
+          } finally {
+            clearTimeout(bodyTimer);
           }
-          downloadedBytes = validated;
-          downloadedContentType = ct;
-          downloadedTrackInfo = trackInfo;
-          await appendDebugEntry({
-            layer: "SW",
-            event: "media.downloaded",
-            detail: `Downloaded ${formatMegabytes(validated.byteLength)} (${ct || "binary"}) from ${summarizeMediaUrlForDebug(candidateUrl)} [${credentialsMode}]`,
-            level: "ok"
-          });
-          break;
         } catch (err) {
           clearTimeout(headerTimer);
           lastDownloadErr = `Media stream download failed (${hostLabel}): ${err?.message || String(err)}`;
@@ -5559,6 +5947,14 @@ function createRuntimeDispatcher({
       if (downloadedBytes) break;
     }
     if (!downloadedBytes) {
+      if (overBudget()) {
+        const timeoutErr = new Error(
+          `Downloading this Audio Overview exceeded the ${Math.round(
+            mediaDeadlineMs / 1e3
+          )}s background budget (${lastDownloadErr || "slow Google CDN response"}). Play it for a few seconds and press Retry, or reload the tab.`
+        );
+        throw timeoutErr;
+      }
       const permCheck = await checkGoogleHostPermissions();
       if (!permCheck.ok) {
         const permErr = new Error(
@@ -5744,6 +6140,7 @@ function createRuntimeDispatcher({
       return inFlightPromises.get(cacheKey);
     }
     const tabId = sender?.tab?.id || null;
+    startJobKeepAlive();
     const jobPromise = (async () => {
       const [settings, secretKeysMap] = await Promise.all([
         getSettings(storageArea),
@@ -5982,6 +6379,7 @@ function createRuntimeDispatcher({
       };
     }).finally(() => {
       inFlightPromises.delete(cacheKey);
+      stopJobKeepAlive();
     });
     inFlightPromises.set(cacheKey, jobPromise);
     return jobPromise;
@@ -6350,7 +6748,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.6";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.7";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,
@@ -6461,7 +6859,7 @@ function createExternalMessageDispatcher(runtimeDispatcher, {
     return {
       ok: true,
       extensionId: runtimeApi?.id || "",
-      version: runtimeApi?.getManifest?.()?.version || "0.2.6",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.7",
       configuredProviders,
       primaryProvider: settings.primaryProvider,
       settings: {
@@ -6635,7 +7033,7 @@ function installBackgroundAutomation(dispatcher, {
     if (details?.reason === "install") {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
       const extId = runtimeApi?.id || "";
-      const ver = runtimeApi?.getManifest?.()?.version || "0.2.6";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.7";
       const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
       const qs = new URLSearchParams({ installed: "1", v: ver });
       if (extId) qs.set("extId", extId);

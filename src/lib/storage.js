@@ -1018,6 +1018,20 @@ export async function clearNotifications(storageArea) {
 /**
  * Extension auto-update status (`chrome.storage.local.updateStatus`).
  */
+/** Keeps only the fields the UI renders from a release notes block. */
+function normalizeReleaseNotes(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const highlights = Array.isArray(raw.highlights)
+    ? raw.highlights
+        .filter((line) => typeof line === "string" && line.trim())
+        .slice(0, 6)
+    : [];
+  const headline = String(raw.headline || "");
+  const version = String(raw.version || "");
+  if (!headline && highlights.length === 0) return null;
+  return { version, headline, highlights };
+}
+
 export async function getUpdateStatus(storageArea) {
   try {
     const store = resolveStorage(storageArea);
@@ -1026,9 +1040,9 @@ export async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.6",
+        currentVersion: "0.2.7",
         currentBuildId: "",
-        latestVersion: "0.2.6",
+        latestVersion: "0.2.7",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -1036,13 +1050,14 @@ export async function getUpdateStatus(storageArea) {
         checkedAt: null,
         autoAppliedAt: null,
         linkedFolderName: "",
+        latestNotes: null,
       };
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.6"),
+      currentVersion: String(saved.currentVersion || "0.2.7"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.6"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.7"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -1050,13 +1065,14 @@ export async function getUpdateStatus(storageArea) {
       checkedAt: saved.checkedAt || null,
       autoAppliedAt: saved.autoAppliedAt || null,
       linkedFolderName: String(saved.linkedFolderName || ""),
+      latestNotes: normalizeReleaseNotes(saved.latestNotes),
     };
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.6",
+      currentVersion: "0.2.7",
       currentBuildId: "",
-      latestVersion: "0.2.6",
+      latestVersion: "0.2.7",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -1064,6 +1080,7 @@ export async function getUpdateStatus(storageArea) {
       checkedAt: null,
       autoAppliedAt: null,
       linkedFolderName: "",
+      latestNotes: null,
     };
   }
 }

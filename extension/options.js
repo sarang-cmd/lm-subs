@@ -225,6 +225,82 @@
     };
   }
 
+  // src/lib/release-notes.js
+  var RELEASE_NOTES = Object.freeze({
+    "0.2.7": Object.freeze({
+      headline: "Long Audio Overviews finish, and updates explain themselves",
+      highlights: Object.freeze([
+        "Audio Overviews download across six parallel streams, so a 20 minute podcast no longer outlives the background worker",
+        "The update alert now lists what the new version changes instead of only naming the version",
+        "Every page got roomier padding and wider content gutters, including the welcome page that opens on install",
+        "New social preview cards for the site, blog and install page"
+      ])
+    }),
+    "0.2.6": Object.freeze({
+      headline: "Controls live in the play bar, and captions scale with the player",
+      highlights: Object.freeze([
+        "CC and caption controls dock inside NotebookLM's own bottom play bar and fade with it, so nothing blinks between cues",
+        "Captions resize with the player and sidebar, from the compact Studio view to fullscreen",
+        "Picture in Picture keeps live subtitles",
+        "Statistics match across the website, settings page and popup",
+        "Six notification chime presets replace the system beep"
+      ])
+    })
+  });
+  function getReleaseNotes(version) {
+    const key = String(version || "").trim();
+    const entry = RELEASE_NOTES[key];
+    if (!entry) return null;
+    return {
+      version: key,
+      headline: String(entry.headline || ""),
+      highlights: Array.isArray(entry.highlights) ? [...entry.highlights] : []
+    };
+  }
+  function resolveReleaseNotes(version, remoteNotes = null) {
+    const local = getReleaseNotes(version);
+    const remoteHeadline = String(remoteNotes?.headline || "");
+    const remoteHighlights = Array.isArray(remoteNotes?.highlights) ? remoteNotes.highlights.filter((line) => typeof line === "string" && line.trim()) : [];
+    if (local && remoteHighlights.length === 0 && !remoteHeadline) return local;
+    if (remoteHighlights.length === 0 && !remoteHeadline && !local) return null;
+    return {
+      version: String(version || local?.version || ""),
+      headline: remoteHeadline || local?.headline || "",
+      highlights: remoteHighlights.length ? remoteHighlights : local?.highlights || []
+    };
+  }
+  function renderReleaseNotes(container, notes, { version = "" } = {}) {
+    if (!container || typeof document === "undefined") return false;
+    while (container.firstChild) container.removeChild(container.firstChild);
+    const resolved = resolveReleaseNotes(version, notes);
+    if (!resolved || resolved.highlights.length === 0) {
+      container.style.display = "none";
+      return false;
+    }
+    container.style.display = "block";
+    const heading = document.createElement("div");
+    heading.className = "update-notes-heading";
+    heading.appendChild(
+      document.createTextNode(`What's new in v${resolved.version || version}`)
+    );
+    container.appendChild(heading);
+    if (resolved.headline) {
+      const lede = document.createElement("div");
+      lede.className = "update-notes-lede";
+      lede.appendChild(document.createTextNode(resolved.headline));
+      container.appendChild(lede);
+    }
+    const list = document.createElement("ul");
+    list.className = "update-notes-list";
+    for (const line of resolved.highlights) {
+      const item = document.createElement("li");
+      item.appendChild(document.createTextNode(line));
+      list.appendChild(item);
+    }
+    container.appendChild(list);
+    return true;
+  }
+
   // src/lib/chime.js
   var SOUND_PRESETS = Object.freeze([
     {
@@ -1528,6 +1604,14 @@
       return [];
     }
   }
+  function normalizeReleaseNotes(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const highlights = Array.isArray(raw.highlights) ? raw.highlights.filter((line) => typeof line === "string" && line.trim()).slice(0, 6) : [];
+    const headline = String(raw.headline || "");
+    const version = String(raw.version || "");
+    if (!headline && highlights.length === 0) return null;
+    return { version, headline, highlights };
+  }
   async function getUpdateStatus(storageArea) {
     try {
       const store = resolveStorage(storageArea);
@@ -1536,44 +1620,47 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.6",
+          currentVersion: "0.2.7",
           currentBuildId: "",
-          latestVersion: "0.2.6",
+          latestVersion: "0.2.7",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
           notifiedReleaseKey: "",
           checkedAt: null,
           autoAppliedAt: null,
-          linkedFolderName: ""
+          linkedFolderName: "",
+          latestNotes: null
         };
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.6"),
+        currentVersion: String(saved.currentVersion || "0.2.7"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.6"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.7"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
         notifiedReleaseKey: String(saved.notifiedReleaseKey || ""),
         checkedAt: saved.checkedAt || null,
         autoAppliedAt: saved.autoAppliedAt || null,
-        linkedFolderName: String(saved.linkedFolderName || "")
+        linkedFolderName: String(saved.linkedFolderName || ""),
+        latestNotes: normalizeReleaseNotes(saved.latestNotes)
       };
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.6",
+        currentVersion: "0.2.7",
         currentBuildId: "",
-        latestVersion: "0.2.6",
+        latestVersion: "0.2.7",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
         notifiedReleaseKey: "",
         checkedAt: null,
         autoAppliedAt: null,
-        linkedFolderName: ""
+        linkedFolderName: "",
+        latestNotes: null
       };
     }
   }
@@ -2239,6 +2326,7 @@ ${rows.join("\n")}
     const optUpdateCard = document.getElementById("opt-update-card");
     const optUpdateBadge = document.getElementById("opt-update-badge");
     const optUpdateSummary = document.getElementById("opt-update-summary");
+    const optUpdateNotes = document.getElementById("opt-update-notes");
     const optCheckUpdatesBtn = document.getElementById("opt-check-updates-btn");
     const optLinkFolderBtn = document.getElementById("opt-link-folder-btn");
     const optApplyUpdateBtn = document.getElementById("opt-apply-update-btn");
@@ -2694,7 +2782,7 @@ ${rows.join("\n")}
       if (!optUpdateCard) return;
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.6";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.7";
       const avail = Boolean(updateStatus?.updateAvailable);
       optUpdateCard.dataset.available = avail ? "true" : "false";
       if (optUpdateBadge) {
@@ -2715,6 +2803,9 @@ ${rows.join("\n")}
           optUpdateSummary.textContent = dirInfo.linked ? `Installed v${curVer}. Linked to ${dirInfo.folderName} for automatic in-place updates.` : `Installed v${curVer}. Link your unzipped lm-subs folder once so updates write directly without manual zip extraction.`;
         }
       }
+      renderReleaseNotes(optUpdateNotes, updateStatus.latestNotes, {
+        version: avail ? updateStatus.latestVersion : curVer
+      });
     }
     function renderNotificationsPanel() {
       if (!optNotifList) return;

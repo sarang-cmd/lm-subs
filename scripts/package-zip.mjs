@@ -11,6 +11,8 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 
+import { getReleaseNotes } from "../src/lib/release-notes.js";
+
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let i = 0; i < 256; i++) {
@@ -150,6 +152,8 @@ const latestZipFile = "docs/releases/lm-subs-latest.zip";
 fs.writeFileSync(outFile, zipBuf);
 fs.writeFileSync(latestZipFile, zipBuf);
 
+const notes = getReleaseNotes(version);
+
 const latestManifest = {
   version,
   buildId,
@@ -157,6 +161,11 @@ const latestManifest = {
   versionedZipUrl: `/releases/lm-subs-v${version}.zip`,
   zipSha256,
   fileCount: files.length,
+  // Ship the changelog with the release manifest so the update notification can
+  // explain what the new version does, offline or not.
+  notes: notes
+    ? { version: notes.version, headline: notes.headline, highlights: notes.highlights }
+    : null,
 };
 fs.writeFileSync(
   "docs/releases/latest.json",

@@ -40,7 +40,7 @@ export function GuideView({
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "20px" }}>
             <a
               className="btn btn-primary"
-              href="/releases/lm-subs-v0.2.6.zip"
+              href="/releases/lm-subs-v0.2.7.zip"
               download
               onClick={onStartDownloadSetup}
             >
@@ -84,7 +84,7 @@ export function GuideView({
               Download and unzip the extension folder
             </h2>
             <p className="section-prose">
-              Click the download button above to save <code>lm-subs-v0.2.6.zip</code> to your computer, then extract it into a regular folder. Keep that folder somewhere permanent such as your Documents folder so Chrome can load it whenever you open your browser.
+              Click the download button above to save <code>lm-subs-v0.2.7.zip</code> to your computer, then extract it into a regular folder. Keep that folder somewhere permanent such as your Documents folder so Chrome can load it whenever you open your browser.
             </p>
           </div>
 
@@ -102,7 +102,7 @@ export function GuideView({
               <Tabs.Content value="mac" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
                   <li>Open your <strong style={{ color: "var(--ink)" }}>Downloads</strong> folder in Finder.</li>
-                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.6.zip</code>. macOS creates an unzipped folder next to the zip file automatically.</li>
+                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.7.zip</code>. macOS creates an unzipped folder next to the zip file automatically.</li>
                   <li>Move that unzipped folder into <strong style={{ color: "var(--ink)" }}>Documents</strong> so you do not delete it later while cleaning Downloads.</li>
                 </ol>
               </Tabs.Content>
@@ -110,7 +110,7 @@ export function GuideView({
               <Tabs.Content value="windows" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
                   <li>Open File Explorer and go to <strong style={{ color: "var(--ink)" }}>Downloads</strong>.</li>
-                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.6.zip</code> and click <strong style={{ color: "var(--ink)" }}>Extract All...</strong>, then click <strong style={{ color: "var(--ink)" }}>Extract</strong>.</li>
+                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.7.zip</code> and click <strong style={{ color: "var(--ink)" }}>Extract All...</strong>, then click <strong style={{ color: "var(--ink)" }}>Extract</strong>.</li>
                   <li>Notice that Windows now shows a regular folder without a zipper icon. Remember where that unzipped folder is saved.</li>
                 </ol>
               </Tabs.Content>
@@ -174,6 +174,21 @@ export function GuideView({
             </div>
           </div>
         </div>
+
+        <figure className="product-figure" style={{ marginTop: "26px" }}>
+          <img
+            src="/assets/screenshots/09-welcome-install-page.png?v=9"
+            alt="The LM Subs page that opens automatically when the extension is installed, showing the four step setup wizard"
+            width="1280"
+            height="900"
+            loading="lazy"
+          />
+          <figcaption>
+            Chrome opens this page the moment LM Subs installs. It detects the
+            extension live, verifies toolbar pinning, and saves your first key
+            without leaving the tab.
+          </figcaption>
+        </figure>
       </section>
 
       {/* Step 3 */}
@@ -221,7 +236,7 @@ export function GuideView({
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/03-toolbar-popup.png?v=8"
+              src="/assets/screenshots/03-toolbar-popup.png?v=9"
               alt="LM Subs Chrome toolbar popup showing where to paste and save your free Groq API key"
               width="1280"
               height="800"
@@ -234,7 +249,7 @@ export function GuideView({
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/06-api-key-guide.png?v=8"
+              src="/assets/screenshots/06-api-key-guide.png?v=9"
               alt="LM Subs settings page showing a numbered step by step walkthrough for creating a Groq API key"
               width="1180"
               height="900"
@@ -300,7 +315,7 @@ export function GuideView({
 
           <figure className="product-figure" style={{ marginTop: 0 }}>
             <img
-              src="/assets/screenshots/01-player-subtitles.png?v=8"
+              src="/assets/screenshots/01-player-subtitles.png?v=9"
               alt="Highlighted spoken-word captions and bottom play-bar controls inside a NotebookLM Video Overview"
               width="1280"
               height="800"

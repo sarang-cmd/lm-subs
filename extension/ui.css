@@ -40,6 +40,20 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
+
+  /* Padding scale shared by the popup, the options page and the play bar */
+  --pad-gutter: 24px;
+  --pad-sheet: 20px;
+  --pad-pop-y: 14px;
+  --pad-pop-x: 18px;
+  --pad-section-y: 40px;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --pad-gutter: 16px;
+    --pad-section-y: 30px;
+  }
 }
 
 *,
@@ -69,6 +83,7 @@ body {
 
 body.popup-body {
   width: 392px;
+  max-width: 100vw;
   font-size: 13px;
   padding: 0;
 }
@@ -105,7 +120,7 @@ summary:focus-visible {
   max-width: 1040px;
   height: 100%;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--pad-gutter);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -170,11 +185,11 @@ summary:focus-visible {
 .container {
   max-width: 1040px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--pad-gutter);
 }
 
 .ext-section {
-  padding: 36px 0;
+  padding: var(--pad-section-y) 0;
   border-bottom: 1px solid var(--border-hairline);
 }
 
@@ -236,7 +251,7 @@ summary:focus-visible {
   background: var(--bg-sheet);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
-  padding: 18px 20px;
+  padding: var(--pad-sheet) 22px;
 }
 
 .sheet-flush {
@@ -251,7 +266,7 @@ summary:focus-visible {
 
 /* Popup Sections (flat hairline stack, zero nested card clutter) */
 .popup-section {
-  padding: 12px 16px;
+  padding: var(--pad-pop-y) var(--pad-pop-x);
   border-bottom: 1px solid var(--border-hairline);
 }
 
@@ -748,7 +763,7 @@ details.compact-disclosure[open] .disclosure-chevron {
 }
 
 .compact-disclosure-body {
-  padding: 10px 11px 12px;
+  padding: 12px 14px 14px;
   border-top: 1px solid var(--border-hairline);
   background: var(--bg-canvas);
 }
@@ -1126,4 +1141,41 @@ input[type="range"] {
   .stats-num {
     font-size: 22px;
   }
+}
+
+/* Release notes block inside the update banner and settings update card */
+.update-notes {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.update-notes-heading {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-primary);
+  margin-bottom: 6px;
+}
+
+.update-notes-lede {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+  margin-bottom: 8px;
+}
+
+.update-notes-list {
+  margin: 0;
+  padding-left: 17px;
+  display: grid;
+  gap: 6px;
+}
+
+.update-notes-list li {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
 }

@@ -333,7 +333,7 @@ test("Service Worker E2E: Audio Overview (.mp3 / .ogg) transcribes directly via 
     fetchImpl: swFetch,
     runtimeApi: {
       id: "abcdefghijklmnopabcdefghijklmnop",
-      getManifest: () => ({ version: "0.2.6" }),
+      getManifest: () => ({ version: "0.2.7" }),
     },
   });
 
@@ -342,7 +342,7 @@ test("Service Worker E2E: Audio Overview (.mp3 / .ogg) transcribes directly via 
     storageArea: storage,
     runtimeApi: {
       id: "abcdefghijklmnopabcdefghijklmnop",
-      getManifest: () => ({ version: "0.2.6" }),
+      getManifest: () => ({ version: "0.2.7" }),
     },
   });
 
@@ -394,7 +394,7 @@ test("Auto-Welcome on Extension Install & Two-Way Setup Wizard Security Invarian
 
   const runtimeApi = {
     id: "abcdefghijklmnopabcdefghijklmnop",
-    getManifest: () => ({ version: "0.2.6" }),
+    getManifest: () => ({ version: "0.2.7" }),
     onInstalled: {
       addListener(fn) {
         onInstalledListener = fn;
@@ -424,13 +424,13 @@ test("Auto-Welcome on Extension Install & Two-Way Setup Wizard Security Invarian
 
   assert.equal(typeof onInstalledListener, "function");
 
-  // 1. Simulate fresh extension install -> must open /welcome?installed=1&v=0.2.6&extId=...
+  // 1. Simulate fresh extension install -> must open /welcome?installed=1&v=0.2.7&extId=...
   onInstalledListener({ reason: "install" });
   assert.equal(createdTabs.length, 1);
   assert.equal(createdTabs[0].active, true);
   assert.match(
     createdTabs[0].url,
-    /^https:\/\/lm-subs\.vercel\.app\/welcome\?installed=1&v=0\.2\.6&extId=abcdefghijklmnopabcdefghijklmnop$/
+    /^https:\/\/lm-subs\.vercel\.app\/welcome\?installed=1&v=0\.2\.7&extId=abcdefghijklmnopabcdefghijklmnop$/
   );
 
   // 2. Simulate routine extension update -> must NOT spam-open a welcome tab
@@ -468,7 +468,7 @@ test("Auto-Welcome on Extension Install & Two-Way Setup Wizard Security Invarian
     { origin: "https://lm-subs.vercel.app" }
   );
   assert.equal(handshake.ok, true);
-  assert.equal(handshake.version, "0.2.6");
+  assert.equal(handshake.version, "0.2.7");
   assert.equal(handshake.setupState.popupOpenedCount, 1);
   // Handshake must NEVER leak raw secret keys or cloud sync tokens
   const serialized = JSON.stringify(handshake);
