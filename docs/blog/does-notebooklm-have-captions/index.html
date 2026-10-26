@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>Does Google NotebookLM have captions or subtitles? | LM Subs</title>
+    <meta name="description" content="Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does and does not offer, and how to add real timed subtitles." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/blog/does-notebooklm-have-captions" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=4" />
+    <link rel="shortcut icon" href="/favicon.ico?v=4" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="Does Google NotebookLM have captions or subtitles?" />
+    <meta property="og:description" content="Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does and does not offer, and how to add real timed subtitles." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/blog/does-notebooklm-have-captions" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta property="article:author" content="https://github.com/sarang-cmd" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Does Google NotebookLM have captions or subtitles?" />
+    <meta name="twitter:description" content="Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does and does not offer, and how to add real timed subtitles." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=4" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"Does Google NotebookLM have captions or subtitles?","description":"Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does and does not offer, and how to add real timed subtitles.","url":"https://lm-subs.vercel.app/blog/does-notebooklm-have-captions","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/does-notebooklm-have-captions"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM captions, NotebookLM subtitles, does NotebookLM have closed captions, NotebookLM accessibility","isAccessibleForFree":true}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does NotebookLM have closed captions built in?","acceptedAnswer":{"@type":"Answer","text":"No. NotebookLM shows no CC button and attaches no timed text track to Video Overview or Audio Overview media. Source transcripts in the side panel are text views of your uploaded documents, not captions for the narration."}},{"@type":"Question","name":"Can I download a transcript from NotebookLM?","acceptedAnswer":{"@type":"Answer","text":"You can copy text out of the sources and chat panels, but NotebookLM does not export a timed transcript for a Video Overview. Exporting synchronized captions requires generating them from the audio track."}},{"@type":"Question","name":"Are captions available in languages other than English?","acceptedAnswer":{"@type":"Answer","text":"NotebookLM narrates in a limited set of languages, and caption availability depends on the speech-to-text provider you use. Most providers LM Subs supports, including Groq, Mistral, and Deepgram, cover 50 or more languages with automatic detection."}}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"Does Google NotebookLM have captions or subtitles?","item":"https://lm-subs.vercel.app/blog/does-notebooklm-have-captions"}]}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link">
+          <span class="brand-mark-text">LM Subs</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-tab" href="/">Overview</a>
+          <a class="nav-tab" href="/guide">Setup guide</a>
+          <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
+          <a class="nav-tab" href="/library">Library</a>
+          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/about">About</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content" class="page-wrap">
+      <article class="section-block">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 14px">
+          <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / Does NotebookLM have captions?
+        </nav>
+
+        <h1 class="section-heading">Does Google NotebookLM have captions or subtitles?</h1>
+        <p class="hint" style="margin-top: 8px">
+          By <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>, creator of LM Subs. Published 2026-10-26.
+        </p>
+        <p class="section-prose" style="font-size: 17px">Google NotebookLM can turn a stack of papers into a narrated Video Overview in a couple of minutes. The one thing it does not generate is captions. There is no CC button, no transcript panel tied to the timeline, and no subtitle file to download. This page explains exactly what you get, what you do not, and the three realistic ways to add captions.</p>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">The short answer</h2>
+        <p class="section-prose">No. As of October 2026, Google NotebookLM does not render closed captions or subtitles for Video Overviews, and it does not render them for Audio Overview podcasts either. You can read a written transcript of a source document in the Sources panel, but that transcript is not the narration script, is not time-aligned to the media, and cannot be exported as an .SRT or .VTT file.</p>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">What NotebookLM actually gives you</h2>
+        <ul class="prose-list">
+          <li>A Video Overview player with play, pause, scrub, speed, fullscreen, and volume controls.</li>
+          <li>An Audio Overview player for the two-host podcast format.</li>
+          <li>Source transcripts and chat answers in the side panel, which are text views of your uploaded documents.</li>
+          <li>No caption toggle, no caption styling, and no timed text track attached to the media element.</li>
+        </ul>
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Three ways to get captions on a Video Overview</h2>
+        <h3 class="section-heading" style="font-size: 1.08rem; margin-top: 22px">1. Operating system live captions</h3>
+        <p class="section-prose">Windows 11, macOS, and ChromeOS all ship system-wide live captions that listen to whatever audio your machine plays. They work with zero setup and cost nothing. The trade-offs are real: accuracy drops sharply on technical vocabulary, there is no transcript you can search or export, the overlay sits outside the video frame, and captions cannot follow you to another device.</p>
+        <h3 class="section-heading" style="font-size: 1.08rem; margin-top: 22px">2. Download the file and transcribe it by hand</h3>
+        <p class="section-prose">You can save the Video Overview, run it through a transcription tool, and load the resulting subtitle file back into a local player. This produces accurate, exportable subtitles, but it costs several minutes per video, breaks the in-browser workflow, and means uploading a 50 MB MP4 when only a few megabytes of audio matter.</p>
+        <h3 class="section-heading" style="font-size: 1.08rem; margin-top: 22px">3. A browser extension that captions the player in place</h3>
+        <p class="section-prose">LM Subs takes this route. It finds the media stream behind the open Video Overview, extracts the audio-only track inside your browser, and sends about 3.4 MB of audio to a speech-to-text provider you control. Captions then render inside the video frame with a CC toggle docked in NotebookLM's own play bar, and you can export .SRT, .VTT, .TXT, .MD, .CSV, or .JSON at any point.</p>
+        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="/welcome">Set up captions in two minutes</a><a class="btn" href="/guide">Read the setup guide</a></div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Frequently asked questions</h2>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Does NotebookLM have closed captions built in?</h3>
+          <p class="section-prose">No. NotebookLM shows no CC button and attaches no timed text track to Video Overview or Audio Overview media. Source transcripts in the side panel are text views of your uploaded documents, not captions for the narration.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Can I download a transcript from NotebookLM?</h3>
+          <p class="section-prose">You can copy text out of the sources and chat panels, but NotebookLM does not export a timed transcript for a Video Overview. Exporting synchronized captions requires generating them from the audio track.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Are captions available in languages other than English?</h3>
+          <p class="section-prose">NotebookLM narrates in a limited set of languages, and caption availability depends on the speech-to-text provider you use. Most providers LM Subs supports, including Groq, Mistral, and Deepgram, cover 50 or more languages with automatic detection.</p>
+        </div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Related reading</h2>
+        <ul class="prose-list">
+          <li><a class="link" href="/blog/notebooklm-video-overview-subtitles">How to add subtitles to NotebookLM Video Overviews (step by step)</a></li>
+          <li><a class="link" href="/blog/free-speech-to-text-api-keys">Free speech-to-text API keys that actually work for captioning in 2026</a></li>
+          <li><a class="link" href="/blog/export-notebooklm-transcript-srt-vtt">Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV</a></li>
+        </ul>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

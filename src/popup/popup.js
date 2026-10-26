@@ -8,7 +8,16 @@
 
 import { NOTEBOOKLM_HOSTS, RUNTIME_MESSAGE } from "../config/selectors.js";
 import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
-import { playCompletionChimeSound } from "../lib/chime.js";
+import {
+  playCompletionChimeSound,
+  SOUND_PRESETS,
+  unlockChimeAudio,
+} from "../lib/chime.js";
+import {
+  buildUnifiedStatsReport,
+  formatMegabytesValue,
+  formatMinutesLabel,
+} from "../lib/stats-model.js";
 import {
   getProviderOriginPattern,
   getProviderSpec,
@@ -134,6 +143,10 @@ async function initPopup() {
 
   const popupNotifBadge = document.getElementById("popup-notif-badge");
   const popupNotifSummary = document.getElementById("popup-notif-summary");
+  const popupSoundPreset = document.getElementById("popup-sound-preset");
+  const popupPreviewSoundBtn = document.getElementById("popup-preview-sound-btn");
+  const popupRefreshStatsBtn = document.getElementById("popup-refresh-stats-btn");
+  const popupOpenStatsBtn = document.getElementById("popup-open-stats-btn");
   const popupEnableOsNotifBtn = document.getElementById("popup-enable-os-notif-btn");
   const popupCheckUpdatesBtn = document.getElementById("popup-check-updates-btn");
   const popupUpdateStatusHint = document.getElementById("popup-update-status-hint");
@@ -318,6 +331,63 @@ async function initPopup() {
     }
   }
 
+  /**
+   * Statistics rendered in the toolbar popup use the exact same unified report
+   * as the website dashboard and the extension settings page.
+   */
+  async function renderPopupStats() {
+    const el = (id) => document.getElementById(id);
+    const notebookStatsRes = await sendRuntime({
+      type: RUNTIME_MESSAGE.GET_NOTEBOOKLM_STATS,
+    });
+    const notebookLmStats = notebookStatsRes?.ok ? notebookStatsRes.stats : null;
+
+    let cloudStats = null;
+    if (syncProfile?.connected) {
+      const res = await sendRuntime({ type: RUNTIME_MESSAGE.SYNC_GET_STATS });
+      if (res?.ok && res.totals) cloudStats = res;
+    }
+
+    const report = buildUnifiedStatsReport({
+      cacheList,
+      notebookLmStats,
+      cloudStats,
+    });
+
+    const t = report.totals;
+    const nb = report.notebookLm;
+
+    const set = (id, value) => {
+      const node = el(id);
+      if (node) node.textContent = value;
+    };
+
+    set("popup-stat-videos", String(t.videosCaptioned || 0));
+    set("popup-stat-cues", String(t.totalCues || 0));
+    set("popup-stat-saved", formatMegabytesValue(t.bandwidthSavedBytes || 0));
+    set(
+      "popup-stat-latency",
+      t.medianLatencyMs ? `${(t.medianLatencyMs / 1000).toFixed(1)}s` : "n/a"
+    );
+    set("popup-stat-notebooks", String(nb.notebooksCount || 0));
+    set("popup-stat-sources", String(nb.sourcesIndexed || 0));
+    set("popup-stat-study", formatMinutesLabel((nb.activeStudyMinutes || 0) * 60));
+    set("popup-stat-citations", String(nb.citationsCount || 0));
+
+    const summary = el("popup-stats-summary");
+    if (summary) {
+      summary.textContent = `${t.videosCaptioned || 0} captioned · ${
+        nb.notebooksCount || 0
+      } notebooks`;
+    }
+    const note = el("popup-stats-note");
+    if (note) {
+      note.textContent = syncProfile?.connected
+        ? "Merged live account telemetry with this browser's local cache."
+        : "Computed on this device. Sign in to merge cross-device numbers.";
+    }
+  }
+
   function renderLastStatus() {
     if (!lastStatus) {
       lastStatusCard.style.display = "none";
@@ -461,7 +531,7 @@ async function initPopup() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.5";
+      "0.2.6";
 
     if (popupUpdateStatusHint) {
       const folderPart = dirInfo.linked
@@ -585,6 +655,17 @@ async function initPopup() {
   renderUpdateBanner();
   inspectGoogleHostPermissions();
   inspectActiveTab();
+
+  if (popupSoundPreset) {
+    popupSoundPreset.textContent = "";
+    for (const preset of SOUND_PRESETS) {
+      const option = document.createElement("option");
+      option.value = preset.id;
+      option.textContent = preset.label;
+      popupSoundPreset.appendChild(option);
+    }
+    popupSoundPreset.value = settings.notificationSoundPreset || "chime";
+  }
 
   // Trigger non-blocking background sync + release check when popup opens
   sendRuntime({
@@ -967,7 +1048,19 @@ async function initPopup() {
     });
     chrome.runtime?.onMessage?.addListener((msg) => {
       if (msg?.type === RUNTIME_MESSAGE.SUBTITLES_READY && settings.soundAlerts) {
-        playCompletionChimeSound({ win: window }).catch(() => {});
+        playCompletionChimeSound({
+          win: window,
+          preset: settings.notificationSoundPreset || "chime",
+          volume: Number(settings.notificationSoundVolume) || 75,
+        }).catch(() => {});
+      }
+      if (msg?.type === RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND) {
+        playCompletionChimeSound({
+          win: window,
+          preset: msg.preset || settings.notificationSoundPreset || "chime",
+          volume: Number(msg.volume ?? settings.notificationSoundVolume) || 75,
+          force: true,
+        }).catch(() => {});
       }
       return false;
     });
@@ -979,6 +1072,44 @@ async function initPopup() {
   openQueueBtn.addEventListener("click", openOptions);
   openOptionsBtn.addEventListener("click", openOptions);
   popupOpenSyncBtn?.addEventListener("click", openOptions);
+
+  popupOpenStatsBtn?.addEventListener("click", () => {
+    const url = "https://lm-subs.vercel.app/stats";
+    if (chrome.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  });
+
+  popupRefreshStatsBtn?.addEventListener("click", () => {
+    renderPopupStats();
+  });
+
+  popupSoundPreset?.addEventListener("change", async () => {
+    unlockChimeAudio(window);
+    settings = await saveSettings({
+      notificationSoundPreset: popupSoundPreset.value || "chime",
+    });
+    await playCompletionChimeSound({
+      win: window,
+      preset: popupSoundPreset.value,
+      volume: Number(settings.notificationSoundVolume) || 75,
+      force: true,
+    });
+  });
+
+  popupPreviewSoundBtn?.addEventListener("click", async () => {
+    unlockChimeAudio(window);
+    await playCompletionChimeSound({
+      win: window,
+      preset: popupSoundPreset?.value || settings.notificationSoundPreset || "chime",
+      volume: Number(settings.notificationSoundVolume) || 75,
+      force: true,
+    });
+  });
+
+  await renderPopupStats();
 }
 
 document.addEventListener("DOMContentLoaded", initPopup);

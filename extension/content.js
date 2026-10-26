@@ -169,7 +169,10 @@
     GET_UPDATE_STATUS: "LM_SUBS_GET_UPDATE_STATUS",
     APPLY_UNPACKED_UPDATE: "LM_SUBS_APPLY_UNPACKED_UPDATE",
     SUBTITLES_UPDATED: "LM_SUBS_SUBTITLES_UPDATED",
-    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK"
+    BACKGROUND_SYNC_TICK: "LM_SUBS_BACKGROUND_SYNC_TICK",
+    RECORD_NOTEBOOKLM_TELEMETRY: "LM_SUBS_RECORD_NOTEBOOKLM_TELEMETRY",
+    GET_NOTEBOOKLM_STATS: "LM_SUBS_GET_NOTEBOOKLM_STATS",
+    PLAY_NOTIFICATION_SOUND: "LM_SUBS_PLAY_NOTIFICATION_SOUND"
   });
 
   // src/lib/audio-extract.js
@@ -395,9 +398,91 @@
   }
 
   // src/lib/chime.js
+  var SOUND_PRESETS = Object.freeze([
+    {
+      id: "chime",
+      label: "Acoustic fifth chime (C5 to G5)",
+      durationSec: 0.46,
+      wave: "triangle",
+      decayRate: 10.2,
+      overtoneRatio: 2,
+      overtoneGain: 0.24,
+      notes: [
+        { offset: 0, dur: 0.24, freq: 523.25 },
+        { offset: 0.11, dur: 0.32, freq: 783.99 }
+      ]
+    },
+    {
+      id: "marimba",
+      label: "Studio triad marimba (C5, E5, G5)",
+      durationSec: 0.52,
+      wave: "sine",
+      decayRate: 14.5,
+      overtoneRatio: 4,
+      overtoneGain: 0.18,
+      notes: [
+        { offset: 0, dur: 0.18, freq: 523.25 },
+        { offset: 0.085, dur: 0.19, freq: 659.25 },
+        { offset: 0.17, dur: 0.31, freq: 783.99 }
+      ]
+    },
+    {
+      id: "bell",
+      label: "Crystal desk bell (A5 shimmer)",
+      durationSec: 0.56,
+      wave: "sine",
+      decayRate: 8.4,
+      overtoneRatio: 2.756,
+      overtoneGain: 0.2,
+      notes: [
+        { offset: 0, dur: 0.52, freq: 880 },
+        { offset: 0.03, dur: 0.46, freq: 1318.51 }
+      ]
+    },
+    {
+      id: "pulse",
+      label: "Crisp double pulse (F5 to A5)",
+      durationSec: 0.38,
+      wave: "triangle",
+      decayRate: 16,
+      overtoneRatio: 2,
+      overtoneGain: 0.15,
+      notes: [
+        { offset: 0, dur: 0.12, freq: 698.46 },
+        { offset: 0.11, dur: 0.22, freq: 880 }
+      ]
+    },
+    {
+      id: "soft-pop",
+      label: "Warm acoustic pluck (D5 to A5)",
+      durationSec: 0.34,
+      wave: "sine",
+      decayRate: 18.5,
+      overtoneRatio: 3,
+      overtoneGain: 0.14,
+      notes: [
+        { offset: 0, dur: 0.13, freq: 587.33 },
+        { offset: 0.07, dur: 0.22, freq: 880 }
+      ]
+    },
+    {
+      id: "none",
+      label: "Silent (visual alerts only)",
+      durationSec: 0,
+      wave: "sine",
+      decayRate: 10,
+      overtoneRatio: 2,
+      overtoneGain: 0,
+      notes: []
+    }
+  ]);
+  var SOUND_PRESET_IDS = Object.freeze(SOUND_PRESETS.map((p) => p.id));
   var sharedCtx = null;
-  var cachedWavDataUri = null;
+  var cachedWavUris = /* @__PURE__ */ new Map();
   var lastChimeEpochMs = 0;
+  function getSoundPresetSpec(presetId = "chime") {
+    return SOUND_PRESETS.find((p) => p.id === presetId) || SOUND_PRESETS[0];
+  }
   function bytesToBase64(bytes) {
     if (typeof Buffer !== "undefined") {
       return Buffer.from(bytes).toString("base64");
@@ -409,8 +494,9 @@
     }
     return globalThis.btoa(binary);
   }
-  function buildChimeWavBytes(sampleRate = 44100) {
-    const durationSec = 0.44;
+  function buildChimeWavBytes(sampleRate = 44100, presetId = "chime") {
+    const spec = presetId === "none" ? SOUND_PRESETS[0] : getSoundPresetSpec(presetId);
+    const durationSec = Math.max(0.28, spec.durationSec || 0.44);
     const numSamples = Math.floor(sampleRate * durationSec);
     const dataBytes = numSamples * 2;
     const buf = new ArrayBuffer(44 + dataBytes);
@@ -433,21 +519,17 @@
     view.setUint16(34, 16, true);
     writeAscii(36, "data");
     view.setUint32(40, dataBytes, true);
-    const notes = [
-      { start: 0, dur: 0.24, freq: 523.25 },
-      { start: 0.11, dur: 0.31, freq: 783.99 }
-    ];
     for (let i = 0; i < numSamples; i += 1) {
       const t = i / sampleRate;
       let sample = 0;
-      for (const note of notes) {
-        if (t >= note.start && t <= note.start + note.dur) {
-          const lt = t - note.start;
-          const attack = Math.min(1, lt / 0.012);
-          const decay = Math.exp(-lt * 10.5);
+      for (const note of spec.notes) {
+        if (t >= note.offset && t <= note.offset + note.dur) {
+          const lt = t - note.offset;
+          const attack = Math.min(1, lt / 0.01);
+          const decay = Math.exp(-lt * spec.decayRate);
           const env = attack * decay;
           const fundamental = Math.sin(2 * Math.PI * note.freq * lt);
-          const harmonic = 0.28 * Math.sin(2 * Math.PI * note.freq * 2 * lt);
+          const harmonic = spec.overtoneGain * Math.sin(2 * Math.PI * note.freq * spec.overtoneRatio * lt);
           sample += env * (fundamental + harmonic) * 0.34;
         }
       }
@@ -456,12 +538,13 @@
     }
     return new Uint8Array(buf);
   }
-  function getChimeWavDataUri() {
-    if (!cachedWavDataUri) {
-      const wavBytes = buildChimeWavBytes(44100);
-      cachedWavDataUri = `data:audio/wav;base64,${bytesToBase64(wavBytes)}`;
+  function getChimeWavDataUri(presetId = "chime") {
+    const key = SOUND_PRESET_IDS.includes(presetId) && presetId !== "none" ? presetId : "chime";
+    if (!cachedWavUris.has(key)) {
+      const wavBytes = buildChimeWavBytes(44100, key);
+      cachedWavUris.set(key, `data:audio/wav;base64,${bytesToBase64(wavBytes)}`);
     }
-    return cachedWavDataUri;
+    return cachedWavUris.get(key);
   }
   function getOrCreateAudioContext(win = globalThis) {
     if (sharedCtx && sharedCtx.state !== "closed") {
@@ -494,13 +577,13 @@
       return false;
     }
   }
-  async function playWavElementFallback(win = globalThis) {
+  async function playWavElementFallback(win = globalThis, presetId = "chime", volumePct = 75) {
     try {
       const AudioCtor = win?.Audio || globalThis.Audio;
       if (typeof AudioCtor !== "function") return false;
-      const audio = new AudioCtor(getChimeWavDataUri());
+      const audio = new AudioCtor(getChimeWavDataUri(presetId));
       audio.__lmSubsInternal = true;
-      audio.volume = 0.72;
+      audio.volume = Math.max(0.05, Math.min(1, (Number(volumePct) || 75) / 100));
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.then === "function") {
         await playPromise;
@@ -512,14 +595,21 @@
   }
   async function playCompletionChimeSound({
     win = globalThis,
+    preset = "chime",
+    volume = 75,
     force = false,
-    dedupeMs = 1200
+    dedupeMs = 1100
   } = {}) {
+    if (preset === "none") return false;
+    const spec = getSoundPresetSpec(preset);
+    if (!spec.notes.length) return false;
     const nowMs = Date.now();
     if (!force && dedupeMs > 0 && nowMs - lastChimeEpochMs < dedupeMs) {
       return false;
     }
     lastChimeEpochMs = nowMs;
+    const volScale = Math.max(0.08, Math.min(1, (Number(volume) || 75) / 100));
+    const peakGain = 0.28 * volScale;
     try {
       const ctx = getOrCreateAudioContext(win);
       if (ctx) {
@@ -532,23 +622,22 @@
         }
         if (ctx.state === "running") {
           const t0 = ctx.currentTime;
-          const notes = [
-            { offset: 0, dur: 0.24, freq: 523.25 },
-            { offset: 0.11, dur: 0.31, freq: 783.99 }
-          ];
-          for (const n of notes) {
+          for (const n of spec.notes) {
             const osc = ctx.createOscillator();
             const overtone = ctx.createOscillator();
             const gain = ctx.createGain();
             const overtoneGain = ctx.createGain();
-            osc.type = "triangle";
+            osc.type = spec.wave || "triangle";
             osc.frequency.setValueAtTime(n.freq, t0 + n.offset);
             overtone.type = "sine";
-            overtone.frequency.setValueAtTime(n.freq * 2, t0 + n.offset);
-            overtoneGain.gain.setValueAtTime(0.22, t0 + n.offset);
+            overtone.frequency.setValueAtTime(
+              n.freq * (spec.overtoneRatio || 2),
+              t0 + n.offset
+            );
+            overtoneGain.gain.setValueAtTime(spec.overtoneGain || 0.2, t0 + n.offset);
             gain.gain.setValueAtTime(1e-4, t0 + n.offset);
-            gain.gain.linearRampToValueAtTime(0.24, t0 + n.offset + 0.014);
-            gain.gain.exponentialRampToValueAtTime(8e-4, t0 + n.offset + n.dur);
+            gain.gain.linearRampToValueAtTime(peakGain, t0 + n.offset + 0.012);
+            gain.gain.exponentialRampToValueAtTime(7e-4, t0 + n.offset + n.dur);
             osc.connect(gain);
             overtone.connect(overtoneGain);
             overtoneGain.connect(gain);
@@ -563,7 +652,7 @@
       }
     } catch {
     }
-    return playWavElementFallback(win);
+    return playWavElementFallback(win, spec.id, volume);
   }
 
   // src/lib/decide.js
@@ -685,8 +774,17 @@
     groq: Object.freeze({
       id: "groq",
       name: "Groq",
-      badge: "Best Free Tier \xB7 8 hrs/day",
+      badge: "Best Free Tier, 8 hrs/day",
       freeTierSummary: "Permanent free plan, no card: 20 RPM, 2,000 req/day, 7,200 audio sec/hr (2h/hr), 28,800 sec/day (8h/day).",
+      accountRequirements: "Free Google, GitHub, or email sign-in. No credit card needed.",
+      keyFormatHint: "Starts with gsk_ (about 56 characters)",
+      setupSteps: Object.freeze([
+        "Open console.groq.com/keys in a new tab.",
+        "Click Log in or Sign up and continue with your Google account, GitHub account, or email address.",
+        "Once inside GroqCloud, click API Keys in the left navigation bar.",
+        "Click the Create API Key button, type LM Subs as the display name, and click Submit.",
+        "Click Copy beside the new gsk_... key right away (Groq shows it once), paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "whisper-large-v3-turbo",
       models: ["whisper-large-v3-turbo", "whisper-large-v3"],
       requiresKey: true,
@@ -694,15 +792,23 @@
       keyUrl: "https://console.groq.com/keys",
       originPattern: "https://api.groq.com/*",
       maxUploadBytes: 24 * 1024 * 1024,
-      // 25 MB hard cap -> 24 MB safety margin
       protocol: "openai-stt",
       endpoint: "https://api.groq.com/openai/v1/audio/transcriptions"
     }),
     mistral: Object.freeze({
       id: "mistral",
       name: "Mistral (Voxtral)",
-      badge: "Free Studio Tier \xB7 No Card",
+      badge: "Free Studio Tier, No Card",
       freeTierSummary: "Mistral Studio Experiment plan (free, no card). Voxtral Transcribe 3 returns accurate segment timestamps in 50+ languages.",
+      accountRequirements: "Free Google, Microsoft, Apple, or email sign-in with phone verification on Experiment tier.",
+      keyFormatHint: "32-character alphanumeric Mistral key",
+      setupSteps: Object.freeze([
+        "Open console.mistral.ai/api-keys in a new tab.",
+        "Sign up or sign in using Google, Microsoft, Apple, or your email and password.",
+        "If prompted to choose a workspace plan, select the free Experiment plan (no credit card required).",
+        "Open API Keys in the left sidebar, click Create new key, name it LM Subs, and click Create new key.",
+        "Copy the generated key string immediately, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "voxtral-mini-transcribe-3",
       models: [
         "voxtral-mini-transcribe-3",
@@ -720,8 +826,17 @@
     gemini: Object.freeze({
       id: "gemini",
       name: "Google Gemini (AI Studio)",
-      badge: "Free Daily Tier \xB7 + Translation",
+      badge: "Free Daily Tier + Translation",
       freeTierSummary: "Google AI Studio free tier, no card. Multimodal audio-to-SRT with optional single-pass subtitle translation.",
+      accountRequirements: "Uses the same Google account you already use for Google NotebookLM. No billing setup needed for free tier.",
+      keyFormatHint: "Starts with AIzaSy (39 characters)",
+      setupSteps: Object.freeze([
+        "Open aistudio.google.com/apikey while signed into your Google account.",
+        "Accept the Google AI Studio terms prompt if this is your first visit.",
+        "Click the blue Create API key button near the top-right corner.",
+        "Select Create API key in new project (or pick an existing Google Cloud project).",
+        "Click Copy on the AIzaSy... key, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "gemini-2.5-flash",
       models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
       requiresKey: true,
@@ -729,15 +844,23 @@
       keyUrl: "https://aistudio.google.com/apikey",
       originPattern: "https://generativelanguage.googleapis.com/*",
       maxUploadBytes: 18 * 1024 * 1024,
-      // Inline base64 stays comfortably under 20 MB request cap
       protocol: "gemini-stt",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models"
     }),
     deepgram: Object.freeze({
       id: "deepgram",
       name: "Deepgram",
-      badge: "$200 Free Credit \xB7 ~700 hrs",
+      badge: "$200 Free Credit, ~700 hrs",
       freeTierSummary: "$200 signup credit with no credit card (~700+ hours of Nova-3 batch audio with word-level timestamps).",
+      accountRequirements: "Free Google, GitHub, or email sign-up. Includes $200 promotional credit without entering a card.",
+      keyFormatHint: "40-character hexadecimal secret key",
+      setupSteps: Object.freeze([
+        "Open console.deepgram.com in a new tab.",
+        "Click Sign Up (or Log In) with Google, GitHub, or email to claim the free $200 credit.",
+        "In the left sidebar of your Default Project, click API Keys.",
+        "Click Create a New API Key, enter LM Subs as the friendly name, leave Member permissions selected, and click Create Key.",
+        "Copy the secret key before closing the modal, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "nova-3",
       models: ["nova-3", "nova-2"],
       requiresKey: true,
@@ -751,8 +874,17 @@
     assemblyai: Object.freeze({
       id: "assemblyai",
       name: "AssemblyAI",
-      badge: "$50 Free Credit \xB7 ~330 hrs",
+      badge: "$50 Free Credit, ~330 hrs",
       freeTierSummary: "$50 free signup credit with no card (~330 hours on Universal-2 with word-level timestamps).",
+      accountRequirements: "Free Google, GitHub, or email sign-up with $50 starter credit.",
+      keyFormatHint: "32-character lowercase hexadecimal API key",
+      setupSteps: Object.freeze([
+        "Open assemblyai.com/app/account in a new tab.",
+        "Create a free account or sign in using Google, GitHub, or email.",
+        "After signing in, open the API Keys section on your dashboard home or Account page.",
+        "Click Copy next to your Default API key (or click Create new API key and name it LM Subs).",
+        "Paste the key into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "universal",
       models: ["universal", "nano"],
       requiresKey: true,
@@ -766,8 +898,17 @@
     gladia: Object.freeze({
       id: "gladia",
       name: "Gladia",
-      badge: "\u20AC50 Free Credit \xB7 ~80 hrs",
-      freeTierSummary: "\u20AC50 free credit (~80+ hours of Solaria-1 pre-recorded transcription with native SRT/VTT generation).",
+      badge: "Free Monthly Hours, Solaria-1",
+      freeTierSummary: "Free monthly transcription hours on Solaria-1 pre-recorded speech-to-text with native SRT/VTT generation.",
+      accountRequirements: "Free Google, GitHub, or email sign-up.",
+      keyFormatHint: "UUID-formatted Gladia API key (xxxxxxxx-xxxx-...)",
+      setupSteps: Object.freeze([
+        "Open app.gladia.io in a new tab.",
+        "Sign up or log in with Google, GitHub, or your email address.",
+        "Click API keys in the left dashboard menu (or copy the default key shown on the home card).",
+        "Click Generate new key if needed, label it LM Subs, and copy the UUID token.",
+        "Paste the token into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "solaria-1",
       models: ["solaria-1"],
       requiresKey: true,
@@ -783,6 +924,15 @@
       name: "Cloudflare Workers AI",
       badge: "Free 10k Neurons/day",
       freeTierSummary: "10,000 free Neurons every day. Enter credentials as ACCOUNT_ID:API_TOKEN.",
+      accountRequirements: "Free Cloudflare account (email, Google, or Apple). Uses combined ACCOUNT_ID:API_TOKEN format.",
+      keyFormatHint: "Combined format: your_account_id:your_api_token",
+      setupSteps: Object.freeze([
+        "Open dash.cloudflare.com and sign in or create a free Cloudflare account.",
+        "In the left sidebar, expand AI and click Workers AI, then click Use REST API.",
+        "Click Create a Workers AI API Token, confirm permissions (Workers AI Read/Edit), and copy the generated API Token.",
+        "On that same REST API page, copy your 32-character Account ID.",
+        "Combine both values with a colon in between as account_id:api_token, paste into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "@cf/openai/whisper-large-v3-turbo",
       models: ["@cf/openai/whisper-large-v3-turbo", "@cf/openai/whisper"],
       requiresKey: true,
@@ -798,6 +948,15 @@
       name: "ElevenLabs (Scribe v2)",
       badge: "10k Free Credits/mo",
       freeTierSummary: "10,000 monthly free credits (~30 min/month on Scribe v2) with word-level timestamps in 90+ languages.",
+      accountRequirements: "Free ElevenLabs account via Google, Apple, GitHub, or email.",
+      keyFormatHint: "Starts with sk_...",
+      setupSteps: Object.freeze([
+        "Open elevenlabs.io/app/settings/api-keys in a new tab.",
+        "Sign in or register for a free ElevenLabs account.",
+        "Click Create API Key in the API Keys panel and name it LM Subs.",
+        "Ensure the Speech-to-Text endpoint permission is enabled (or leave unrestricted), then click Create.",
+        "Copy the sk_... key, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "scribe_v2",
       models: ["scribe_v2"],
       requiresKey: true,
@@ -812,7 +971,16 @@
       id: "huggingface",
       name: "Hugging Face Inference",
       badge: "Free HF Token Quota",
-      freeTierSummary: "Free monthly Serverless Inference credits using any `hf_...` read/inference token.",
+      freeTierSummary: "Free monthly Serverless Inference credits using any hf_... inference token.",
+      accountRequirements: "Free Hugging Face account with verified email address.",
+      keyFormatHint: "Starts with hf_...",
+      setupSteps: Object.freeze([
+        "Open huggingface.co/settings/tokens in a new tab and sign in (or click Sign Up to register and verify your email).",
+        "Click the Create new token button.",
+        "Choose Fine-grained (and check Make calls to Inference Providers) or Read, and name the token LM Subs.",
+        "Click Create token at the bottom of the form.",
+        "Copy the hf_... token immediately, paste it into LM Subs, and click Save key then Test."
+      ]),
       defaultModel: "openai/whisper-large-v3-turbo",
       models: ["openai/whisper-large-v3-turbo", "openai/whisper-large-v3"],
       requiresKey: true,
@@ -827,7 +995,16 @@
       id: "openrouter",
       name: "OpenRouter",
       badge: "Unified BYOK Router",
-      freeTierSummary: "Unified OpenAI-compatible `/api/v1/audio/transcriptions` router across Voxtral & Whisper backends.",
+      freeTierSummary: "Unified OpenAI-compatible /api/v1/audio/transcriptions router across Voxtral and Whisper backends.",
+      accountRequirements: "OpenRouter account (Google, GitHub, MetaMask, or email); audio models use pay-as-you-go credits.",
+      keyFormatHint: "Starts with sk-or-v1-...",
+      setupSteps: Object.freeze([
+        "Open openrouter.ai/keys in a new tab and sign in with Google, GitHub, or email.",
+        "If your credit balance is $0, add a small prepaid balance under Credits for audio transcription endpoints.",
+        "Click Create Key, enter LM Subs as the name, optionally set a spending limit, and click Create.",
+        "Copy the sk-or-v1-... secret string right away.",
+        "Paste the key into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "mistralai/voxtral-mini-transcribe",
       models: ["mistralai/voxtral-mini-transcribe", "openai/whisper-1"],
       requiresKey: true,
@@ -842,7 +1019,16 @@
       id: "openai",
       name: "OpenAI Whisper",
       badge: "Standard Pay-As-You-Go",
-      freeTierSummary: "Official OpenAI `whisper-1` endpoint ($0.006/min) with word & segment `verbose_json` timestamps.",
+      freeTierSummary: "Official OpenAI whisper-1 endpoint ($0.006/min) with word and segment verbose_json timestamps.",
+      accountRequirements: "OpenAI Platform developer account (separate billing from ChatGPT Plus, minimum $5 prepaid credit).",
+      keyFormatHint: "Starts with sk-proj-... or sk-...",
+      setupSteps: Object.freeze([
+        "Open platform.openai.com/api-keys and log in with your OpenAI developer account.",
+        "Note that ChatGPT Plus subscriptions do not include API credits; ensure Billing has an active balance.",
+        "Click Create new secret key in the top-right corner, name it LM Subs, and keep All permissions (or Audio enabled).",
+        "Click Create secret key and copy the sk-proj-... token.",
+        "Paste the key into LM Subs and click Save key then Test."
+      ]),
       defaultModel: "whisper-1",
       models: ["whisper-1"],
       requiresKey: true,
@@ -856,8 +1042,17 @@
     custom: Object.freeze({
       id: "custom",
       name: "Local / Custom Whisper URL",
-      badge: "100% Free \xB7 Unlimited Local",
-      freeTierSummary: "Point at local `speaches`, `faster-whisper-server`, `whisper.cpp`, or `LocalAI` (`http://localhost:8000/v1`) for unlimited offline transcription.",
+      badge: "100% Free, Unlimited Local",
+      freeTierSummary: "Point at local speaches, faster-whisper-server, whisper.cpp, or LocalAI (http://localhost:8000/v1) for unlimited offline transcription.",
+      accountRequirements: "Zero account, zero sign-up, and zero API key required. Runs 100% offline on your own CPU or GPU.",
+      keyFormatHint: "Base URL http://localhost:8000/v1 (API key optional / blank)",
+      setupSteps: Object.freeze([
+        "Install Docker or Python and start an OpenAI-compatible local Whisper server such as speaches (docker run -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu).",
+        "Verify http://localhost:8000/v1 is reachable on your machine.",
+        "In LM Subs, enter http://localhost:8000/v1 as the OpenAI-compatible base URL.",
+        "Leave the API key field blank unless your local server requires a custom Bearer token.",
+        "Enable Local / Custom Whisper and click Save URL / Enable so audio stays completely on your machine."
+      ]),
       defaultModel: "Systran/faster-whisper-small",
       models: ["Systran/faster-whisper-small", "whisper-1"],
       requiresKey: false,
@@ -882,7 +1077,8 @@
     UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
     CLOUD_SYNC_SECRET: "cloudSyncSecret",
-    SETUP_STATE: "setupState"
+    SETUP_STATE: "setupState",
+    NOTEBOOKLM_STATS: "notebooklmStats"
   });
   var CAPTION_FONT_SIZES = Object.freeze([
     "small",
@@ -914,7 +1110,25 @@
   ]);
   var CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
   var CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
-  var PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
+  var PLAYBAR_DOCK_MODES = Object.freeze(["native", "hover", "always"]);
+  var NOTIFICATION_SOUND_PRESETS = Object.freeze([
+    "chime",
+    "marimba",
+    "bell",
+    "pulse",
+    "soft-pop",
+    "none"
+  ]);
+  var PLAYBACK_SPEEDS = Object.freeze([
+    0.5,
+    0.75,
+    1,
+    1.25,
+    1.5,
+    1.75,
+    2,
+    2.5
+  ]);
   var DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     debugMode: false,
@@ -950,9 +1164,47 @@
     clickCaptionToCopy: true,
     defaultPlaybackSpeed: 1,
     subtitleOffsetSec: 0,
+    fineGrainedControls: false,
+    dynamicCaptionScaling: true,
+    captionScaleFactor: 100,
+    // 50..200 (%)
+    captionMinFontPx: 10,
+    // 8..18 (px)
+    captionMaxFontPx: 42,
+    // 20..64 (px)
+    captionPaddingY: 7,
+    // 2..20 (px)
+    captionPaddingX: 15,
+    // 6..40 (px)
+    captionBorderRadius: 7,
+    // 0..32 (px)
+    captionLineHeight: 142,
+    // 115..185 (%)
+    captionBottomOffsetPx: 54,
+    // 24..180 (px)
+    captionTextStrokePx: 0,
+    // 0..3 (px)
+    karaokeHighlightOpacity: 48,
+    // 15..95 (%)
+    upcomingWordOpacity: 64,
+    // 25..100 (%)
+    playBarDockMode: "native",
+    // "native" | "hover" | "always"
+    hoverFadeDelayMs: 2200,
+    // 400..6000 (ms)
+    keepSubtitlesInPiP: true,
+    skipSilenceEnabled: false,
+    skipSilenceGapSec: 1.6,
+    // 0.6..5.0 (s)
+    skipSilenceRate: 2.2,
+    // 1.4..3.0 (x)
+    audioBoostPercent: 100,
+    // 100..250 (%)
     showToast: true,
     desktopNotifications: true,
-    soundAlerts: false,
+    soundAlerts: true,
+    notificationSoundPreset: "chime",
+    notificationSoundVolume: 75,
     badgeAlerts: true,
     notifyOnFailover: true,
     notifyOnSync: false,
@@ -1040,9 +1292,33 @@
       clickCaptionToCopy: typeof saved.clickCaptionToCopy === "boolean" ? saved.clickCaptionToCopy : DEFAULT_SETTINGS.clickCaptionToCopy,
       defaultPlaybackSpeed: PLAYBACK_SPEEDS.includes(Number(saved.defaultPlaybackSpeed)) ? Number(saved.defaultPlaybackSpeed) : DEFAULT_SETTINGS.defaultPlaybackSpeed,
       subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec)) ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec))) : 0,
+      fineGrainedControls: typeof saved.fineGrainedControls === "boolean" ? saved.fineGrainedControls : DEFAULT_SETTINGS.fineGrainedControls,
+      dynamicCaptionScaling: typeof saved.dynamicCaptionScaling === "boolean" ? saved.dynamicCaptionScaling : DEFAULT_SETTINGS.dynamicCaptionScaling,
+      captionScaleFactor: Number.isFinite(Number(saved.captionScaleFactor)) ? Math.max(50, Math.min(200, Math.round(Number(saved.captionScaleFactor)))) : DEFAULT_SETTINGS.captionScaleFactor,
+      captionMinFontPx: Number.isFinite(Number(saved.captionMinFontPx)) ? Math.max(8, Math.min(18, Math.round(Number(saved.captionMinFontPx)))) : DEFAULT_SETTINGS.captionMinFontPx,
+      captionMaxFontPx: Number.isFinite(Number(saved.captionMaxFontPx)) ? Math.max(20, Math.min(64, Math.round(Number(saved.captionMaxFontPx)))) : DEFAULT_SETTINGS.captionMaxFontPx,
+      captionPaddingY: Number.isFinite(Number(saved.captionPaddingY)) ? Math.max(2, Math.min(20, Math.round(Number(saved.captionPaddingY)))) : DEFAULT_SETTINGS.captionPaddingY,
+      captionPaddingX: Number.isFinite(Number(saved.captionPaddingX)) ? Math.max(6, Math.min(40, Math.round(Number(saved.captionPaddingX)))) : DEFAULT_SETTINGS.captionPaddingX,
+      captionBorderRadius: Number.isFinite(Number(saved.captionBorderRadius)) ? Math.max(0, Math.min(32, Math.round(Number(saved.captionBorderRadius)))) : DEFAULT_SETTINGS.captionBorderRadius,
+      captionLineHeight: Number.isFinite(Number(saved.captionLineHeight)) ? Math.max(115, Math.min(185, Math.round(Number(saved.captionLineHeight)))) : DEFAULT_SETTINGS.captionLineHeight,
+      captionBottomOffsetPx: Number.isFinite(Number(saved.captionBottomOffsetPx)) ? Math.max(24, Math.min(180, Math.round(Number(saved.captionBottomOffsetPx)))) : DEFAULT_SETTINGS.captionBottomOffsetPx,
+      captionTextStrokePx: Number.isFinite(Number(saved.captionTextStrokePx)) ? Math.max(0, Math.min(3, Math.round(Number(saved.captionTextStrokePx) * 2) / 2)) : DEFAULT_SETTINGS.captionTextStrokePx,
+      karaokeHighlightOpacity: Number.isFinite(Number(saved.karaokeHighlightOpacity)) ? Math.max(15, Math.min(95, Math.round(Number(saved.karaokeHighlightOpacity)))) : DEFAULT_SETTINGS.karaokeHighlightOpacity,
+      upcomingWordOpacity: Number.isFinite(Number(saved.upcomingWordOpacity)) ? Math.max(25, Math.min(100, Math.round(Number(saved.upcomingWordOpacity)))) : DEFAULT_SETTINGS.upcomingWordOpacity,
+      playBarDockMode: PLAYBAR_DOCK_MODES.includes(saved.playBarDockMode) ? saved.playBarDockMode : DEFAULT_SETTINGS.playBarDockMode,
+      hoverFadeDelayMs: Number.isFinite(Number(saved.hoverFadeDelayMs)) ? Math.max(400, Math.min(6e3, Math.round(Number(saved.hoverFadeDelayMs) / 100) * 100)) : DEFAULT_SETTINGS.hoverFadeDelayMs,
+      keepSubtitlesInPiP: typeof saved.keepSubtitlesInPiP === "boolean" ? saved.keepSubtitlesInPiP : DEFAULT_SETTINGS.keepSubtitlesInPiP,
+      skipSilenceEnabled: typeof saved.skipSilenceEnabled === "boolean" ? saved.skipSilenceEnabled : DEFAULT_SETTINGS.skipSilenceEnabled,
+      skipSilenceGapSec: Number.isFinite(Number(saved.skipSilenceGapSec)) ? Math.max(0.6, Math.min(5, Math.round(Number(saved.skipSilenceGapSec) * 10) / 10)) : DEFAULT_SETTINGS.skipSilenceGapSec,
+      skipSilenceRate: Number.isFinite(Number(saved.skipSilenceRate)) ? Math.max(1.4, Math.min(3, Math.round(Number(saved.skipSilenceRate) * 10) / 10)) : DEFAULT_SETTINGS.skipSilenceRate,
+      audioBoostPercent: Number.isFinite(Number(saved.audioBoostPercent)) ? Math.max(100, Math.min(250, Math.round(Number(saved.audioBoostPercent) / 5) * 5)) : DEFAULT_SETTINGS.audioBoostPercent,
       showToast: typeof saved.showToast === "boolean" ? saved.showToast : DEFAULT_SETTINGS.showToast,
       desktopNotifications: typeof saved.desktopNotifications === "boolean" ? saved.desktopNotifications : DEFAULT_SETTINGS.desktopNotifications,
       soundAlerts: typeof saved.soundAlerts === "boolean" ? saved.soundAlerts : DEFAULT_SETTINGS.soundAlerts,
+      notificationSoundPreset: NOTIFICATION_SOUND_PRESETS.includes(
+        saved.notificationSoundPreset
+      ) ? saved.notificationSoundPreset : DEFAULT_SETTINGS.notificationSoundPreset,
+      notificationSoundVolume: Number.isFinite(Number(saved.notificationSoundVolume)) ? Math.max(10, Math.min(100, Math.round(Number(saved.notificationSoundVolume)))) : DEFAULT_SETTINGS.notificationSoundVolume,
       badgeAlerts: typeof saved.badgeAlerts === "boolean" ? saved.badgeAlerts : DEFAULT_SETTINGS.badgeAlerts,
       notifyOnFailover: typeof saved.notifyOnFailover === "boolean" ? saved.notifyOnFailover : DEFAULT_SETTINGS.notifyOnFailover,
       notifyOnSync: typeof saved.notifyOnSync === "boolean" ? saved.notifyOnSync : DEFAULT_SETTINGS.notifyOnSync,
@@ -1922,6 +2198,12 @@ ${rows.join("\n")}
   }
 
   // src/content/player-overlay.js
+  function unlockChimeForGesture() {
+    try {
+      unlockChimeAudio(globalThis);
+    } catch {
+    }
+  }
   var FONT_SCALE_MAP = {
     small: "clamp(13px, 1.85cqh, 16px)",
     medium: "clamp(15px, 2.35cqh, 21px)",
@@ -1929,6 +2211,15 @@ ${rows.join("\n")}
     xlarge: "clamp(21px, 3.55cqh, 32px)",
     xxlarge: "clamp(24px, 4.2cqh, 38px)"
   };
+  var FONT_BASE_PX = {
+    small: 17,
+    medium: 21,
+    large: 25,
+    xlarge: 30,
+    xxlarge: 35
+  };
+  var REFERENCE_PLAYER_HEIGHT_PX = 720;
+  var CAPTION_LINGER_SEC = 0.28;
   var FONT_FAMILY_MAP = {
     sans: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     serif: 'Charter, "Bitstream Charter", Georgia, Cambria, "Times New Roman", serif',
@@ -1979,7 +2270,22 @@ ${rows.join("\n")}
     pointer-events: auto;
     opacity: 0.96;
     font-variant-numeric: tabular-nums;
-    transition: opacity 150ms ease, background-color 120ms ease;
+    transition: opacity 180ms ease, background-color 120ms ease;
+  }
+  /* Controls follow NotebookLM's own play bar: they fade in together with the
+     native controls on hover and fade out together with them. Visibility never
+     depends on whether a caption happens to be on screen, so nothing blinks. */
+  .toolbar {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, background-color 120ms ease;
+  }
+  :host([data-controls-visible="true"]) .toolbar {
+    opacity: 0.96;
+    pointer-events: auto;
+  }
+  :host([data-dock="native"]) .toolbar {
+    display: none;
   }
   :host([data-mode="audio"]) .toolbar {
     bottom: 14px;
@@ -2030,6 +2336,7 @@ ${rows.join("\n")}
   .toolbar:hover,
   .toolbar:focus-within {
     opacity: 1 !important;
+    pointer-events: auto;
     background: rgba(18, 20, 24, 0.92);
   }
   .cc-pill {
@@ -2174,7 +2481,7 @@ ${rows.join("\n")}
     position: absolute;
     left: 5%;
     right: 5%;
-    bottom: 56px;
+    bottom: var(--lms-caption-bottom, 56px);
     display: flex;
     justify-content: center;
     align-items: flex-end;
@@ -2182,7 +2489,7 @@ ${rows.join("\n")}
     transition: top 120ms ease, bottom 120ms ease, right 120ms ease;
   }
   .caption-stage[data-pos="raised"] {
-    bottom: 98px;
+    bottom: calc(var(--lms-caption-bottom, 56px) + 42px);
   }
   .caption-stage[data-pos="top"] {
     top: 42px;
@@ -2195,19 +2502,22 @@ ${rows.join("\n")}
   .caption-box {
     display: none;
     max-width: min(92%, 780px);
-    padding: 7px 15px 8px;
-    border-radius: 7px;
+    padding: var(--lms-caption-pad-y, 7px) var(--lms-caption-pad-x, 15px)
+      calc(var(--lms-caption-pad-y, 7px) + 1px);
+    border-radius: var(--lms-caption-radius, 7px);
     background: rgba(11, 13, 16, 0.88);
     color: #fdfdfe;
     text-align: center;
     font-weight: 500;
-    line-height: 1.42;
+    font-size: var(--lms-caption-font, clamp(15px, 2.35cqh, 21px));
+    line-height: var(--lms-caption-leading, 1.42);
     letter-spacing: 0.005em;
     white-space: pre-line;
     border: 1px solid rgba(255, 255, 255, 0.12);
     pointer-events: auto;
     cursor: pointer;
     user-select: text;
+    text-shadow: var(--lms-caption-stroke, none);
   }
   .caption-box[data-font="dyslexic"] {
     letter-spacing: 0.045em;
@@ -2243,7 +2553,7 @@ ${rows.join("\n")}
     opacity: 1;
   }
   .caption-word-current {
-    background: rgba(29, 92, 246, 0.48);
+    background: rgba(29, 92, 246, var(--lms-karaoke-alpha, 0.48));
     color: #ffffff;
     padding: 1px 5px;
     margin: 0 1px;
@@ -2251,11 +2561,11 @@ ${rows.join("\n")}
     font-weight: 600;
   }
   .caption-box[data-style="paper"] .caption-word-current {
-    background: rgba(0, 85, 212, 0.16);
+    background: rgba(0, 85, 212, var(--lms-karaoke-alpha, 0.16));
     color: #0055d4;
   }
   .caption-word-upcoming {
-    opacity: 0.64;
+    opacity: var(--lms-upcoming-alpha, 0.64);
   }
   .caption-secondary {
     display: block;
@@ -2541,6 +2851,144 @@ ${rows.join("\n")}
     display: none;
   }
 `;
+  var DOCK_STYLE_ID = "lm-subs-dock-style";
+  var DOCK_CSS = `
+  .lms-dock-btn {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    margin: 0 1px;
+    border-radius: 50%;
+    color: #f1f3f4;
+    fill: currentColor;
+    cursor: pointer;
+    opacity: 0.92;
+    font-family: "Google Sans", Roboto, "Plus Jakarta Sans", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    transition: background-color 120ms ease, opacity 120ms ease, color 120ms ease;
+  }
+  .lms-dock-btn:hover {
+    background-color: rgba(255, 255, 255, 0.14);
+    opacity: 1;
+  }
+  .lms-dock-btn:focus-visible {
+    outline: 2px solid #8ab4f8;
+    outline-offset: 1px;
+  }
+  .lms-dock-btn[data-active="true"] {
+    background-color: rgba(138, 180, 248, 0.22);
+    color: #8ab4f8;
+  }
+  .lms-dock-btn[data-disabled="true"] {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .lms-dock-cc {
+    width: auto;
+    min-width: 30px;
+    height: 24px;
+    padding: 0 6px;
+    margin: 0 3px;
+    border-radius: 4px;
+    border: 1.5px solid rgba(241, 243, 244, 0.82);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  .lms-dock-cc[data-active="true"] {
+    background-color: rgba(138, 180, 248, 0.24);
+    border-color: #8ab4f8;
+    color: #ffffff;
+  }
+  .lms-dock-cc[data-primary="true"] {
+    border-color: #8ab4f8;
+    background-color: rgba(138, 180, 248, 0.18);
+  }
+`;
+  function ensureDockStyle(doc) {
+    if (!doc || typeof doc.getElementById !== "function") return null;
+    let el = doc.getElementById(DOCK_STYLE_ID);
+    if (!el) {
+      const host = doc.head || doc.documentElement;
+      if (!host || typeof host.appendChild !== "function") return null;
+      el = doc.createElement("style");
+      el.id = DOCK_STYLE_ID;
+      el.textContent = DOCK_CSS;
+      host.appendChild(el);
+    }
+    return el;
+  }
+  function findNativeControlBar(video, doc) {
+    if (!video || typeof video.closest !== "function") return null;
+    const labelRe = /(play|pause|resume|rewind|forward|mute|unmute|full ?screen|subtitle|caption|closed caption|pip|picture)/i;
+    const safeRect = (el) => {
+      try {
+        return el?.getBoundingClientRect?.() || null;
+      } catch {
+        return null;
+      }
+    };
+    const videoRect = safeRect(video);
+    const videoHeight = Number(videoRect?.height) || 0;
+    const score = (node, depth2) => {
+      if (!node || node === video) return null;
+      let buttons = [];
+      try {
+        buttons = [...node.querySelectorAll?.("button, [role=button]") || []];
+      } catch {
+        buttons = [];
+      }
+      if (buttons.length < 2 || buttons.length > 26) return null;
+      let hits = 0;
+      for (const b of buttons) {
+        const label = `${b.getAttribute?.("aria-label") || ""} ${b.getAttribute?.("title") || ""} ${b.getAttribute?.("data-tooltip") || ""}`;
+        if (labelRe.test(label)) hits += 1;
+      }
+      if (hits < 2) return null;
+      const rect = safeRect(node);
+      const height = Number(rect?.height) || 0;
+      let bottomAligned = false;
+      if (rect && videoHeight > 0) {
+        const delta = Math.abs(rect.bottom - videoRect.bottom);
+        bottomAligned = delta <= Math.max(10, videoHeight * 0.08);
+      }
+      return { node, hits, buttonCount: buttons.length, height, bottomAligned, depth: depth2 };
+    };
+    const candidates = [];
+    let ancestor = video.parentElement;
+    let depth = 0;
+    while (ancestor && depth < 8) {
+      const own = score(ancestor, depth);
+      if (own) candidates.push(own);
+      let kids = [];
+      try {
+        kids = [...ancestor.children || []];
+      } catch {
+        kids = [];
+      }
+      for (const kid of kids) {
+        if (kid === video || kid.contains?.(video)) continue;
+        const kidScore = score(kid, depth + 1);
+        if (kidScore) candidates.push(kidScore);
+      }
+      ancestor = ancestor.parentElement;
+      depth += 1;
+    }
+    if (candidates.length === 0) return null;
+    const compact = candidates.filter((c) => c.bottomAligned && c.height > 0 && c.height <= 120).sort((a, b) => a.buttonCount - b.buttonCount || a.depth - b.depth);
+    if (compact.length > 0) return compact[0].node;
+    const smallest = [...candidates].sort(
+      (a, b) => a.buttonCount - b.buttonCount || a.depth - b.depth
+    )[0];
+    return smallest ? smallest.node : candidates[0].node;
+  }
   function formatBriefStamp(sec) {
     const full = formatTimestamp(sec, ".");
     return sec >= 3600 ? full.slice(0, 8) : full.slice(3, 8);
@@ -2598,6 +3046,26 @@ ${rows.join("\n")}
       initialClickCaptionToCopy = true,
       initialPlaybackSpeed = 1,
       initialOffsetSec = 0,
+      initialFineGrainedControls = false,
+      initialDynamicCaptionScaling = true,
+      initialCaptionScaleFactor = 100,
+      initialCaptionMinFontPx = 11,
+      initialCaptionMaxFontPx = 40,
+      initialCaptionPaddingY = 7,
+      initialCaptionPaddingX = 15,
+      initialCaptionBorderRadius = 7,
+      initialCaptionLineHeight = 142,
+      initialCaptionBottomOffsetPx = 54,
+      initialCaptionTextStrokePx = 0,
+      initialKaraokeHighlightOpacity = 48,
+      initialUpcomingWordOpacity = 64,
+      initialPlayBarDockMode = "native",
+      initialHoverFadeDelayMs = 2200,
+      initialKeepSubtitlesInPiP = true,
+      initialSkipSilenceEnabled = false,
+      initialSkipSilenceGapSec = 1.6,
+      initialSkipSilenceRate = 2.2,
+      initialAudioBoostPercent = 100,
       onRequestGenerate = () => {
       },
       onOffsetChange = () => {
@@ -2612,6 +3080,8 @@ ${rows.join("\n")}
       },
       onCiteCue = null,
       onImportSubtitles = () => {
+      },
+      onTelemetry = () => {
       }
     } = {}) {
       this.video = video;
@@ -2633,6 +3103,48 @@ ${rows.join("\n")}
       this.pauseOnCaptionHover = Boolean(initialPauseOnCaptionHover);
       this.clickCaptionToCopy = initialClickCaptionToCopy !== false;
       this.playbackSpeed = PLAYBACK_SPEEDS.includes(Number(initialPlaybackSpeed)) ? Number(initialPlaybackSpeed) : 1;
+      this.fineGrainedControls = Boolean(initialFineGrainedControls);
+      this.dynamicCaptionScaling = initialDynamicCaptionScaling !== false;
+      this.captionScaleFactor = this._clamp(
+        initialCaptionScaleFactor,
+        50,
+        200,
+        100
+      );
+      this.captionMinFontPx = this._clamp(initialCaptionMinFontPx, 8, 18, 11);
+      this.captionMaxFontPx = this._clamp(initialCaptionMaxFontPx, 20, 64, 40);
+      this.captionPaddingY = this._clamp(initialCaptionPaddingY, 2, 20, 7);
+      this.captionPaddingX = this._clamp(initialCaptionPaddingX, 6, 40, 15);
+      this.captionBorderRadius = this._clamp(initialCaptionBorderRadius, 0, 32, 7);
+      this.captionLineHeight = this._clamp(initialCaptionLineHeight, 115, 185, 142);
+      this.captionBottomOffsetPx = this._clamp(
+        initialCaptionBottomOffsetPx,
+        24,
+        180,
+        54
+      );
+      this.captionTextStrokePx = this._clamp(initialCaptionTextStrokePx, 0, 3, 0);
+      this.karaokeHighlightOpacity = this._clamp(
+        initialKaraokeHighlightOpacity,
+        15,
+        95,
+        48
+      );
+      this.upcomingWordOpacity = this._clamp(
+        initialUpcomingWordOpacity,
+        25,
+        100,
+        64
+      );
+      this.playBarDockMode = ["native", "hover", "always"].includes(
+        initialPlayBarDockMode
+      ) ? initialPlayBarDockMode : "native";
+      this.hoverFadeDelayMs = this._clamp(initialHoverFadeDelayMs, 400, 6e3, 2200);
+      this.keepSubtitlesInPiP = initialKeepSubtitlesInPiP !== false;
+      this.skipSilenceEnabled = Boolean(initialSkipSilenceEnabled);
+      this.skipSilenceGapSec = this._clamp(initialSkipSilenceGapSec, 0.6, 5, 1.6);
+      this.skipSilenceRate = this._clamp(initialSkipSilenceRate, 1.4, 3, 2.2);
+      this.audioBoostPercent = this._clamp(initialAudioBoostPercent, 100, 250, 100);
       this.offsetSec = Number.isFinite(initialOffsetSec) ? initialOffsetSec : 0;
       this.statusState = "idle";
       this.statusLabel = "";
@@ -2640,6 +3152,20 @@ ${rows.join("\n")}
       this.inPiP = false;
       this.idleTimer = null;
       this.syncTimer = null;
+      this.pointerOverPlayer = false;
+      this.nativeControlsVisible = true;
+      this.controlsVisible = true;
+      this.nativeControlBar = null;
+      this.dockButtons = {};
+      this.dockObserver = null;
+      this.dockPollTimer = null;
+      this.sizeObserver = null;
+      this.watchAccumulatorSec = 0;
+      this.lastWatchTickMs = 0;
+      this.boostCtx = null;
+      this.boostSource = null;
+      this.pipWindow = null;
+      this.pipCaptionEl = null;
       this.drawerOpen = false;
       this.drawerTab = "lines";
       this.drawerAutoScroll = true;
@@ -2661,9 +3187,100 @@ ${rows.join("\n")}
       this.onCuesMutated = onCuesMutated;
       this.onCiteCue = onCiteCue;
       this.onImportSubtitles = onImportSubtitles;
+      this.onTelemetry = onTelemetry;
       this._mount();
       this._bindEvents();
       this._applyPlaybackSpeed(this.playbackSpeed, false);
+      this._mountNativeDock();
+      this._startControlVisibilitySync();
+      this._applyCaptionMetrics();
+    }
+    _clamp(value, min, max, fallback) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(min, Math.min(max, n));
+    }
+    _emitTelemetry(patch = {}) {
+      try {
+        this.onTelemetry(patch);
+      } catch {
+      }
+    }
+    /**
+     * Mirrors Google NotebookLM's own play bar: we read the host page's control
+     * bar opacity/visibility and match it, so caption controls appear and
+     * disappear exactly with the native controls instead of blinking on their own.
+     */
+    _startControlVisibilitySync() {
+      const bar = this.nativeControlBar;
+      if (!bar || typeof MutationObserver === "undefined") {
+        this.nativeControlsVisible = true;
+        this._updateControlsVisibility();
+        return;
+      }
+      const readNative = () => {
+        let visible = true;
+        try {
+          const cs = globalThis.getComputedStyle?.(bar);
+          if (cs) {
+            const opacity = Number(cs.opacity);
+            if (Number.isFinite(opacity) && opacity < 0.12) visible = false;
+            if (cs.visibility === "hidden" || cs.visibility === "collapse") {
+              visible = false;
+            }
+            if (cs.display === "none") visible = false;
+          }
+          if (bar.hasAttribute?.("aria-hidden") && bar.getAttribute("aria-hidden") === "true") {
+            visible = false;
+          }
+        } catch {
+          visible = true;
+        }
+        if (visible !== this.nativeControlsVisible) {
+          this.nativeControlsVisible = visible;
+          this._updateControlsVisibility();
+        }
+      };
+      try {
+        this.dockObserver = new MutationObserver(readNative);
+        this.dockObserver.observe(bar, {
+          attributes: true,
+          attributeFilter: ["class", "style", "aria-hidden", "hidden"],
+          subtree: false
+        });
+      } catch {
+        this.dockObserver = null;
+      }
+      readNative();
+      this.dockPollTimer = setInterval(readNative, 420);
+    }
+    _updateControlsVisibility() {
+      const anyPopoverOpen = this.drawerOpen || this.styleOpen || this.shortcutsOpen || this.toolsOpen;
+      let visible = true;
+      if (this.playBarDockMode === "always" || this.mediaKind === "audio") {
+        visible = true;
+      } else if (anyPopoverOpen || this.statusState === "working") {
+        visible = true;
+      } else if (this.pointerOverPlayer || this.video?.paused) {
+        visible = true;
+      } else if (this.playBarDockMode === "native") {
+        visible = this.nativeControlsVisible;
+      } else {
+        visible = this.nativeControlsVisible;
+      }
+      if (visible === this.controlsVisible && this.host?.dataset) {
+        this.host.dataset.controlsVisible = visible ? "true" : "false";
+        return;
+      }
+      this.controlsVisible = visible;
+      if (this.host?.dataset) {
+        this.host.dataset.controlsVisible = visible ? "true" : "false";
+      }
+      for (const btn of Object.values(this.dockButtons)) {
+        if (!btn) continue;
+        btn.style.opacity = visible ? "" : "0";
+        btn.style.pointerEvents = visible ? "" : "none";
+      }
     }
     _resolveMountParent() {
       if (this.mediaKind === "audio") {
@@ -2698,6 +3315,270 @@ ${rows.join("\n")}
         }
       }
       return true;
+    }
+    _svgIcon(size, nodes = []) {
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = this.doc.createElementNS(NS, "svg");
+      svg.setAttribute("width", String(size || 20));
+      svg.setAttribute("height", String(size || 20));
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("focusable", "false");
+      svg.setAttribute("aria-hidden", "true");
+      for (const node of nodes) {
+        let el = null;
+        if (node.t === "path") {
+          el = this.doc.createElementNS(NS, "path");
+          el.setAttribute("d", node.d);
+          if (node.stroke) {
+            el.setAttribute("fill", "none");
+            el.setAttribute("stroke", "currentColor");
+            el.setAttribute("stroke-width", String(node.sw || 1.7));
+            el.setAttribute("stroke-linecap", "round");
+            el.setAttribute("stroke-linejoin", "round");
+          } else {
+            el.setAttribute("fill", "currentColor");
+          }
+        } else if (node.t === "rect") {
+          el = this.doc.createElementNS(NS, "rect");
+          el.setAttribute("x", String(node.x));
+          el.setAttribute("y", String(node.y));
+          el.setAttribute("width", String(node.w));
+          el.setAttribute("height", String(node.h));
+          el.setAttribute("rx", String(node.rx || 0));
+          if (node.stroke) {
+            el.setAttribute("fill", "none");
+            el.setAttribute("stroke", "currentColor");
+            el.setAttribute("stroke-width", String(node.sw || 1.7));
+          } else {
+            el.setAttribute("fill", "currentColor");
+          }
+        } else if (node.t === "circle") {
+          el = this.doc.createElementNS(NS, "circle");
+          el.setAttribute("cx", String(node.cx));
+          el.setAttribute("cy", String(node.cy));
+          el.setAttribute("r", String(node.r));
+          el.setAttribute("fill", node.stroke ? "none" : "currentColor");
+          if (node.stroke) {
+            el.setAttribute("stroke", "currentColor");
+            el.setAttribute("stroke-width", String(node.sw || 1.7));
+          }
+        }
+        if (el) svg.appendChild(el);
+      }
+      return svg;
+    }
+    _teardownNativeDock() {
+      try {
+        this.dockObserver?.disconnect?.();
+      } catch {
+      }
+      this.dockObserver = null;
+      if (this.dockPollTimer) {
+        clearInterval(this.dockPollTimer);
+        this.dockPollTimer = null;
+      }
+      for (const btn of Object.values(this.dockButtons)) {
+        try {
+          btn?.remove?.();
+        } catch {
+        }
+      }
+      this.dockButtons = {};
+      this.nativeControlBar = null;
+    }
+    /**
+     * Injects LM Subs caption controls directly into Google NotebookLM's own
+     * bottom play bar so they look and behave like native player buttons.
+     */
+    _mountNativeDock() {
+      this._teardownNativeDock();
+      this.host?.setAttribute?.("data-dock", this.playBarDockMode);
+      if (this.mediaKind === "audio" || this.playBarDockMode !== "native") {
+        return false;
+      }
+      if (!this.doc || typeof this.doc.createElement !== "function") return false;
+      const bar = findNativeControlBar(this.video, this.doc);
+      if (!bar) {
+        this.host?.setAttribute?.("data-dock", "hover");
+        return false;
+      }
+      ensureDockStyle(this.doc);
+      this.nativeControlBar = bar;
+      const makeDockButton = (key, label, iconNodes, onClick, { cc = false } = {}) => {
+        const btn = this.doc.createElement("button");
+        btn.type = "button";
+        btn.className = cc ? "lms-dock-btn lms-dock-cc" : "lms-dock-btn";
+        btn.setAttribute("aria-label", label);
+        btn.title = label;
+        if (cc) {
+          btn.textContent = "CC";
+        } else if (iconNodes === null) {
+          btn.textContent = label;
+        } else {
+          btn.appendChild(this._svgIcon(20, iconNodes));
+        }
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          unlockChimeForGesture();
+          onClick();
+        });
+        this.dockButtons[key] = btn;
+        return btn;
+      };
+      const ccBtn = makeDockButton(
+        "cc",
+        "Toggle LM Subs captions (C)",
+        null,
+        () => {
+          if (this.cues.length === 0 && this.statusState !== "working") {
+            this.onRequestGenerate({ force: true });
+            return;
+          }
+          this.toggleSubtitles();
+        },
+        { cc: true }
+      );
+      const optionsBtn = makeDockButton(
+        "options",
+        "LM Subs caption options (O)",
+        [
+          {
+            t: "path",
+            d: "M4 6h10v2H4V6zm0 5h6v2H4v-2zm0 5h10v2H4v-2zm13.5-9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zm0 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z"
+          }
+        ],
+        () => this.toggleToolsPopover()
+      );
+      const built = [ccBtn, optionsBtn];
+      if (this.fineGrainedControls) {
+        built.push(
+          makeDockButton(
+            "speed",
+            "Playback speed",
+            null,
+            () => this.cyclePlaybackSpeed()
+          ),
+          makeDockButton(
+            "loop",
+            "Loop active caption sentence (L)",
+            [
+              {
+                t: "path",
+                d: "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"
+              }
+            ],
+            () => this.toggleCueLoop()
+          ),
+          makeDockButton(
+            "pip",
+            "Picture-in-Picture with captions (P)",
+            [
+              { t: "rect", x: 3, y: 5, w: 18, h: 14, rx: 2, stroke: true },
+              { t: "rect", x: 12, y: 12, w: 7, h: 5, rx: 1 }
+            ],
+            () => this.togglePictureInPicture()
+          ),
+          makeDockButton(
+            "snapshot",
+            "Save frame with the caption burned in (X)",
+            [
+              {
+                t: "path",
+                d: "M9 3h6l1.5 2H20a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3.5L9 3zm3 5.2A4.3 4.3 0 1 0 12 17.8 4.3 4.3 0 0 0 12 8.2zm0 2a2.3 2.3 0 1 1 0 4.6 2.3 2.3 0 0 1 0-4.6z"
+              }
+            ],
+            () => this.captureSnapshot()
+          ),
+          makeDockButton("boost", "Volume boost", [
+            {
+              t: "path",
+              d: "M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"
+            }
+          ], () => this.cycleAudioBoost()),
+          makeDockButton(
+            "silence",
+            "Skip silence",
+            [
+              {
+                t: "path",
+                d: "M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+              }
+            ],
+            () => this.toggleSkipSilence()
+          )
+        );
+      }
+      let anchor = null;
+      try {
+        const kids = [...bar.children || []];
+        for (const child of kids) {
+          const label = `${child?.getAttribute?.("aria-label") || ""} ${child?.getAttribute?.("title") || ""}`;
+          if (/full ?screen|theater|pip|picture/i.test(label)) {
+            anchor = child;
+            break;
+          }
+        }
+      } catch {
+        anchor = null;
+      }
+      for (const btn of built) {
+        try {
+          if (anchor && btn.insertBefore) {
+            bar.insertBefore(btn, anchor);
+          } else {
+            bar.appendChild(btn);
+          }
+        } catch {
+          try {
+            bar.appendChild(btn);
+          } catch {
+          }
+        }
+      }
+      this.host?.setAttribute?.("data-dock", "native");
+      this._renderDockButtons();
+      this._startControlVisibilitySync();
+      return true;
+    }
+    _renderDockButtons() {
+      const hasCues = this.cues.length > 0;
+      const isWorking = this.statusState === "working";
+      const cc = this.dockButtons.cc;
+      if (cc) {
+        cc.dataset.active = hasCues && this.ccEnabled ? "true" : "false";
+        cc.dataset.primary = !hasCues && !isWorking ? "true" : "false";
+        cc.dataset.disabled = isWorking ? "true" : "false";
+        cc.title = hasCues ? this.ccEnabled ? "Hide LM Subs captions (C)" : "Show LM Subs captions (C)" : "Generate LM Subs captions";
+      }
+      const options = this.dockButtons.options;
+      if (options) {
+        options.dataset.active = this.toolsOpen ? "true" : "false";
+      }
+      const speed = this.dockButtons.speed;
+      if (speed) {
+        speed.textContent = `${this.playbackSpeed}x`;
+        speed.dataset.active = this.playbackSpeed !== 1 ? "true" : "false";
+        speed.title = `Playback speed: ${this.playbackSpeed}x (< / >)`;
+      }
+      const loop = this.dockButtons.loop;
+      if (loop) {
+        loop.dataset.active = this.loopCueIndex >= 0 ? "true" : "false";
+      }
+      const pip = this.dockButtons.pip;
+      if (pip) {
+        pip.dataset.active = this.inPiP ? "true" : "false";
+      }
+      const boost = this.dockButtons.boost;
+      if (boost) {
+        boost.dataset.active = this.audioBoostPercent > 100 ? "true" : "false";
+        boost.title = `Volume boost: ${this.audioBoostPercent}%`;
+      }
+      const silence = this.dockButtons.silence;
+      if (silence) {
+        silence.dataset.active = this.skipSilenceEnabled ? "true" : "false";
+        silence.title = this.skipSilenceEnabled ? `Skip silence on (${this.skipSilenceGapSec}s gaps)` : "Skip silence off";
+      }
     }
     _closePopoversExcept(keepName) {
       if (keepName !== "drawer" && this.drawerOpen) {
@@ -2753,6 +3634,10 @@ ${rows.join("\n")}
         this.host.dataset.mode = this.mediaKind;
       }
       this.host.setAttribute?.("data-mode", this.mediaKind);
+      this.host.setAttribute?.("data-dock", this.playBarDockMode);
+      if (this.host.dataset) {
+        this.host.dataset.controlsVisible = "true";
+      }
       const shadow = this.host.attachShadow({ mode: "closed" });
       this.shadow = shadow;
       const style = this.doc.createElement("style");
@@ -2911,6 +3796,36 @@ ${rows.join("\n")}
         () => this.toggleToolsPopover()
       );
       this.moreBtn.className = "bar-pill";
+      this.snapshotBtn = this._makeBtn(
+        "Shot",
+        "Save the current frame with the caption burned in (X)",
+        () => this.captureSnapshot()
+      );
+      this.boostBtn = this._makeBtn(
+        "Vol",
+        "Cycle volume boost for quiet NotebookLM narration",
+        () => this.cycleAudioBoost()
+      );
+      this.silenceBtn = this._makeBtn(
+        "Silence",
+        "Skip silent gaps between spoken sentences (Z)",
+        () => this.toggleSkipSilence()
+      );
+      this.fullscreenBtn = this._makeBtn(
+        "Full",
+        "Toggle fullscreen playback with captions (F)",
+        () => this.toggleFullscreen()
+      );
+      this.back10Btn = this._makeBtn(
+        "-10s",
+        "Rewind 10 seconds (,)",
+        () => this.seekBySeconds(-10)
+      );
+      this.fwd10Btn = this._makeBtn(
+        "+10s",
+        "Forward 10 seconds (.)",
+        () => this.seekBySeconds(10)
+      );
       this.toolsPopoverEl = this.doc.createElement("div");
       this.toolsPopoverEl.className = "tools-popover";
       this.toolsPopoverEl.dataset.open = "false";
@@ -2962,7 +3877,22 @@ ${rows.join("\n")}
         this.regenBtn,
         this.shortcutsBtn
       );
-      this.toolsPopoverEl.append(this.controlsGroup, utilitySection);
+      this.fineSection = makeToolsSection(
+        "Fine-grained playback",
+        this.snapshotBtn,
+        this.boostBtn,
+        this.silenceBtn,
+        this.fullscreenBtn,
+        this.back10Btn,
+        this.fwd10Btn
+      );
+      this.fineSection.dataset.fine = "true";
+      this.fineSection.style.display = this.fineGrainedControls ? "flex" : "none";
+      this.toolsPopoverEl.append(
+        this.controlsGroup,
+        utilitySection,
+        this.fineSection
+      );
       if (this.mediaKind === "audio" && this.pipBtn) {
         this.pipBtn.style.display = "none";
       }
@@ -3005,7 +3935,11 @@ ${rows.join("\n")}
         ["Cycle backdrop", "B"],
         ["Timing -0.25s / +0.25s", "[ / ]"],
         ["Word delay -50 / +50ms", "{ / }"],
-        ["Reset timing", "\\"]
+        ["Reset timing", "\\"],
+        ["Rewind / forward 10s", ", / ."],
+        ["Fullscreen", "F"],
+        ["Frame snapshot with caption", "X"],
+        ["Skip silence", "Z"]
       ];
       for (const [desc, keyLabel] of shortcutPairs) {
         const row = this.doc.createElement("div");
@@ -3065,6 +3999,8 @@ ${rows.join("\n")}
         this.toolbar
       );
       parent.appendChild(this.host);
+      this._observePlayerSize();
+      this._applyCaptionMetrics();
       this._applyAllCaptionVisuals();
       this._renderToolbar();
     }
@@ -3312,6 +4248,7 @@ ${rows.join("\n")}
       this._onTimeChange = () => {
         this._ensureMounted();
         this._enforceCueLoop();
+        this._applySkipSilence();
         this._renderActiveCue();
       };
       this._onPlay = () => {
@@ -3320,26 +4257,43 @@ ${rows.join("\n")}
           this._applyPlaybackSpeed(this.playbackSpeed, false);
         }
         this._startHighFreqSync();
-        this._scheduleIdleFade();
+        this._startWatchClock();
+        this._updateControlsVisibility();
       };
       this._onPause = () => {
         this._stopHighFreqSync();
-        if (this.toolbar) this.toolbar.dataset.idle = "false";
+        this._flushWatchClock();
+        this._updateControlsVisibility();
         this._renderActiveCue();
       };
       this._onEnterPiP = () => {
         this.inPiP = true;
+        this._emitTelemetry({ pipDelta: 1 });
         if (this.pipBtn) this.pipBtn.dataset.active = "true";
+        this._renderDockButtons();
         this._syncTrackVisibility();
         this._renderActiveCue();
       };
       this._onLeavePiP = () => {
         this.inPiP = false;
         if (this.pipBtn) this.pipBtn.dataset.active = "false";
+        this._renderDockButtons();
         this._syncTrackVisibility();
         this._renderActiveCue();
       };
-      this._onPointerMove = () => this._scheduleIdleFade();
+      this._onPointerEnter = () => {
+        this.pointerOverPlayer = true;
+        this._updateControlsVisibility();
+      };
+      this._onPointerLeave = () => {
+        this.pointerOverPlayer = false;
+        this._updateControlsVisibility();
+      };
+      this._onFullscreenChange = () => {
+        this._ensureMounted();
+        this._applyCaptionMetrics();
+        this._updateControlsVisibility();
+      };
       this.video.addEventListener("timeupdate", this._onTimeChange);
       this.video.addEventListener("seeking", this._onTimeChange);
       this.video.addEventListener("seeked", this._onTimeChange);
@@ -3347,8 +4301,45 @@ ${rows.join("\n")}
       this.video.addEventListener("pause", this._onPause);
       this.video.addEventListener("enterpictureinpicture", this._onEnterPiP);
       this.video.addEventListener("leavepictureinpicture", this._onLeavePiP);
-      this.video.parentElement?.addEventListener("mousemove", this._onPointerMove, {
+      const container = this.host?.parentElement || this.video.parentElement;
+      if (container) {
+        container.addEventListener?.("pointerenter", this._onPointerEnter, {
+          passive: true
+        });
+        container.addEventListener?.("pointerleave", this._onPointerLeave, {
+          passive: true
+        });
+        container.addEventListener?.("mouseenter", this._onPointerEnter, {
+          passive: true
+        });
+        container.addEventListener?.("mouseleave", this._onPointerLeave, {
+          passive: true
+        });
+      }
+      this.doc.addEventListener?.("fullscreenchange", this._onFullscreenChange, {
         passive: true
+      });
+      globalThis.addEventListener?.("resize", this._onFullscreenChange, {
+        passive: true
+      });
+    }
+    _startWatchClock() {
+      this.lastWatchTickMs = Date.now();
+    }
+    _flushWatchClock() {
+      if (!this.lastWatchTickMs) return;
+      const elapsedMs = Date.now() - this.lastWatchTickMs;
+      this.lastWatchTickMs = 0;
+      if (elapsedMs < 500) return;
+      const seconds = elapsedMs / 1e3;
+      this.watchAccumulatorSec += seconds;
+      if (this.watchAccumulatorSec < 5) return;
+      const whole = Math.round(this.watchAccumulatorSec);
+      this.watchAccumulatorSec = 0;
+      const speedSaved = this.playbackSpeed > 1 ? Math.round(whole * (this.playbackSpeed - 1)) : 0;
+      this._emitTelemetry({
+        [this.mediaKind === "audio" ? "listenSeconds" : "watchSeconds"]: whole,
+        speedSavedSeconds: speedSaved
       });
     }
     _startHighFreqSync() {
@@ -3364,19 +4355,227 @@ ${rows.join("\n")}
         this.syncTimer = null;
       }
     }
+    /**
+     * Controls stay visible while the pointer is over the player, while any
+     * popover is open, while paused, and while NotebookLM's own controls are
+     * on screen. They never toggle on cue presence, which is what used to make
+     * the caption options blink between sentences.
+     */
     _scheduleIdleFade() {
-      if (!this.toolbar) return;
-      this.toolbar.dataset.idle = "false";
-      if (this.idleTimer) clearTimeout(this.idleTimer);
-      if (this.mediaKind === "audio") return;
-      const anyPopoverOpen = this.drawerOpen || this.styleOpen || this.shortcutsOpen || this.toolsOpen;
-      if (!this.video.paused && this.statusState !== "working" && !anyPopoverOpen) {
-        this.idleTimer = setTimeout(() => {
-          const stillClosed = !this.drawerOpen && !this.styleOpen && !this.shortcutsOpen && !this.toolsOpen;
-          if (this.toolbar && !this.video.paused && stillClosed) {
-            this.toolbar.dataset.idle = "true";
+      if (this.idleTimer) {
+        clearTimeout(this.idleTimer);
+        this.idleTimer = null;
+      }
+      if (this.toolbar) this.toolbar.dataset.idle = "false";
+      this._updateControlsVisibility();
+    }
+    seekBySeconds(deltaSec) {
+      try {
+        const next = Math.max(
+          0,
+          Math.min(
+            Number.isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration - 0.05 : Number.MAX_SAFE_INTEGER,
+            (this.video.currentTime || 0) + deltaSec
+          )
+        );
+        this.video.currentTime = next;
+        this._renderActiveCue();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    async toggleFullscreen() {
+      try {
+        const target = this.host?.parentElement || this.video.parentElement;
+        if (this.doc.fullscreenElement) {
+          await this.doc.exitFullscreen?.();
+          return false;
+        }
+        if (target?.requestFullscreen) {
+          await target.requestFullscreen();
+          return true;
+        }
+        if (this.video.requestFullscreen) {
+          await this.video.requestFullscreen();
+          return true;
+        }
+      } catch {
+      }
+      return false;
+    }
+    /**
+     * Saves the current video frame with the live caption painted onto it.
+     * Uses a canvas snapshot rather than `innerHTML` so it stays Trusted Types safe.
+     */
+    captureSnapshot() {
+      try {
+        const w = this.video.videoWidth;
+        const h = this.video.videoHeight;
+        if (!w || !h) return false;
+        const canvas = this.doc.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext?.("2d");
+        if (!ctx) return false;
+        ctx.drawImage(this.video, 0, 0, w, h);
+        const active = this._getActiveCueObject();
+        if (active && this.ccEnabled) {
+          const prefix = this.showSpeakerLabels && active.speaker ? `[${active.speaker}] ` : "";
+          const text = `${prefix}${active.text}`.replace(/\s*\n\s*/g, " ").trim();
+          const fontSize = Math.max(16, Math.round(h * 0.045));
+          ctx.font = `600 ${fontSize}px "Plus Jakarta Sans", Roboto, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          const maxWidth = w * 0.86;
+          const words = String(text).split(" ");
+          const lines = [];
+          let line = "";
+          for (const word of words) {
+            const candidate = line ? `${line} ${word}` : word;
+            if (ctx.measureText(candidate).width > maxWidth && line) {
+              lines.push(line);
+              line = word;
+            } else {
+              line = candidate;
+            }
           }
-        }, 2800);
+          if (line) lines.push(line);
+          const lineHeight = fontSize * 1.35;
+          const padX = fontSize * 0.7;
+          const padY = fontSize * 0.45;
+          const boxWidth = Math.min(
+            maxWidth + padX * 2,
+            Math.max(
+              ...lines.map((l) => ctx.measureText(l).width + padX * 2),
+              fontSize
+            )
+          );
+          const boxHeight = lines.length * lineHeight + padY * 2;
+          const boxX = (w - boxWidth) / 2;
+          const boxY = h - boxHeight - fontSize * 0.9;
+          ctx.fillStyle = "rgba(11, 13, 16, 0.86)";
+          if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, fontSize * 0.4);
+            ctx.fill();
+          } else {
+            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+          }
+          ctx.fillStyle = "#fdfdfe";
+          lines.forEach((l, idx) => {
+            ctx.fillText(
+              l,
+              w / 2,
+              boxY + padY + lineHeight * (idx + 0.82),
+              maxWidth
+            );
+          });
+        }
+        const dataUrl = canvas.toDataURL?.("image/png");
+        if (!dataUrl) return false;
+        const a = this.doc.createElement("a");
+        a.href = dataUrl;
+        a.download = `lm-subs-shot-${Math.round((this.video.currentTime || 0) * 10) / 10}s.png`;
+        a.rel = "noopener";
+        a.style.display = "none";
+        (this.doc.body || this.doc.documentElement)?.appendChild?.(a);
+        a.click();
+        a.remove();
+        this._emitTelemetry({ snapshotsDelta: 1 });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    cycleAudioBoost() {
+      const steps = [100, 125, 150, 175, 200];
+      const idx = steps.indexOf(this.audioBoostPercent);
+      const next = steps[(idx + 1) % steps.length];
+      this.applyAudioBoost(next);
+      return next;
+    }
+    applyAudioBoost(percent) {
+      this.audioBoostPercent = this._clamp(percent, 100, 250, 100);
+      try {
+        const AudioCtx = globalThis.AudioContext || globalThis.webkitAudioContext;
+        if (this.audioBoostPercent <= 100) {
+          if (this.boostSource) {
+            try {
+              this.boostSource.disconnect();
+            } catch {
+            }
+            this.boostSource = null;
+          }
+          this.video.volume = 1;
+        } else if (AudioCtx && typeof AudioCtx.prototype.createMediaElementSource === "function") {
+          if (!this.boostCtx) {
+            this.boostCtx = new AudioCtx();
+            this.boostSource = this.boostCtx.createMediaElementSource(this.video);
+            this.boostGain = this.boostCtx.createGain();
+            this.boostSource.connect(this.boostGain);
+            this.boostGain.connect(this.boostCtx.destination);
+          }
+          if (this.boostCtx.state === "suspended") {
+            this.boostCtx.resume?.().catch?.(() => {
+            });
+          }
+          if (this.boostGain) {
+            this.boostGain.gain.value = this.audioBoostPercent / 100;
+          }
+        }
+      } catch {
+      }
+      if (this.boostBtn) {
+        this.boostBtn.textContent = this.audioBoostPercent > 100 ? `${this.audioBoostPercent}%` : "Vol";
+        this.boostBtn.dataset.active = this.audioBoostPercent > 100 ? "true" : "false";
+      }
+      this._renderDockButtons();
+      return this.audioBoostPercent;
+    }
+    toggleSkipSilence(forceState) {
+      this.skipSilenceEnabled = typeof forceState === "boolean" ? forceState : !this.skipSilenceEnabled;
+      if (this.silenceBtn) {
+        this.silenceBtn.dataset.active = this.skipSilenceEnabled ? "true" : "false";
+      }
+      this._renderDockButtons();
+      this.onStylePatchChange({ skipSilenceEnabled: this.skipSilenceEnabled });
+      this._applySkipSilence();
+      return this.skipSilenceEnabled;
+    }
+    /**
+     * Speeds playback through silent gaps between caption cues, then restores
+     * the chosen rate as soon as the next spoken line begins.
+     */
+    _applySkipSilence() {
+      if (!this.skipSilenceEnabled || this.cues.length === 0) return;
+      const t = this.video.currentTime || 0;
+      const shifted = this._shiftedCues();
+      const active = findActiveCue(shifted, t - this.offsetSec);
+      if (active) {
+        if (this.video.playbackRate !== this.playbackSpeed) {
+          this.video.playbackRate = this.playbackSpeed;
+        }
+        return;
+      }
+      let nextStart = null;
+      for (const cue of shifted) {
+        if (cue.startSec > t) {
+          nextStart = cue.startSec;
+          break;
+        }
+      }
+      let prevEnd = 0;
+      for (const cue of shifted) {
+        if (cue.endSec <= t) prevEnd = Math.max(prevEnd, cue.endSec);
+      }
+      const gap = nextStart !== null ? nextStart - t : Number.POSITIVE_INFINITY;
+      const behindGap = t - prevEnd;
+      const inGap = gap > this.skipSilenceGapSec || behindGap > this.skipSilenceGapSec;
+      if (inGap && this.video.playbackRate !== this.skipSilenceRate) {
+        this.video.playbackRate = this.skipSilenceRate;
+      } else if (!inGap && this.video.playbackRate !== this.playbackSpeed) {
+        this.video.playbackRate = this.playbackSpeed;
       }
     }
     _enforceCueLoop() {
@@ -3397,12 +4596,15 @@ ${rows.join("\n")}
       if (this.loopCueIndex >= 0) {
         this.loopCueIndex = -1;
         if (this.loopBtn) this.loopBtn.dataset.active = "false";
+        this._renderDockButtons();
         return false;
       }
       const idx = this.activeCueIndex >= 0 ? this.activeCueIndex : this._findNearestCueIndex();
       if (idx < 0) return false;
       this.loopCueIndex = idx;
+      this._emitTelemetry({ loopsDelta: 1 });
       if (this.loopBtn) this.loopBtn.dataset.active = "true";
+      this._renderDockButtons();
       return true;
     }
     _findNearestCueIndex() {
@@ -3460,19 +4662,131 @@ ${rows.join("\n")}
         this.onStylePatchChange({ defaultPlaybackSpeed: rate });
       }
     }
+    /**
+     * Picture-in-Picture that keeps captions on screen.
+     *
+     * 1. If `keepSubtitlesInPiP` is on and the Document Picture-in-Picture API is
+     *    available, we open a real PiP window and render the live caption box into
+     *    it (full styling, speaker labels, and karaoke word highlight included).
+     * 2. Otherwise we fall back to the native `<video>` PiP window and populate a
+     *    programmatic `TextTrack` so the OS/browser renders captions inside it.
+     */
     async togglePictureInPicture() {
       try {
         if (this.doc.pictureInPictureElement) {
           await this.doc.exitPictureInPicture?.();
           return false;
         }
+        if (this.pipWindow && !this.pipWindow.closed) {
+          this.pipWindow.close();
+          return false;
+        }
+        if (this.keepSubtitlesInPiP && this.cues.length > 0 && globalThis.documentPictureInPicture?.requestWindow) {
+          const win = await globalThis.documentPictureInPicture.requestWindow({
+            width: 480,
+            height: 270
+          });
+          this.pipWindow = win;
+          const doc = win.document;
+          doc.title = "LM Subs captions";
+          const style = doc.createElement("style");
+          style.textContent = `
+          html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+          .lms-pip-caption {
+            position: absolute;
+            left: 4%; right: 4%; bottom: 6%;
+            display: inline-block;
+            max-width: 92%;
+            margin: 0 auto;
+            padding: 7px 15px 8px;
+            border-radius: 7px;
+            background: rgba(11, 13, 16, 0.88);
+            color: #fdfdfe;
+            text-align: center;
+            font-family: "Plus Jakarta Sans", Roboto, sans-serif;
+            font-weight: 500;
+            line-height: 1.42;
+            white-space: pre-line;
+          }
+          .lms-pip-caption[data-visible="false"] { display: none; }
+          .lms-pip-caption .caption-word-current {
+            background: rgba(29, 92, 246, 0.48);
+            color: #ffffff;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-weight: 600;
+          }
+          .lms-pip-caption .caption-word-upcoming { opacity: 0.64; }
+        `;
+          const captionEl = doc.createElement("div");
+          captionEl.className = "lms-pip-caption";
+          captionEl.dataset.visible = "false";
+          doc.body.append(style, captionEl);
+          this.pipCaptionEl = captionEl;
+          this.pipDoc = doc;
+          win.addEventListener("pagehide", () => {
+            this.pipWindow = null;
+            this.pipCaptionEl = null;
+            this.pipDoc = null;
+          });
+          this._renderPipCaption();
+          this._emitTelemetry({ pipDelta: 1 });
+          return true;
+        }
         if (typeof this.video?.requestPictureInPicture === "function") {
+          this._syncNativeTextTrack();
           await this.video.requestPictureInPicture();
           return true;
         }
       } catch {
       }
       return false;
+    }
+    _renderPipCaption() {
+      if (!this.pipCaptionEl || !this.pipDoc) return;
+      const effectiveTime = (this.video.currentTime || 0) - this.offsetSec;
+      const active = findActiveCue(this.cues, effectiveTime) || (this.lastActiveCue && effectiveTime - this.lastActiveCue.endSec <= CAPTION_LINGER_SEC ? this.lastActiveCue : null);
+      if (!this.ccEnabled || !active) {
+        this.pipCaptionEl.dataset.visible = "false";
+        return;
+      }
+      const prefix = this.showSpeakerLabels && active.speaker ? `[${active.speaker}] ` : "";
+      const fullText = `${prefix}${active.text}`;
+      while (this.pipCaptionEl.firstChild) {
+        this.pipCaptionEl.removeChild(this.pipCaptionEl.firstChild);
+      }
+      if (this.karaokeHighlight) {
+        const span = Math.max(0.25, active.endSec - active.startSec);
+        const delayedTime = effectiveTime - (this.karaokeDelayMs || 0) / 1e3;
+        const progress = Math.max(
+          0,
+          Math.min(1, (delayedTime - active.startSec) / span)
+        );
+        const tokens = fullText.split(/(\s+)/);
+        const wordPositions = [];
+        for (let i = 0; i < tokens.length; i++) {
+          if (tokens[i].trim()) wordPositions.push(i);
+        }
+        const activeWordCount = Math.min(
+          wordPositions.length,
+          Math.max(1, Math.ceil(progress * wordPositions.length))
+        );
+        let seen = 0;
+        for (const tok of tokens) {
+          if (!tok.trim()) {
+            this.pipCaptionEl.appendChild(this.pipDoc.createTextNode(tok));
+            continue;
+          }
+          seen += 1;
+          const w = this.pipDoc.createElement("span");
+          w.className = seen === activeWordCount ? "caption-word-current" : seen < activeWordCount ? "caption-word-done" : "caption-word-upcoming";
+          w.textContent = tok;
+          this.pipCaptionEl.appendChild(w);
+        }
+      } else {
+        this.pipCaptionEl.textContent = fullText;
+      }
+      this.pipCaptionEl.dataset.visible = "true";
     }
     toggleBookmarkCueAt(index) {
       if (index < 0 || index >= this.cues.length) return false;
@@ -3484,6 +4798,8 @@ ${rows.join("\n")}
       };
       if (!nextBookmarked) {
         delete this.cues[index].bookmarked;
+      } else {
+        this._emitTelemetry({ bookmarksDelta: 1 });
       }
       this.onCuesMutated(this.cues);
       if (this.drawerOpen) {
@@ -3542,16 +4858,104 @@ ${rows.join("\n")}
       this.setSettings(patch);
       this.onStylePatchChange(patch);
     }
+    /**
+     * Computes the live caption font size from the real player box so captions
+     * shrink in the compact Studio sidebar preview and grow in fullscreen, then
+     * clamps the result between `captionMinFontPx` and `captionMaxFontPx`.
+     */
+    _resolveCaptionFontSizePx() {
+      const base = FONT_BASE_PX[this.fontSize] || FONT_BASE_PX.medium;
+      if (!this.dynamicCaptionScaling) {
+        return Math.max(
+          this.captionMinFontPx,
+          Math.min(this.captionMaxFontPx, base)
+        );
+      }
+      let height = 0;
+      let width = 0;
+      try {
+        const rect = this.host?.getBoundingClientRect?.() || this.video?.getBoundingClientRect?.();
+        height = Number(rect?.height) || 0;
+        width = Number(rect?.width) || 0;
+      } catch {
+        height = 0;
+      }
+      if (!height && typeof this.video?.videoHeight === "number") {
+        height = this.video.videoHeight;
+        width = this.video.videoWidth || height * 1.777;
+      }
+      if (!height) height = REFERENCE_PLAYER_HEIGHT_PX;
+      if (!width) width = height * 1.777;
+      const scaleBase = Math.min(height, width * 0.5625);
+      const raw = base * Math.max(0.35, Math.min(3, scaleBase / REFERENCE_PLAYER_HEIGHT_PX)) * (this.captionScaleFactor / 100);
+      return Math.max(
+        this.captionMinFontPx,
+        Math.min(this.captionMaxFontPx, Math.round(raw * 10) / 10)
+      );
+    }
+    _applyCaptionMetrics() {
+      const root = this.host || this.stageEl;
+      if (!root || !root.style) return;
+      const box = this.captionBox?.style ? this.captionBox : null;
+      const setVar = (name, value) => {
+        if (typeof root.style?.setProperty === "function") {
+          root.style.setProperty(name, value);
+        }
+        if (box && typeof box.setProperty === "function") {
+          box.setProperty(name, value);
+        }
+      };
+      const px = this._resolveCaptionFontSizePx();
+      setVar("--lms-caption-font", `${px}px`);
+      setVar(
+        "--lms-caption-pad-y",
+        `${Math.round(this.captionPaddingY * px / 18.5)}px`
+      );
+      setVar(
+        "--lms-caption-pad-x",
+        `${Math.round(this.captionPaddingX * px / 18.5)}px`
+      );
+      setVar("--lms-caption-radius", `${this.captionBorderRadius}px`);
+      setVar("--lms-caption-leading", String(this.captionLineHeight / 100));
+      setVar("--lms-caption-bottom", `${this.captionBottomOffsetPx}px`);
+      setVar("--lms-karaoke-alpha", String(this.karaokeHighlightOpacity / 100));
+      setVar("--lms-upcoming-alpha", String(this.upcomingWordOpacity / 100));
+      setVar(
+        "--lms-caption-stroke",
+        this.captionTextStrokePx > 0 ? `0 0 ${this.captionTextStrokePx}px rgba(0,0,0,0.92), 0 1px 2px rgba(0,0,0,0.85)` : "none"
+      );
+      if (this.pipCaptionEl?.style) {
+        this.pipCaptionEl.style.fontSize = `${px}px`;
+      }
+    }
+    _observePlayerSize() {
+      if (typeof ResizeObserver === "undefined") return;
+      const targets = [];
+      if (this.host) targets.push(this.host);
+      const parent = this.video?.parentElement;
+      if (parent && parent !== this.host) targets.push(parent);
+      if (!targets.length) return;
+      try {
+        this.sizeObserver?.disconnect?.();
+        this.sizeObserver = new ResizeObserver(() => {
+          this._applyCaptionMetrics();
+        });
+        for (const t of targets) this.sizeObserver.observe(t);
+      } catch {
+        this.sizeObserver = null;
+      }
+    }
     _applyAllCaptionVisuals() {
       if (this.stageEl) {
         this.stageEl.dataset.pos = this.captionPosition;
       }
       if (this.captionBox) {
-        this.captionBox.style.fontSize = FONT_SCALE_MAP[this.fontSize] || FONT_SCALE_MAP.medium;
+        this.captionBox.style.fontSize = this.dynamicCaptionScaling && this.host?.style ? "" : FONT_SCALE_MAP[this.fontSize] || FONT_SCALE_MAP.medium;
         this.captionBox.style.fontFamily = FONT_FAMILY_MAP[this.captionFontFamily] || FONT_FAMILY_MAP.sans;
         this.captionBox.style.maxWidth = MAX_WIDTH_MAP[this.captionMaxWidth] || MAX_WIDTH_MAP.balanced;
         this.captionBox.dataset.style = this.captionStyle;
         this.captionBox.dataset.font = this.captionFontFamily;
+        this._applyCaptionMetrics();
         const alpha = this.captionBgOpacity / 100;
         let bgCss = hexToRgba("#0b0d10", alpha);
         let textHex = COLOR_HEX_MAP[this.captionColor] || COLOR_HEX_MAP.white;
@@ -3738,21 +5142,130 @@ ${rows.join("\n")}
         this._renderToolbar();
         this._renderTranscriptList();
       }
+      if (typeof patch.fineGrainedControls === "boolean") {
+        this.fineGrainedControls = patch.fineGrainedControls;
+        if (this.fineSection) {
+          this.fineSection.style.display = this.fineGrainedControls ? "flex" : "none";
+        }
+        this._mountNativeDock();
+      }
+      if (typeof patch.dynamicCaptionScaling === "boolean") {
+        this.dynamicCaptionScaling = patch.dynamicCaptionScaling;
+      }
+      if (Number.isFinite(Number(patch.captionScaleFactor))) {
+        this.captionScaleFactor = this._clamp(
+          patch.captionScaleFactor,
+          50,
+          200,
+          100
+        );
+      }
+      if (Number.isFinite(Number(patch.captionMinFontPx))) {
+        this.captionMinFontPx = this._clamp(patch.captionMinFontPx, 8, 18, 11);
+      }
+      if (Number.isFinite(Number(patch.captionMaxFontPx))) {
+        this.captionMaxFontPx = this._clamp(patch.captionMaxFontPx, 20, 64, 40);
+      }
+      if (Number.isFinite(Number(patch.captionPaddingY))) {
+        this.captionPaddingY = this._clamp(patch.captionPaddingY, 2, 20, 7);
+      }
+      if (Number.isFinite(Number(patch.captionPaddingX))) {
+        this.captionPaddingX = this._clamp(patch.captionPaddingX, 6, 40, 15);
+      }
+      if (Number.isFinite(Number(patch.captionBorderRadius))) {
+        this.captionBorderRadius = this._clamp(
+          patch.captionBorderRadius,
+          0,
+          32,
+          7
+        );
+      }
+      if (Number.isFinite(Number(patch.captionLineHeight))) {
+        this.captionLineHeight = this._clamp(
+          patch.captionLineHeight,
+          115,
+          185,
+          142
+        );
+      }
+      if (Number.isFinite(Number(patch.captionBottomOffsetPx))) {
+        this.captionBottomOffsetPx = this._clamp(
+          patch.captionBottomOffsetPx,
+          24,
+          180,
+          54
+        );
+      }
+      if (Number.isFinite(Number(patch.captionTextStrokePx))) {
+        this.captionTextStrokePx = this._clamp(
+          patch.captionTextStrokePx,
+          0,
+          3,
+          0
+        );
+      }
+      if (Number.isFinite(Number(patch.karaokeHighlightOpacity))) {
+        this.karaokeHighlightOpacity = this._clamp(
+          patch.karaokeHighlightOpacity,
+          15,
+          95,
+          48
+        );
+      }
+      if (Number.isFinite(Number(patch.upcomingWordOpacity))) {
+        this.upcomingWordOpacity = this._clamp(
+          patch.upcomingWordOpacity,
+          25,
+          100,
+          64
+        );
+      }
+      if (patch.playBarDockMode && ["native", "hover", "always"].includes(patch.playBarDockMode)) {
+        this.playBarDockMode = patch.playBarDockMode;
+        this.host?.setAttribute?.("data-dock", this.playBarDockMode);
+        this._mountNativeDock();
+        this._updateControlsVisibility();
+      }
+      if (Number.isFinite(Number(patch.hoverFadeDelayMs))) {
+        this.hoverFadeDelayMs = this._clamp(patch.hoverFadeDelayMs, 400, 6e3, 2200);
+      }
+      if (typeof patch.keepSubtitlesInPiP === "boolean") {
+        this.keepSubtitlesInPiP = patch.keepSubtitlesInPiP;
+        this._syncTrackVisibility();
+      }
+      if (typeof patch.skipSilenceEnabled === "boolean") {
+        this.skipSilenceEnabled = patch.skipSilenceEnabled;
+        if (this.silenceBtn) {
+          this.silenceBtn.dataset.active = this.skipSilenceEnabled ? "true" : "false";
+        }
+      }
+      if (Number.isFinite(Number(patch.skipSilenceGapSec))) {
+        this.skipSilenceGapSec = this._clamp(patch.skipSilenceGapSec, 0.6, 5, 1.6);
+      }
+      if (Number.isFinite(Number(patch.skipSilenceRate))) {
+        this.skipSilenceRate = this._clamp(patch.skipSilenceRate, 1.4, 3, 2.2);
+      }
+      if (Number.isFinite(Number(patch.audioBoostPercent))) {
+        this.audioBoostPercent = this._clamp(patch.audioBoostPercent, 100, 250, 100);
+      }
+      this._applyCaptionMetrics();
       this._applyAllCaptionVisuals();
+      this._renderDockButtons();
+      this._renderToolbar();
     }
     setStatus(state, label = "") {
       this._ensureMounted();
       this.statusState = state;
       this.statusLabel = label;
-      if (this.toolbar && state === "working") {
-        this.toolbar.dataset.idle = "false";
-      }
+      this._renderDockButtons();
       this._renderToolbar();
+      this._updateControlsVisibility();
     }
     toggleSubtitles() {
       if (this.cues.length === 0) return;
       this.ccEnabled = !this.ccEnabled;
       this._syncTrackVisibility();
+      this._renderDockButtons();
       this._renderToolbar();
       this.lastRenderedSignature = "";
       this._renderActiveCue();
@@ -3770,19 +5283,21 @@ ${rows.join("\n")}
         this.drawerTitleEl.textContent = `Transcript (${this.cues.length})`;
       }
       this._syncNativeTextTrack();
+      this._renderDockButtons();
       this._renderToolbar();
       if (this.drawerOpen) {
         this._renderTranscriptList();
       }
       this.lastRenderedSignature = "";
       this._renderActiveCue();
-      this._scheduleIdleFade();
+      this._updateControlsVisibility();
     }
     getExportCues() {
       return this._shiftedCues();
     }
     exportSubtitles(format = "srt") {
       if (this.cues.length === 0) return false;
+      this._emitTelemetry({ exportsDelta: 1 });
       const { content, filename, mimeType } = serializeSubtitles(
         this._shiftedCues(),
         format,
@@ -3817,6 +5332,8 @@ ${rows.join("\n")}
           await globalThis.navigator?.clipboard?.writeText(formatted);
         } catch {
         }
+      } else {
+        this._emitTelemetry({ citationsDelta: 1 });
       }
       flashButtonLabel(citeBtn, inserted ? "Cited" : "Copied", 1100);
     }
@@ -3979,7 +5496,7 @@ ${rows.join("\n")}
     }
     _syncTrackVisibility() {
       if (!this.nativeTrack) return;
-      this.nativeTrack.mode = this.ccEnabled && this.inPiP && this.cues.length > 0 ? "showing" : "hidden";
+      this.nativeTrack.mode = this.ccEnabled && this.keepSubtitlesInPiP && this.inPiP && this.cues.length > 0 ? "showing" : "hidden";
     }
     _renderToolbar() {
       if (!this.toolbar) return;
@@ -4029,15 +5546,23 @@ ${rows.join("\n")}
     _renderActiveCue() {
       if (!this.captionBox) return;
       const effectiveTime = (this.video.currentTime || 0) - this.offsetSec;
-      const active = findActiveCue(this.cues, effectiveTime);
+      let active = findActiveCue(this.cues, effectiveTime);
+      if (!active && this.lastActiveCue) {
+        const endedAgo = effectiveTime - this.lastActiveCue.endSec;
+        if (endedAgo >= 0 && endedAgo <= CAPTION_LINGER_SEC) {
+          active = this.lastActiveCue;
+        }
+      }
+      if (active) this.lastActiveCue = active;
       const nextIdx = active ? this.cues.indexOf(active) : -1;
       if (nextIdx !== this.activeCueIndex) {
         this.activeCueIndex = nextIdx;
         this._highlightDrawerActiveCue(false);
       }
-      if (!this.ccEnabled || this.inPiP || !active) {
+      if (!this.ccEnabled || this.inPiP && !this.pipWindow || !active) {
         this.captionBox.dataset.visible = "false";
         this.lastRenderedSignature = "";
+        this._renderPipCaption();
         return;
       }
       const prefix = this.showSpeakerLabels && active.speaker ? `[${active.speaker}] ` : "";
@@ -4061,6 +5586,7 @@ ${rows.join("\n")}
           }
         }
         this.captionBox.dataset.visible = "true";
+        this._renderPipCaption();
         return;
       }
       const span = Math.max(0.25, active.endSec - active.startSec);
@@ -4108,10 +5634,26 @@ ${rows.join("\n")}
         }
       }
       this.captionBox.dataset.visible = "true";
+      this._renderPipCaption();
     }
     destroy() {
+      this._flushWatchClock();
       this._stopHighFreqSync();
       if (this.idleTimer) clearTimeout(this.idleTimer);
+      if (this.dockPollTimer) clearInterval(this.dockPollTimer);
+      this.dockPollTimer = null;
+      try {
+        this.sizeObserver?.disconnect?.();
+      } catch {
+      }
+      this.sizeObserver = null;
+      this._teardownNativeDock();
+      try {
+        if (this.pipWindow && !this.pipWindow.closed) this.pipWindow.close();
+      } catch {
+      }
+      this.pipWindow = null;
+      this.pipCaptionEl = null;
       this.video.removeEventListener("timeupdate", this._onTimeChange);
       this.video.removeEventListener("seeking", this._onTimeChange);
       this.video.removeEventListener("seeked", this._onTimeChange);
@@ -4119,6 +5661,15 @@ ${rows.join("\n")}
       this.video.removeEventListener("pause", this._onPause);
       this.video.removeEventListener("enterpictureinpicture", this._onEnterPiP);
       this.video.removeEventListener("leavepictureinpicture", this._onLeavePiP);
+      const container = this.host?.parentElement || this.video.parentElement;
+      if (container) {
+        container.removeEventListener?.("pointerenter", this._onPointerEnter);
+        container.removeEventListener?.("pointerleave", this._onPointerLeave);
+        container.removeEventListener?.("mouseenter", this._onPointerEnter);
+        container.removeEventListener?.("mouseleave", this._onPointerLeave);
+      }
+      this.doc.removeEventListener?.("fullscreenchange", this._onFullscreenChange);
+      globalThis.removeEventListener?.("resize", this._onFullscreenChange);
       this.host?.remove();
     }
   };
@@ -4666,6 +6217,53 @@ ${rows.join("\n")}
         });
       });
     }
+    function buildNotebookScope() {
+      let videoCount = 0;
+      let audioCount = 0;
+      let reportCount = 0;
+      let studioArtifactCount = 0;
+      for (const art of artifactsById.values()) {
+        studioArtifactCount += 1;
+        if (art.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW || art.mediaKind === "audio") {
+          audioCount += 1;
+        } else if (art.typeCode === ARTIFACT_TYPE.VIDEO_OVERVIEW) {
+          videoCount += 1;
+        } else if (art.typeCode === ARTIFACT_TYPE.REPORT || art.typeCode === ARTIFACT_TYPE.INFOGRAPHIC || art.typeCode === ARTIFACT_TYPE.SLIDE_DECK || art.typeCode === ARTIFACT_TYPE.DATA_TABLE || art.typeCode === ARTIFACT_TYPE.MIND_MAP) {
+          reportCount += 1;
+        }
+      }
+      return {
+        notebookId: getNotebookIdFromUrl(),
+        notebookTitle: getNotebookTitleFallback(),
+        sourceCount: Number(win.__lmSubsSourceCount || 0),
+        videoCount,
+        audioCount,
+        reportCount,
+        studioArtifactCount
+      };
+    }
+    let telemetryAccumulator = {};
+    let telemetryFlushTimer = null;
+    function recordNotebookTelemetry(patch = {}, mediaKind = "video") {
+      if (!patch || typeof patch !== "object") return;
+      telemetryAccumulator = { ...telemetryAccumulator, ...patch };
+      if (!telemetryAccumulator.__kind && mediaKind) {
+        telemetryAccumulator.__kind = mediaKind;
+      }
+      if (telemetryFlushTimer) return;
+      telemetryFlushTimer = setTimeout(() => {
+        telemetryFlushTimer = null;
+        const payload = { ...telemetryAccumulator };
+        delete payload.__kind;
+        telemetryAccumulator = {};
+        if (!Object.keys(payload).length) return;
+        sendRuntimeMessage({
+          type: RUNTIME_MESSAGE.RECORD_NOTEBOOKLM_TELEMETRY,
+          event: { ...payload, ...buildNotebookScope() }
+        }).catch(() => {
+        });
+      }, 8e3);
+    }
     function ensureToast() {
       if (!toast && doc.body) {
         toast = createToastManager(doc);
@@ -4685,9 +6283,24 @@ ${rows.join("\n")}
         });
       });
     }
-    function playCompletionChime() {
+    function playCompletionChime({ force = false } = {}) {
       if (!settings.soundAlerts || !settings.enabled) return;
-      playCompletionChimeSound({ win }).catch(() => {
+      playCompletionChimeSound({
+        win,
+        preset: settings.notificationSoundPreset || "chime",
+        volume: Number(settings.notificationSoundVolume) || 75,
+        force
+      }).catch(() => {
+      });
+    }
+    function playNotificationSoundPreset(msg = {}) {
+      if (!settings.enabled) return;
+      playCompletionChimeSound({
+        win,
+        preset: msg.preset || settings.notificationSoundPreset || "chime",
+        volume: Number(msg.volume ?? settings.notificationSoundVolume) || 75,
+        force: true
+      }).catch(() => {
       });
     }
     try {
@@ -5245,6 +6858,29 @@ ${formattedText} ` : `${formattedText} `;
         initialClickCaptionToCopy: settings.clickCaptionToCopy,
         initialPlaybackSpeed: settings.defaultPlaybackSpeed,
         initialOffsetSec: settings.subtitleOffsetSec,
+        initialFineGrainedControls: settings.fineGrainedControls,
+        initialDynamicCaptionScaling: settings.dynamicCaptionScaling,
+        initialCaptionScaleFactor: settings.captionScaleFactor,
+        initialCaptionMinFontPx: settings.captionMinFontPx,
+        initialCaptionMaxFontPx: settings.captionMaxFontPx,
+        initialCaptionPaddingY: settings.captionPaddingY,
+        initialCaptionPaddingX: settings.captionPaddingX,
+        initialCaptionBorderRadius: settings.captionBorderRadius,
+        initialCaptionLineHeight: settings.captionLineHeight,
+        initialCaptionBottomOffsetPx: settings.captionBottomOffsetPx,
+        initialCaptionTextStrokePx: settings.captionTextStrokePx,
+        initialKaraokeHighlightOpacity: settings.karaokeHighlightOpacity,
+        initialUpcomingWordOpacity: settings.upcomingWordOpacity,
+        initialPlayBarDockMode: settings.playBarDockMode,
+        initialHoverFadeDelayMs: settings.hoverFadeDelayMs,
+        initialKeepSubtitlesInPiP: settings.keepSubtitlesInPiP,
+        initialSkipSilenceEnabled: settings.skipSilenceEnabled,
+        initialSkipSilenceGapSec: settings.skipSilenceGapSec,
+        initialSkipSilenceRate: settings.skipSilenceRate,
+        initialAudioBoostPercent: settings.audioBoostPercent,
+        onTelemetry: (patch) => {
+          recordNotebookTelemetry(patch, entry.mediaKind);
+        },
         onRequestGenerate: ({ force } = {}) => {
           ensureSubtitlesForEntry(entry, {
             force: Boolean(force),
@@ -5665,6 +7301,16 @@ ${formattedText} ` : `${formattedText} `;
         active.controller.stepFontSize(1);
       } else if (key === "b" || key === "B") {
         active.controller.cycleCaptionStyle();
+      } else if (key === "x" || key === "X") {
+        active.controller.captureSnapshot?.();
+      } else if (key === "f" || key === "F") {
+        active.controller.toggleFullscreen?.();
+      } else if (key === "z" || key === "Z") {
+        active.controller.toggleSkipSilence?.();
+      } else if (key === "," || key === "<") {
+        active.controller.seekBySeconds?.(-10);
+      } else if (key === ".") {
+        active.controller.seekBySeconds?.(10);
       } else if (key === "?") {
         active.controller.toggleShortcutsHelp();
       }
@@ -5707,8 +7353,12 @@ ${formattedText} ` : `${formattedText} `;
         }
         return false;
       }
+      if (msg.type === RUNTIME_MESSAGE.PLAY_NOTIFICATION_SOUND) {
+        playNotificationSoundPreset(msg);
+        return false;
+      }
       if (msg.type === RUNTIME_MESSAGE.SUBTITLES_READY) {
-        playCompletionChime();
+        playCompletionChime({ force: true });
         fireTabDesktopNotification(
           `Subtitles ready: ${msg.title || "Video Overview"}`,
           `${msg.cueCount || 0} cues generated via ${msg.provider || "AI"}.`
@@ -5887,7 +7537,27 @@ ${formattedText} ` : `${formattedText} `;
             pauseOnCaptionHover: settings.pauseOnCaptionHover,
             clickCaptionToCopy: settings.clickCaptionToCopy,
             defaultPlaybackSpeed: settings.defaultPlaybackSpeed,
-            subtitleOffsetSec: settings.subtitleOffsetSec
+            subtitleOffsetSec: settings.subtitleOffsetSec,
+            fineGrainedControls: settings.fineGrainedControls,
+            dynamicCaptionScaling: settings.dynamicCaptionScaling,
+            captionScaleFactor: settings.captionScaleFactor,
+            captionMinFontPx: settings.captionMinFontPx,
+            captionMaxFontPx: settings.captionMaxFontPx,
+            captionPaddingY: settings.captionPaddingY,
+            captionPaddingX: settings.captionPaddingX,
+            captionBorderRadius: settings.captionBorderRadius,
+            captionLineHeight: settings.captionLineHeight,
+            captionBottomOffsetPx: settings.captionBottomOffsetPx,
+            captionTextStrokePx: settings.captionTextStrokePx,
+            karaokeHighlightOpacity: settings.karaokeHighlightOpacity,
+            upcomingWordOpacity: settings.upcomingWordOpacity,
+            playBarDockMode: settings.playBarDockMode,
+            hoverFadeDelayMs: settings.hoverFadeDelayMs,
+            keepSubtitlesInPiP: settings.keepSubtitlesInPiP,
+            skipSilenceEnabled: settings.skipSilenceEnabled,
+            skipSilenceGapSec: settings.skipSilenceGapSec,
+            skipSilenceRate: settings.skipSilenceRate,
+            audioBoostPercent: settings.audioBoostPercent
           });
         }
       });

@@ -35,6 +35,12 @@ execFileSync(
   }
 );
 
+// 1b. Regenerate the crawlable static blog (docs/blog/**) for search and AI answers
+execFileSync(process.execPath, [path.join(REPO_ROOT, "scripts", "build-blog.mjs")], {
+  cwd: REPO_ROOT,
+  stdio: "inherit",
+});
+
 const latestMetaJson = fs.existsSync(path.join(DOCS_DIR, "releases", "latest.json"))
   ? fs.readFileSync(path.join(DOCS_DIR, "releases", "latest.json"), "utf8")
   : "";

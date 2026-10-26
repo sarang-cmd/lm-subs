@@ -22,6 +22,7 @@
           <a class="ext-nav-link" href="#providers-section">Providers</a>
           <a class="ext-nav-link" href="#notifications-section">Alerts</a>
           <a class="ext-nav-link" href="#preferences-section">Preferences</a>
+          <a class="ext-nav-link" href="#advanced-section">Fine controls</a>
           <a class="ext-nav-link" href="#library-section">Library</a>
           <a class="ext-nav-link" href="#diagnostics-section">Diagnostics</a>
         </nav>
@@ -240,6 +241,66 @@
             <div class="stats-lbl">Median speed</div>
           </div>
         </div>
+
+        <h3 class="section-heading" style="font-size: 1.05rem; margin: 26px 0 12px">
+          Your Google NotebookLM workspace and study activity
+        </h3>
+        <div class="stats-strip">
+          <div class="stats-cell">
+            <div id="stat-notebooks" class="stats-num">0</div>
+            <div class="stats-lbl">Notebooks used</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-sources" class="stats-num">0</div>
+            <div class="stats-lbl">Sources indexed</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-artifacts" class="stats-num">0</div>
+            <div class="stats-lbl">Studio artifacts</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-study" class="stats-num">0 min</div>
+            <div class="stats-lbl">Time watched and listened</div>
+          </div>
+        </div>
+
+        <div class="stats-strip" style="margin-top: 10px">
+          <div class="stats-cell">
+            <div id="stat-video-ov" class="stats-num">0</div>
+            <div class="stats-lbl">Video Overviews</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-audio-ov" class="stats-num">0</div>
+            <div class="stats-lbl">Audio Overviews</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-citations" class="stats-num">0</div>
+            <div class="stats-lbl">Citations sent to chat</div>
+          </div>
+          <div class="stats-cell">
+            <div id="stat-bookmarks" class="stats-num">0</div>
+            <div class="stats-lbl">Bookmarked moments</div>
+          </div>
+        </div>
+
+        <div id="notebook-lm-table-wrap" class="sheet-flush" style="margin-top: 14px; display: none">
+          <table class="data-table" style="min-width: 520px">
+            <thead>
+              <tr>
+                <th>Notebook</th>
+                <th data-num="true">Sources</th>
+                <th data-num="true">Video</th>
+                <th data-num="true">Audio</th>
+                <th data-num="true">Watch time</th>
+                <th data-num="true">Last opened</th>
+              </tr>
+            </thead>
+            <tbody id="notebook-lm-tbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" style="margin-top: 8px">
+          These are the exact same numbers shown on the LM Subs website dashboard and in the toolbar popup. Everything is computed on this device from your own browsing; nothing is sent anywhere unless you sign in and enable sync.
+        </p>
       </section>
 
       <!-- Collapsible Compact BYOK Provider Priority Queue -->
@@ -319,6 +380,41 @@
               <div id="opt-update-feedback" class="status-line" aria-live="polite"></div>
             </div>
 
+            <!-- Notification Sound Presets with Live Preview -->
+            <div class="sound-preset-card">
+              <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px">
+                <div style="font-size: 13px; font-weight: 600">Alert sound</div>
+                <span id="opt-sound-badge" class="badge">Chime</span>
+              </div>
+              <p class="hint" style="margin: 0 0 10px">
+                Every LM Subs notification plays this tone instead of the default operating system beep.
+              </p>
+              <div class="field" style="margin-bottom: 10px">
+                <label class="field-label" for="opt-sound-preset">Sound preset</label>
+                <select id="opt-sound-preset">
+                  <option value="chime">Acoustic fifth chime (C5 to G5)</option>
+                  <option value="marimba">Studio triad marimba (C5, E5, G5)</option>
+                  <option value="bell">Crystal desk bell (A5 shimmer)</option>
+                  <option value="pulse">Crisp double pulse (F5 to A5)</option>
+                  <option value="soft-pop">Warm acoustic pluck (D5 to A5)</option>
+                  <option value="none">Silent (visual alerts only)</option>
+                </select>
+              </div>
+              <div class="field" style="margin-bottom: 10px">
+                <label class="field-label" for="opt-sound-volume">
+                  <span>Volume</span>
+                  <span id="opt-sound-volume-label" class="mono-input">75%</span>
+                </label>
+                <input id="opt-sound-volume" type="range" min="10" max="100" step="5" value="75" />
+              </div>
+              <div class="row">
+                <button id="opt-preview-sound-btn" type="button" class="btn btn-sm btn-primary">
+                  Play preview
+                </button>
+              </div>
+              <div id="opt-sound-feedback" class="status-line" aria-live="polite"></div>
+            </div>
+
             <div class="switch-row-list" style="border-top: 0; margin-bottom: 14px">
               <div class="switch-row-item" style="padding-top: 0">
                 <div>
@@ -366,7 +462,7 @@
                   <div class="hint" style="margin-top: 2px">Plays a brief two-note acoustic tone when captions finish.</div>
                 </div>
                 <label class="switch" aria-label="Completion sound chime">
-                  <input id="opt-sound-alerts" type="checkbox" />
+                  <input id="opt-sound-alerts" type="checkbox" checked />
                 </label>
               </div>
 
@@ -505,7 +601,21 @@
                   <span>Word highlight delay</span>
                   <span id="opt-karaoke-delay-label" class="mono-input">0 ms</span>
                 </label>
-                <input id="opt-karaoke-delay" type="range" min="-500" max="1500" step="50" value="0" />
+                <input id="opt-karaoke-delay" type="range" min="-1500" max="3000" step="10" value="0" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-play-bar-dock">
+                  Caption controls placement
+                </label>
+                <select id="opt-play-bar-dock">
+                  <option value="native">Inside the NotebookLM play bar</option>
+                  <option value="hover">Floating pill, appears on hover</option>
+                  <option value="always">Floating pill, always visible</option>
+                </select>
+                <div class="hint" style="margin-top: 4px">
+                  Controls fade in and out together with NotebookLM's own play bar, so they never blink between caption lines.
+                </div>
               </div>
 
               <div class="field" style="margin: 0">
@@ -656,6 +766,185 @@
             <div class="row" style="margin-top: 14px">
               <button id="save-behavior-btn" type="button" class="btn btn-primary">
                 Save preferences
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Fine-Grained Controls (hidden behind one master switch to keep the player clean) -->
+      <section id="advanced-section" class="ext-section">
+        <div class="ext-split">
+          <div>
+            <h2 class="section-heading">Fine-grained controls</h2>
+            <p class="section-prose">
+              Keep the NotebookLM player clean by default. Turn on advanced mode to unlock every caption metric and playback control inside the player, including pixel-level caption scaling, playback gestures, volume boost, silence skipping, and frame snapshots.
+            </p>
+            <div class="switch-row-item" style="margin-top: 14px; padding-left: 0">
+              <div>
+                <div style="font-size: 13px; font-weight: 600">Advanced player controls</div>
+                <div class="hint" style="margin-top: 2px">
+                  Adds speed, loop, PiP, snapshot, volume boost, and skip-silence buttons to the play bar, plus this full metrics panel.
+                </div>
+              </div>
+              <label class="switch" aria-label="Advanced player controls">
+                <input id="opt-fine-grained" type="checkbox" />
+              </label>
+            </div>
+          </div>
+
+          <div id="advanced-controls-body" class="sheet" style="display: none">
+            <h3 class="section-heading" style="font-size: 1.05rem; margin-bottom: 12px">
+              Caption metrics
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px">
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-scale">
+                  <span>Dynamic scaling</span>
+                  <span id="opt-caption-scale-label" class="mono-input">100%</span>
+                </label>
+                <input id="opt-caption-scale" type="range" min="50" max="200" step="5" value="100" />
+                <div class="hint" style="margin-top: 4px">
+                  Captions resize with the player so the Studio sidebar preview stays small and fullscreen stays readable.
+                </div>
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-dynamic-scaling">
+                  <input id="opt-dynamic-scaling" type="checkbox" checked style="width: auto; margin-right: 6px" />
+                  <span>Auto-scale with player size</span>
+                </label>
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-min">Minimum caption size (px)</label>
+                <input id="opt-caption-min" type="number" min="8" max="18" step="1" value="11" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-max">Maximum caption size (px)</label>
+                <input id="opt-caption-max" type="number" min="20" max="64" step="1" value="40" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-pad-y">Vertical padding (px)</label>
+                <input id="opt-caption-pad-y" type="number" min="2" max="20" step="1" value="7" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-pad-x">Horizontal padding (px)</label>
+                <input id="opt-caption-pad-x" type="number" min="6" max="40" step="1" value="15" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-radius">Corner radius (px)</label>
+                <input id="opt-caption-radius" type="number" min="0" max="32" step="1" value="7" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-leading">
+                  <span>Line height</span>
+                  <span id="opt-caption-leading-label" class="mono-input">142%</span>
+                </label>
+                <input id="opt-caption-leading" type="range" min="115" max="185" step="5" value="142" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-bottom">Height above bottom (px)</label>
+                <input id="opt-caption-bottom" type="number" min="24" max="180" step="2" value="54" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-caption-stroke">Text outline (px)</label>
+                <input id="opt-caption-stroke" type="number" min="0" max="3" step="0.5" value="0" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-karaoke-alpha">
+                  <span>Word highlight strength</span>
+                  <span id="opt-karaoke-alpha-label" class="mono-input">48%</span>
+                </label>
+                <input id="opt-karaoke-alpha" type="range" min="15" max="95" step="5" value="48" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-upcoming-alpha">
+                  <span>Unspoken word dimming</span>
+                  <span id="opt-upcoming-alpha-label" class="mono-input">64%</span>
+                </label>
+                <input id="opt-upcoming-alpha" type="range" min="25" max="100" step="5" value="64" />
+              </div>
+            </div>
+
+            <h3 class="section-heading" style="font-size: 1.05rem; margin-bottom: 12px">
+              Playback controls
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px">
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-skip-gap">
+                  <span>Silence gap before skip</span>
+                  <span id="opt-skip-gap-label" class="mono-input">1.6s</span>
+                </label>
+                <input id="opt-skip-gap" type="range" min="0.6" max="5" step="0.1" value="1.6" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-skip-rate">
+                  <span>Skip speed</span>
+                  <span id="opt-skip-rate-label" class="mono-input">2.2x</span>
+                </label>
+                <input id="opt-skip-rate" type="range" min="1.4" max="3" step="0.1" value="2.2" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-audio-boost">
+                  <span>Volume boost</span>
+                  <span id="opt-audio-boost-label" class="mono-input">100%</span>
+                </label>
+                <input id="opt-audio-boost" type="range" min="100" max="250" step="5" value="100" />
+              </div>
+
+              <div class="field" style="margin: 0">
+                <label class="field-label" for="opt-hover-fade">
+                  <span>Control fade delay</span>
+                  <span id="opt-hover-fade-label" class="mono-input">2200 ms</span>
+                </label>
+                <input id="opt-hover-fade" type="range" min="400" max="6000" step="100" value="2200" />
+              </div>
+            </div>
+
+            <div class="switch-row-list" style="border-top: 0">
+              <div class="switch-row-item" style="padding-top: 0">
+                <div>
+                  <div style="font-size: 13px; font-weight: 600">Keep captions in Picture-in-Picture</div>
+                  <div class="hint" style="margin-top: 2px">
+                    Renders live styled captions inside the PiP window (uses the Document PiP API when available, otherwise the native text track).
+                  </div>
+                </div>
+                <label class="switch" aria-label="Keep captions in Picture-in-Picture">
+                  <input id="opt-keep-pip" type="checkbox" checked />
+                </label>
+              </div>
+
+              <div class="switch-row-item">
+                <div>
+                  <div style="font-size: 13px; font-weight: 600">Skip silence between sentences</div>
+                  <div class="hint" style="margin-top: 2px">
+                    Speeds playback through quiet gaps, then returns to your normal rate the moment the next line starts.
+                  </div>
+                </div>
+                <label class="switch" aria-label="Skip silence between sentences">
+                  <input id="opt-skip-silence" type="checkbox" />
+                </label>
+              </div>
+            </div>
+
+            <div class="row" style="margin-top: 14px">
+              <button id="save-advanced-btn" type="button" class="btn btn-primary">
+                Save fine controls
+              </button>
+              <button id="reset-advanced-btn" type="button" class="btn btn-sm">
+                Reset to defaults
               </button>
             </div>
           </div>

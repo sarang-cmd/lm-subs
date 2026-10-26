@@ -214,5 +214,56 @@ export function buildSampleStatsDataset() {
         savedAt: new Date(Date.now() - 172800000).toISOString(),
       },
     ],
+    // Clearly labeled illustrative Google NotebookLM workspace telemetry so the
+    // sample dashboard shows the same shape as the extension settings page.
+    notebookLm: {
+      notebooks: [
+        {
+          notebookId: "sample-atp-seminar",
+          title: "Cellular ATP Synthesis seminar",
+          sourceCount: 14,
+          videoCount: 6,
+          audioCount: 3,
+          reportCount: 4,
+          studioArtifactCount: 13,
+          watchSeconds: 9240,
+          listenSeconds: 2760,
+        },
+        {
+          notebookId: "sample-conlaw",
+          title: "Comparative Constitutional Review",
+          sourceCount: 9,
+          videoCount: 4,
+          audioCount: 2,
+          reportCount: 3,
+          studioArtifactCount: 9,
+          watchSeconds: 6120,
+          listenSeconds: 1800,
+        },
+        {
+          notebookId: "sample-raft",
+          title: "Consensus Protocols reading group",
+          sourceCount: 6,
+          videoCount: 3,
+          audioCount: 1,
+          reportCount: 2,
+          studioArtifactCount: 6,
+          watchSeconds: 4380,
+          listenSeconds: 960,
+        },
+      ],
+      totals: {
+        watchSeconds: 19740,
+        listenSeconds: 5520,
+        speedSavedSeconds: 3180,
+        bookmarksCount: 31,
+        citationsCount: 57,
+        loopsCount: 22,
+        pipSessionsCount: 12,
+        snapshotsCount: 8,
+        exportsCount: 41,
+      },
+      dailyStudy: {},
+    },
   };
 }

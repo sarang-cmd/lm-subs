@@ -23,6 +23,7 @@ export const STORAGE_KEYS = Object.freeze({
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret",
   SETUP_STATE: "setupState",
+  NOTEBOOKLM_STATS: "notebooklmStats",
 });
 
 export const MAX_CACHE_ENTRIES = 35;
@@ -60,7 +61,25 @@ export const CAPTION_COLORS = Object.freeze([
 ]);
 export const CAPTION_POSITIONS = Object.freeze(["bottom", "raised", "top"]);
 export const CAPTION_WIDTHS = Object.freeze(["compact", "balanced", "wide"]);
-export const PLAYBACK_SPEEDS = Object.freeze([0.75, 1, 1.25, 1.5, 1.75, 2]);
+export const PLAYBAR_DOCK_MODES = Object.freeze(["native", "hover", "always"]);
+export const NOTIFICATION_SOUND_PRESETS = Object.freeze([
+  "chime",
+  "marimba",
+  "bell",
+  "pulse",
+  "soft-pop",
+  "none",
+]);
+export const PLAYBACK_SPEEDS = Object.freeze([
+  0.5,
+  0.75,
+  1,
+  1.25,
+  1.5,
+  1.75,
+  2,
+  2.5,
+]);
 
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
@@ -89,9 +108,31 @@ export const DEFAULT_SETTINGS = Object.freeze({
   clickCaptionToCopy: true,
   defaultPlaybackSpeed: 1,
   subtitleOffsetSec: 0,
+  fineGrainedControls: false,
+  dynamicCaptionScaling: true,
+  captionScaleFactor: 100, // 50..200 (%)
+  captionMinFontPx: 10, // 8..18 (px)
+  captionMaxFontPx: 42, // 20..64 (px)
+  captionPaddingY: 7, // 2..20 (px)
+  captionPaddingX: 15, // 6..40 (px)
+  captionBorderRadius: 7, // 0..32 (px)
+  captionLineHeight: 142, // 115..185 (%)
+  captionBottomOffsetPx: 54, // 24..180 (px)
+  captionTextStrokePx: 0, // 0..3 (px)
+  karaokeHighlightOpacity: 48, // 15..95 (%)
+  upcomingWordOpacity: 64, // 25..100 (%)
+  playBarDockMode: "native", // "native" | "hover" | "always"
+  hoverFadeDelayMs: 2200, // 400..6000 (ms)
+  keepSubtitlesInPiP: true,
+  skipSilenceEnabled: false,
+  skipSilenceGapSec: 1.6, // 0.6..5.0 (s)
+  skipSilenceRate: 2.2, // 1.4..3.0 (x)
+  audioBoostPercent: 100, // 100..250 (%)
   showToast: true,
   desktopNotifications: true,
-  soundAlerts: false,
+  soundAlerts: true,
+  notificationSoundPreset: "chime",
+  notificationSoundVolume: 75,
   badgeAlerts: true,
   notifyOnFailover: true,
   notifyOnSync: false,
@@ -244,6 +285,70 @@ export async function getSettings(storageArea) {
     subtitleOffsetSec: Number.isFinite(Number(saved.subtitleOffsetSec))
       ? Math.max(-10, Math.min(10, Number(saved.subtitleOffsetSec)))
       : 0,
+    fineGrainedControls:
+      typeof saved.fineGrainedControls === "boolean"
+        ? saved.fineGrainedControls
+        : DEFAULT_SETTINGS.fineGrainedControls,
+    dynamicCaptionScaling:
+      typeof saved.dynamicCaptionScaling === "boolean"
+        ? saved.dynamicCaptionScaling
+        : DEFAULT_SETTINGS.dynamicCaptionScaling,
+    captionScaleFactor: Number.isFinite(Number(saved.captionScaleFactor))
+      ? Math.max(50, Math.min(200, Math.round(Number(saved.captionScaleFactor))))
+      : DEFAULT_SETTINGS.captionScaleFactor,
+    captionMinFontPx: Number.isFinite(Number(saved.captionMinFontPx))
+      ? Math.max(8, Math.min(18, Math.round(Number(saved.captionMinFontPx))))
+      : DEFAULT_SETTINGS.captionMinFontPx,
+    captionMaxFontPx: Number.isFinite(Number(saved.captionMaxFontPx))
+      ? Math.max(20, Math.min(64, Math.round(Number(saved.captionMaxFontPx))))
+      : DEFAULT_SETTINGS.captionMaxFontPx,
+    captionPaddingY: Number.isFinite(Number(saved.captionPaddingY))
+      ? Math.max(2, Math.min(20, Math.round(Number(saved.captionPaddingY))))
+      : DEFAULT_SETTINGS.captionPaddingY,
+    captionPaddingX: Number.isFinite(Number(saved.captionPaddingX))
+      ? Math.max(6, Math.min(40, Math.round(Number(saved.captionPaddingX))))
+      : DEFAULT_SETTINGS.captionPaddingX,
+    captionBorderRadius: Number.isFinite(Number(saved.captionBorderRadius))
+      ? Math.max(0, Math.min(32, Math.round(Number(saved.captionBorderRadius))))
+      : DEFAULT_SETTINGS.captionBorderRadius,
+    captionLineHeight: Number.isFinite(Number(saved.captionLineHeight))
+      ? Math.max(115, Math.min(185, Math.round(Number(saved.captionLineHeight))))
+      : DEFAULT_SETTINGS.captionLineHeight,
+    captionBottomOffsetPx: Number.isFinite(Number(saved.captionBottomOffsetPx))
+      ? Math.max(24, Math.min(180, Math.round(Number(saved.captionBottomOffsetPx))))
+      : DEFAULT_SETTINGS.captionBottomOffsetPx,
+    captionTextStrokePx: Number.isFinite(Number(saved.captionTextStrokePx))
+      ? Math.max(0, Math.min(3, Math.round(Number(saved.captionTextStrokePx) * 2) / 2))
+      : DEFAULT_SETTINGS.captionTextStrokePx,
+    karaokeHighlightOpacity: Number.isFinite(Number(saved.karaokeHighlightOpacity))
+      ? Math.max(15, Math.min(95, Math.round(Number(saved.karaokeHighlightOpacity))))
+      : DEFAULT_SETTINGS.karaokeHighlightOpacity,
+    upcomingWordOpacity: Number.isFinite(Number(saved.upcomingWordOpacity))
+      ? Math.max(25, Math.min(100, Math.round(Number(saved.upcomingWordOpacity))))
+      : DEFAULT_SETTINGS.upcomingWordOpacity,
+    playBarDockMode: PLAYBAR_DOCK_MODES.includes(saved.playBarDockMode)
+      ? saved.playBarDockMode
+      : DEFAULT_SETTINGS.playBarDockMode,
+    hoverFadeDelayMs: Number.isFinite(Number(saved.hoverFadeDelayMs))
+      ? Math.max(400, Math.min(6000, Math.round(Number(saved.hoverFadeDelayMs) / 100) * 100))
+      : DEFAULT_SETTINGS.hoverFadeDelayMs,
+    keepSubtitlesInPiP:
+      typeof saved.keepSubtitlesInPiP === "boolean"
+        ? saved.keepSubtitlesInPiP
+        : DEFAULT_SETTINGS.keepSubtitlesInPiP,
+    skipSilenceEnabled:
+      typeof saved.skipSilenceEnabled === "boolean"
+        ? saved.skipSilenceEnabled
+        : DEFAULT_SETTINGS.skipSilenceEnabled,
+    skipSilenceGapSec: Number.isFinite(Number(saved.skipSilenceGapSec))
+      ? Math.max(0.6, Math.min(5, Math.round(Number(saved.skipSilenceGapSec) * 10) / 10))
+      : DEFAULT_SETTINGS.skipSilenceGapSec,
+    skipSilenceRate: Number.isFinite(Number(saved.skipSilenceRate))
+      ? Math.max(1.4, Math.min(3, Math.round(Number(saved.skipSilenceRate) * 10) / 10))
+      : DEFAULT_SETTINGS.skipSilenceRate,
+    audioBoostPercent: Number.isFinite(Number(saved.audioBoostPercent))
+      ? Math.max(100, Math.min(250, Math.round(Number(saved.audioBoostPercent) / 5) * 5))
+      : DEFAULT_SETTINGS.audioBoostPercent,
     showToast:
       typeof saved.showToast === "boolean"
         ? saved.showToast
@@ -256,6 +361,14 @@ export async function getSettings(storageArea) {
       typeof saved.soundAlerts === "boolean"
         ? saved.soundAlerts
         : DEFAULT_SETTINGS.soundAlerts,
+    notificationSoundPreset: NOTIFICATION_SOUND_PRESETS.includes(
+      saved.notificationSoundPreset
+    )
+      ? saved.notificationSoundPreset
+      : DEFAULT_SETTINGS.notificationSoundPreset,
+    notificationSoundVolume: Number.isFinite(Number(saved.notificationSoundVolume))
+      ? Math.max(10, Math.min(100, Math.round(Number(saved.notificationSoundVolume))))
+      : DEFAULT_SETTINGS.notificationSoundVolume,
     badgeAlerts:
       typeof saved.badgeAlerts === "boolean"
         ? saved.badgeAlerts
@@ -913,9 +1026,9 @@ export async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.5",
+        currentVersion: "0.2.6",
         currentBuildId: "",
-        latestVersion: "0.2.5",
+        latestVersion: "0.2.6",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -927,9 +1040,9 @@ export async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.5"),
+      currentVersion: String(saved.currentVersion || "0.2.6"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.6"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -941,9 +1054,9 @@ export async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.5",
+      currentVersion: "0.2.6",
       currentBuildId: "",
-      latestVersion: "0.2.5",
+      latestVersion: "0.2.6",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -1004,4 +1117,177 @@ export async function saveSetupState(partial, storageArea) {
   await store.set({ [STORAGE_KEYS.SETUP_STATE]: next });
   return next;
 }
+
+function createEmptyNotebookLmStats() {
+  return {
+    notebooks: {},
+    totals: {
+      watchSeconds: 0,
+      listenSeconds: 0,
+      speedSavedSeconds: 0,
+      bookmarksCount: 0,
+      citationsCount: 0,
+      loopsCount: 0,
+      pipSessionsCount: 0,
+      snapshotsCount: 0,
+      exportsCount: 0,
+    },
+    dailyStudy: {},
+    updatedAt: null,
+  };
+}
+
+export async function getNotebookLmStats(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.NOTEBOOKLM_STATS);
+    const saved = raw?.[STORAGE_KEYS.NOTEBOOKLM_STATS];
+    if (!saved || typeof saved !== "object") {
+      return createEmptyNotebookLmStats();
+    }
+    const base = createEmptyNotebookLmStats();
+    return {
+      notebooks:
+        saved.notebooks && typeof saved.notebooks === "object"
+          ? saved.notebooks
+          : {},
+      totals: {
+        watchSeconds: Math.max(0, Number(saved.totals?.watchSeconds) || 0),
+        listenSeconds: Math.max(0, Number(saved.totals?.listenSeconds) || 0),
+        speedSavedSeconds: Math.max(
+          0,
+          Number(saved.totals?.speedSavedSeconds) || 0
+        ),
+        bookmarksCount: Math.max(0, Number(saved.totals?.bookmarksCount) || 0),
+        citationsCount: Math.max(0, Number(saved.totals?.citationsCount) || 0),
+        loopsCount: Math.max(0, Number(saved.totals?.loopsCount) || 0),
+        pipSessionsCount: Math.max(
+          0,
+          Number(saved.totals?.pipSessionsCount) || 0
+        ),
+        snapshotsCount: Math.max(0, Number(saved.totals?.snapshotsCount) || 0),
+        exportsCount: Math.max(0, Number(saved.totals?.exportsCount) || 0),
+      },
+      dailyStudy:
+        saved.dailyStudy && typeof saved.dailyStudy === "object"
+          ? saved.dailyStudy
+          : base.dailyStudy,
+      updatedAt: saved.updatedAt || null,
+    };
+  } catch {
+    return createEmptyNotebookLmStats();
+  }
+}
+
+export async function recordNotebookLmTelemetry(event = {}, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getNotebookLmStats(store);
+  const nowIso = new Date().toISOString();
+  const dayKey = nowIso.slice(0, 10);
+
+  const notebooks = { ...current.notebooks };
+  if (event.notebookId && typeof event.notebookId === "string") {
+    const nbId = event.notebookId.slice(0, 80);
+    const prev = notebooks[nbId] || {
+      notebookId: nbId,
+      title: "Untitled notebook",
+      sourceCount: 0,
+      videoCount: 0,
+      audioCount: 0,
+      reportCount: 0,
+      studioArtifactCount: 0,
+      watchSeconds: 0,
+      listenSeconds: 0,
+      firstSeenAt: nowIso,
+      lastSeenAt: nowIso,
+    };
+    notebooks[nbId] = {
+      ...prev,
+      title:
+        event.notebookTitle &&
+        event.notebookTitle !== "NotebookLM Video Overview" &&
+        event.notebookTitle !== "NotebookLM Audio Overview"
+          ? String(event.notebookTitle).slice(0, 140)
+          : prev.title,
+      sourceCount: Math.max(
+        prev.sourceCount || 0,
+        Number(event.sourceCount) || 0
+      ),
+      videoCount: Math.max(prev.videoCount || 0, Number(event.videoCount) || 0),
+      audioCount: Math.max(prev.audioCount || 0, Number(event.audioCount) || 0),
+      reportCount: Math.max(
+        prev.reportCount || 0,
+        Number(event.reportCount) || 0
+      ),
+      studioArtifactCount: Math.max(
+        prev.studioArtifactCount || 0,
+        Number(event.studioArtifactCount) || 0
+      ),
+      watchSeconds:
+        (prev.watchSeconds || 0) + Math.max(0, Number(event.watchSeconds) || 0),
+      listenSeconds:
+        (prev.listenSeconds || 0) +
+        Math.max(0, Number(event.listenSeconds) || 0),
+      lastSeenAt: nowIso,
+    };
+  }
+
+  const addWatch = Math.max(0, Number(event.watchSeconds) || 0);
+  const addListen = Math.max(0, Number(event.listenSeconds) || 0);
+  const addSpeedSaved = Math.max(0, Number(event.speedSavedSeconds) || 0);
+  const addBookmarks = Math.max(0, Number(event.bookmarksDelta) || 0);
+  const addCitations = Math.max(0, Number(event.citationsDelta) || 0);
+  const addLoops = Math.max(0, Number(event.loopsDelta) || 0);
+  const addPip = Math.max(0, Number(event.pipDelta) || 0);
+  const addSnapshots = Math.max(0, Number(event.snapshotsDelta) || 0);
+  const addExports = Math.max(0, Number(event.exportsDelta) || 0);
+
+  const totals = {
+    watchSeconds: current.totals.watchSeconds + addWatch,
+    listenSeconds: current.totals.listenSeconds + addListen,
+    speedSavedSeconds: current.totals.speedSavedSeconds + addSpeedSaved,
+    bookmarksCount: current.totals.bookmarksCount + addBookmarks,
+    citationsCount: current.totals.citationsCount + addCitations,
+    loopsCount: current.totals.loopsCount + addLoops,
+    pipSessionsCount: current.totals.pipSessionsCount + addPip,
+    snapshotsCount: current.totals.snapshotsCount + addSnapshots,
+    exportsCount: current.totals.exportsCount + addExports,
+  };
+
+  const dailyStudy = { ...current.dailyStudy };
+  const prevDay = dailyStudy[dayKey] || {
+    activeSeconds: 0,
+    citations: 0,
+    bookmarks: 0,
+  };
+  dailyStudy[dayKey] = {
+    activeSeconds: prevDay.activeSeconds + addWatch + addListen,
+    citations: prevDay.citations + addCitations,
+    bookmarks: prevDay.bookmarks + addBookmarks,
+  };
+
+  // Prune dailyStudy to latest 30 days
+  const sortedDays = Object.keys(dailyStudy).sort();
+  while (sortedDays.length > 30) {
+    const oldest = sortedDays.shift();
+    delete dailyStudy[oldest];
+  }
+
+  const next = {
+    notebooks,
+    totals,
+    dailyStudy,
+    updatedAt: nowIso,
+  };
+  await store.set({ [STORAGE_KEYS.NOTEBOOKLM_STATS]: next });
+  return next;
+}
+
+export async function clearNotebookLmStats(storageArea) {
+  const store = resolveStorage(storageArea);
+  const empty = createEmptyNotebookLmStats();
+  await store.set({ [STORAGE_KEYS.NOTEBOOKLM_STATS]: empty });
+  return empty;
+}
+
 
