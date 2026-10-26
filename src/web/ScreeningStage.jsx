@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Tabs } from "radix-ui";
 import { motion, useReducedMotion } from "motion/react";
 import { serializeSubtitles } from "../lib/subtitles.js";
-import { SAMPLE_VIDEO_OVERVIEW } from "./demo-data.jsx";
+import { SAMPLE_AUDIO_OVERVIEW, SAMPLE_VIDEO_OVERVIEW } from "./demo-data.jsx";
 
 function formatClock(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -13,6 +13,7 @@ function formatClock(sec) {
 
 export function ScreeningStage() {
   const prefersReducedMotion = useReducedMotion();
+  const [stageMode, setStageMode] = useState("video");
   const [playing, setPlaying] = useState(false);
   const [ccEnabled, setCcEnabled] = useState(true);
   const [wordHighlight, setWordHighlight] = useState(true);
@@ -27,26 +28,29 @@ export function ScreeningStage() {
   const [copied, setCopied] = useState(false);
   const [failoverState, setFailoverState] = useState("idle");
 
+  const activeSample =
+    stageMode === "audio" ? SAMPLE_AUDIO_OVERVIEW : SAMPLE_VIDEO_OVERVIEW;
+
   useEffect(() => {
     if (!playing) return undefined;
     const id = window.setInterval(() => {
       setCurrentTime((prev) => {
         const next = prev + 0.25;
-        return next >= SAMPLE_VIDEO_OVERVIEW.durationSec ? 0 : next;
+        return next >= activeSample.durationSec ? 0 : next;
       });
     }, 250);
     return () => window.clearInterval(id);
-  }, [playing]);
+  }, [playing, activeSample.durationSec]);
 
   const effectiveTime = Math.max(0, currentTime - offsetSec);
 
   const activeCue = useMemo(() => {
     return (
-      SAMPLE_VIDEO_OVERVIEW.cues.find(
+      activeSample.cues.find(
         (c) => effectiveTime >= c.startSec && effectiveTime < c.endSec
-      ) || SAMPLE_VIDEO_OVERVIEW.cues[0]
+      ) || activeSample.cues[0]
     );
-  }, [effectiveTime]);
+  }, [effectiveTime, activeSample]);
 
   const activeSlide = useMemo(() => {
     return (
@@ -56,16 +60,16 @@ export function ScreeningStage() {
   }, [currentTime]);
 
   const serializedPreview = useMemo(() => {
-    return serializeSubtitles(SAMPLE_VIDEO_OVERVIEW.cues, exportFormat, {
-      title: SAMPLE_VIDEO_OVERVIEW.title,
-      language: SAMPLE_VIDEO_OVERVIEW.language,
+    return serializeSubtitles(activeSample.cues, exportFormat, {
+      title: activeSample.title,
+      language: activeSample.language,
       provider: failoverState === "done" ? "mistral" : "groq",
       model:
         failoverState === "done"
           ? "voxtral-mini-latest"
-          : SAMPLE_VIDEO_OVERVIEW.model,
+          : activeSample.model,
     });
-  }, [exportFormat, failoverState]);
+  }, [activeSample, exportFormat, failoverState]);
 
   function runSimulatedFailover() {
     setFailoverState("step1");
@@ -101,10 +105,12 @@ export function ScreeningStage() {
     failoverState === "step1"
       ? "Simulated demo: Groq returned HTTP 429, advancing to #2 Mistral…"
       : failoverState === "step2"
-        ? "Simulated demo: Transcribing 3.4 MB audio stream with Mistral Voxtral…"
+        ? "Simulated demo: Transcribing audio stream with Mistral Voxtral…"
         : failoverState === "done"
           ? "Simulated demo complete: Mistral delivered 6 cues in 2.6s"
-          : "Sample NotebookLM player: 3.4 MB audio stream, 6 cues synchronized";
+          : stageMode === "audio"
+            ? "Sample Audio Overview podcast: 3.0 MB audio stream, 2 hosts synchronized"
+            : "Sample Video Overview player: 3.4 MB audio stream, 6 cues synchronized";
 
   return (
     <motion.section
@@ -114,8 +120,39 @@ export function ScreeningStage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
     >
-      <div className="stage-topbar">
-        <span className="stage-video-title">{SAMPLE_VIDEO_OVERVIEW.title}</span>
+      <div className="stage-topbar" style={{ flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <div
+            role="group"
+            aria-label="Preview overview mode"
+            style={{
+              display: "inline-flex",
+              gap: "3px",
+              padding: "2px",
+              borderRadius: "6px",
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            <button
+              type="button"
+              className="stage-btn"
+              data-active={stageMode === "video" ? "true" : "false"}
+              onClick={() => setStageMode("video")}
+            >
+              Video Overview
+            </button>
+            <button
+              type="button"
+              className="stage-btn"
+              data-active={stageMode === "audio" ? "true" : "false"}
+              onClick={() => setStageMode("audio")}
+            >
+              Audio Overview (Podcast)
+            </button>
+          </div>
+          <span className="stage-video-title">{activeSample.title}</span>
+        </div>
         <span className="stage-meta" aria-live="polite">
           {statusText}
         </span>
@@ -123,15 +160,60 @@ export function ScreeningStage() {
 
       <div className="stage-body">
         <div className="stage-viewport">
-          <div className="stage-slide-canvas">
-            <div className="stage-slide-topic">{activeSlide.topic}</div>
-            <h2 className="stage-slide-heading">{activeSlide.heading}</h2>
-            <ul className="stage-slide-points">
-              {activeSlide.points.map((pt) => (
-                <li key={pt}>{pt}</li>
-              ))}
-            </ul>
-          </div>
+          {stageMode === "audio" ? (
+            <div className="stage-slide-canvas">
+              <div className="stage-slide-topic">
+                NotebookLM Studio Audio Overview (Two-Host Podcast)
+              </div>
+              <h2 className="stage-slide-heading">
+                Synchronized podcast captions and speaker turn tracking
+              </h2>
+              <div
+                aria-hidden="true"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  height: "48px",
+                  margin: "16px 0 12px",
+                }}
+              >
+                {[18, 34, 24, 44, 30, 48, 22, 38, 46, 28, 36, 20, 42, 32, 26, 40, 24, 34, 18, 28].map(
+                  (barH, idx) => {
+                    const activeBar =
+                      idx / 20 <= currentTime / activeSample.durationSec;
+                    return (
+                      <span
+                        key={idx}
+                        style={{
+                          width: "6px",
+                          height: `${barH}px`,
+                          borderRadius: "3px",
+                          background: activeBar
+                            ? "#3b82f6"
+                            : "rgba(255, 255, 255, 0.2)",
+                          transition: "background-color 150ms ease",
+                        }}
+                      />
+                    );
+                  }
+                )}
+              </div>
+              <div style={{ fontSize: "13px", color: "rgba(246, 247, 248, 0.72)" }}>
+                Active speaker: <strong style={{ color: "#ffffff" }}>{activeCue.speaker || "Host 1"}</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="stage-slide-canvas">
+              <div className="stage-slide-topic">{activeSlide.topic}</div>
+              <h2 className="stage-slide-heading">{activeSlide.heading}</h2>
+              <ul className="stage-slide-points">
+                {activeSlide.points.map((pt) => (
+                  <li key={pt}>{pt}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {ccEnabled && (
             <div
@@ -236,7 +318,7 @@ export function ScreeningStage() {
               className="stage-scrubber"
               type="range"
               min="0"
-              max={SAMPLE_VIDEO_OVERVIEW.durationSec}
+              max={activeSample.durationSec}
               step="0.1"
               value={currentTime}
               onChange={(e) => setCurrentTime(Number(e.target.value))}
@@ -290,7 +372,7 @@ export function ScreeningStage() {
                   <option value={500}>+500 ms</option>
                 </select>
                 <span className="stage-meta">
-                  {formatClock(currentTime)} / {formatClock(SAMPLE_VIDEO_OVERVIEW.durationSec)}
+                  {formatClock(currentTime)} / {formatClock(activeSample.durationSec)}
                 </span>
               </div>
 
@@ -415,7 +497,7 @@ export function ScreeningStage() {
           </div>
 
           <Tabs.Content value="cues" className="stage-cue-list">
-            {SAMPLE_VIDEO_OVERVIEW.cues.map((cue) => {
+            {activeSample.cues.map((cue) => {
               const isCurrent = cue.startSec === activeCue.startSec;
               return (
                 <button

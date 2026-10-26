@@ -71,6 +71,10 @@ const OVERLAY_CSS = `
     container-type: size;
     font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+  :host([data-mode="audio"]) {
+    position: fixed;
+    inset: 0;
+  }
   .toolbar {
     position: absolute;
     bottom: 10px;
@@ -90,6 +94,49 @@ const OVERLAY_CSS = `
     opacity: 0.96;
     font-variant-numeric: tabular-nums;
     transition: opacity 150ms ease, background-color 120ms ease;
+  }
+  :host([data-mode="audio"]) .toolbar {
+    bottom: 14px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    height: 34px;
+    gap: 4px;
+    padding: 0 8px;
+    background: rgba(17, 19, 21, 0.92);
+    box-shadow: 0 10px 28px rgba(17, 19, 21, 0.22);
+  }
+  :host([data-mode="audio"]) .caption-stage {
+    bottom: 56px;
+  }
+  :host([data-mode="audio"]) .tools-popover,
+  :host([data-mode="audio"]) .style-popover,
+  :host([data-mode="audio"]) .shortcuts-popover {
+    bottom: 56px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+  :host([data-mode="audio"]) .transcript-drawer {
+    top: 72px;
+    right: 18px;
+    left: auto;
+    bottom: 60px;
+    transform: none;
+    width: min(360px, calc(100vw - 36px));
+  }
+  .audio-mode-tag {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    padding: 0 7px 0 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #93c5fd;
+    letter-spacing: 0.01em;
+  }
+  :host([data-mode="audio"]) .audio-mode-tag {
+    display: inline-flex;
   }
   .toolbar[data-idle="true"] {
     opacity: 0;
@@ -662,6 +709,7 @@ export class VideoSubtitleController {
     video,
     {
       doc = globalThis.document,
+      mediaKind = null,
       initialFontSize = "medium",
       initialCaptionStyle = "classic",
       initialFontFamily = "sans",
@@ -688,8 +736,16 @@ export class VideoSubtitleController {
   ) {
     this.video = video;
     this.doc = doc;
+    this.mediaKind =
+      mediaKind === "audio" ||
+      String(video?.tagName || "").toUpperCase() === "AUDIO"
+        ? "audio"
+        : "video";
     this.cues = [];
-    this.title = "NotebookLM Video Overview";
+    this.title =
+      this.mediaKind === "audio"
+        ? "NotebookLM Audio Overview"
+        : "NotebookLM Video Overview";
     this.ccEnabled = true;
 
     this.fontSize = CAPTION_FONT_SIZES.includes(initialFontSize)
@@ -761,6 +817,14 @@ export class VideoSubtitleController {
   }
 
   _resolveMountParent() {
+    if (this.mediaKind === "audio") {
+      return (
+        this.doc?.body ||
+        this.doc?.documentElement ||
+        this.video?.parentElement ||
+        null
+      );
+    }
     if (this.video?.parentElement) {
       return this.video.parentElement;
     }
@@ -836,18 +900,26 @@ export class VideoSubtitleController {
     const parent = this._resolveMountParent();
     if (!parent) return;
 
-    if (parent.style) {
+    if (parent.style && this.mediaKind !== "audio") {
       const computedPos = globalThis.getComputedStyle?.(parent)?.position;
       if (!computedPos || computedPos === "static") {
         parent.style.position = "relative";
       }
     }
 
-    const old = parent.querySelector?.(`.${DOM_SELECTORS.OVERLAY_HOST_CLASS}`);
+    const hostClass =
+      this.mediaKind === "audio"
+        ? `${DOM_SELECTORS.OVERLAY_HOST_CLASS}-audio`
+        : DOM_SELECTORS.OVERLAY_HOST_CLASS;
+    const old = parent.querySelector?.(`.${hostClass}`);
     if (old) old.remove();
 
     this.host = this.doc.createElement("div");
-    this.host.className = DOM_SELECTORS.OVERLAY_HOST_CLASS;
+    this.host.className = hostClass;
+    if (this.host.dataset) {
+      this.host.dataset.mode = this.mediaKind;
+    }
+    this.host.setAttribute?.("data-mode", this.mediaKind);
     const shadow = this.host.attachShadow({ mode: "closed" });
     this.shadow = shadow;
 
@@ -1078,13 +1150,31 @@ export class VideoSubtitleController {
 
     this.toolsPopoverEl.append(this.controlsGroup, utilitySection);
 
-    this.toolbar.append(
-      this.ccBtn,
-      this.statusEl,
-      this.transcriptBtn,
-      this.moreBtn,
-      this.fileInput
-    );
+    if (this.mediaKind === "audio" && this.pipBtn) {
+      this.pipBtn.style.display = "none";
+    }
+
+    if (this.mediaKind === "audio") {
+      this.audioTagEl = this.doc.createElement("span");
+      this.audioTagEl.className = "audio-mode-tag";
+      this.audioTagEl.textContent = "Podcast";
+      this.toolbar.append(
+        this.audioTagEl,
+        this.ccBtn,
+        this.statusEl,
+        this.transcriptBtn,
+        this.moreBtn,
+        this.fileInput
+      );
+    } else {
+      this.toolbar.append(
+        this.ccBtn,
+        this.statusEl,
+        this.transcriptBtn,
+        this.moreBtn,
+        this.fileInput
+      );
+    }
 
     // Build Live Caption Style Studio Popover
     this._mountStylePopover();
@@ -1517,10 +1607,16 @@ export class VideoSubtitleController {
     if (!this.toolbar) return;
     this.toolbar.dataset.idle = "false";
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    const anyPopoverOpen = this.drawerOpen || this.styleOpen || this.shortcutsOpen;
+    if (this.mediaKind === "audio") return;
+    const anyPopoverOpen =
+      this.drawerOpen || this.styleOpen || this.shortcutsOpen || this.toolsOpen;
     if (!this.video.paused && this.statusState !== "working" && !anyPopoverOpen) {
       this.idleTimer = setTimeout(() => {
-        const stillClosed = !this.drawerOpen && !this.styleOpen && !this.shortcutsOpen;
+        const stillClosed =
+          !this.drawerOpen &&
+          !this.styleOpen &&
+          !this.shortcutsOpen &&
+          !this.toolsOpen;
         if (this.toolbar && !this.video.paused && stillClosed) {
           this.toolbar.dataset.idle = "true";
         }

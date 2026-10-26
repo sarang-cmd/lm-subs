@@ -50,6 +50,8 @@ export function installMainWorldObserver(win = globalThis) {
   let rpcOverrides = {};
   let ssrScanned = false;
   const bufferedArtifacts = new Map();
+  const remoteAudios = new Map();
+  let remoteAudioSeq = 1;
   const rpcTrace = [];
   const nativeFetch =
     typeof win.fetch === "function" ? win.fetch.bind(win) : null;
@@ -242,6 +244,23 @@ export function installMainWorldObserver(win = globalThis) {
       throw new Error("Empty media URL");
     }
 
+    if (url.startsWith("data:audio/")) {
+      const commaIdx = url.indexOf(",");
+      if (commaIdx < 0) throw new Error("Invalid data:audio URI");
+      const metaPart = url.slice(5, commaIdx);
+      const mimeType = metaPart.split(";")[0] || "audio/mp4";
+      const rawData = url.slice(commaIdx + 1);
+      const bin = metaPart.includes(";base64")
+        ? atob(rawData)
+        : decodeURIComponent(rawData);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return {
+        bytes: validateMediaPayload(bytes, mimeType),
+        contentType: mimeType,
+      };
+    }
+
     if (url.startsWith("blob:")) {
       const tracked = trackedMediaBlobs.get(url);
       if (tracked) {
@@ -343,7 +362,11 @@ export function installMainWorldObserver(win = globalThis) {
       }
     };
 
-    if (videoCurrentSrc && videoCurrentSrc.startsWith("blob:")) {
+    if (
+      videoCurrentSrc &&
+      (videoCurrentSrc.startsWith("blob:") ||
+        videoCurrentSrc.startsWith("data:audio/"))
+    ) {
       pushUrl(videoCurrentSrc);
     }
 
@@ -452,7 +475,11 @@ export function installMainWorldObserver(win = globalThis) {
             ? "webm"
             : normalizedMime === "audio/mpeg"
               ? "mp3"
-              : "m4a";
+              : normalizedMime === "audio/wav"
+                ? "wav"
+                : normalizedMime === "audio/ogg"
+                  ? "ogg"
+                  : "m4a";
         const byteStats = resolveAvoidedVideoBytes({
           originalBytes: rawDownloadedBytes,
           extractedBytes: cleanCopy.byteLength,
@@ -551,6 +578,26 @@ export function installMainWorldObserver(win = globalThis) {
 
     if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST) {
       handleExtractAudioRequest(msg.payload);
+      return;
+    }
+
+    if (msg.type === PAGE_MESSAGE.REMOTE_AUDIO_COMMAND) {
+      const p = msg.payload || {};
+      const audioEl = p.audioId ? remoteAudios.get(p.audioId) : null;
+      if (!audioEl) return;
+      try {
+        if (p.command === "seek" && Number.isFinite(Number(p.value))) {
+          audioEl.currentTime = Number(p.value);
+        } else if (p.command === "rate" && Number.isFinite(Number(p.value))) {
+          audioEl.playbackRate = Number(p.value);
+        } else if (p.command === "pause") {
+          audioEl.pause?.();
+        } else if (p.command === "play") {
+          audioEl.play?.();
+        }
+      } catch {
+        // Ignore
+      }
     }
   });
 
@@ -588,9 +635,15 @@ export function installMainWorldObserver(win = globalThis) {
       }
 
       const isCreateVideoRequest = Boolean(reqMeta?.isVideoCreate);
-      if (isCreateVideoRequest || artifacts.length > 0) {
+      const isCreateAudioRequest = Boolean(reqMeta?.isAudioCreate);
+      const isCreateMediaRequest = Boolean(
+        reqMeta?.isMediaCreate || isCreateVideoRequest || isCreateAudioRequest
+      );
+      if (isCreateMediaRequest || artifacts.length > 0) {
         postToContent(PAGE_MESSAGE.BATCH_ARTIFACTS, {
           isCreateVideoRequest,
+          isCreateAudioRequest,
+          isCreateMediaRequest,
           notebookId: reqMeta?.notebookId || null,
           artifacts,
           observedAt: Date.now(),
@@ -676,18 +729,86 @@ export function installMainWorldObserver(win = globalThis) {
     };
   }
 
-  // 3. Passive `HTMLMediaElement.prototype.play` hook so even `<video>` elements
-  //    mounted inside Shadow DOMs notify `content.js` immediately on playback.
+  function attachDetachedAudioBridge(audioEl) {
+    if (!audioEl || audioEl.__lmSubsRemoteId) return audioEl?.__lmSubsRemoteId;
+    const audioId = `remote_audio_${remoteAudioSeq++}`;
+    audioEl.__lmSubsRemoteId = audioId;
+    remoteAudios.set(audioId, audioEl);
+
+    let syncTimer = null;
+    const emitState = (eventType = "timeupdate") => {
+      try {
+        if (audioEl.isConnected) {
+          if (syncTimer) {
+            clearInterval(syncTimer);
+            syncTimer = null;
+          }
+          emitPageDebug("audio.play", "Connected <audio> detected");
+          return;
+        }
+        const src = audioEl.currentSrc || audioEl.src || "";
+        postToContent(PAGE_MESSAGE.REMOTE_AUDIO_STATE, {
+          audioId,
+          eventType,
+          src,
+          currentTime: Number(audioEl.currentTime) || 0,
+          duration: Number.isFinite(audioEl.duration) ? audioEl.duration : 0,
+          paused: Boolean(audioEl.paused),
+          playbackRate: Number(audioEl.playbackRate) || 1,
+        });
+      } catch {
+        // Ignore
+      }
+    };
+
+    const startTimer = () => {
+      if (syncTimer) return;
+      syncTimer = setInterval(() => {
+        if (audioEl.paused || audioEl.ended || audioEl.isConnected) {
+          clearInterval(syncTimer);
+          syncTimer = null;
+          emitState("pause");
+          return;
+        }
+        emitState("timeupdate");
+      }, 80);
+    };
+
+    for (const evt of [
+      "play",
+      "pause",
+      "seeking",
+      "seeked",
+      "ratechange",
+      "loadedmetadata",
+      "ended",
+    ]) {
+      audioEl.addEventListener?.(evt, () => {
+        emitState(evt);
+        if (evt === "play") startTimer();
+      });
+    }
+    emitState("play");
+    startTimer();
+    return audioId;
+  }
+
+  // 3. Passive `HTMLMediaElement.prototype.play` hook so `<video>` and `<audio>`
+  //    elements (including Shadow DOM and detached `new Audio()` podcasts) notify `content.js`.
   const MediaProto = win.HTMLMediaElement?.prototype;
   if (MediaProto && typeof MediaProto.play === "function") {
     const origPlay = MediaProto.play;
     MediaProto.play = function patchedPlay() {
       try {
-        if (this?.tagName === "VIDEO") {
+        const tag = this?.tagName;
+        if ((tag === "VIDEO" || tag === "AUDIO") && !this?.__lmSubsInternal) {
           const src = this.currentSrc || this.src || "";
+          if (tag === "AUDIO" && !this.isConnected) {
+            attachDetachedAudioBridge(this);
+          }
           emitPageDebug(
-            "video.play",
-            `<video>.play() src=${summarizeMediaUrlForDebug(src)} dur=${
+            tag === "AUDIO" ? "audio.play" : "video.play",
+            `<${tag.toLowerCase()}>.play() src=${summarizeMediaUrlForDebug(src)} dur=${
               Number.isFinite(this.duration) ? Math.round(this.duration) + "s" : "?"
             }`,
             {

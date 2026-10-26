@@ -85,6 +85,7 @@ export const BATCHEXECUTE = Object.freeze({
     TYPE: 2,
     SOURCES: 3,
     STATUS: 4,
+    AUDIO_METADATA: 6,
     VIDEO_METADATA: 8,
   }),
   /** Positional indices inside `row[8]` (`explainerVideo` metadata block). */
@@ -104,12 +105,16 @@ export const BATCHEXECUTE = Object.freeze({
   }),
 });
 
+export const ARTIFACT_TYPE = BATCHEXECUTE.ARTIFACT_TYPES;
+
 /**
  * Stable DOM selectors for NotebookLM's Studio panel & Video Overview player.
  * Prefers semantic tags, custom element names, and aria-labels over hashed classes.
  */
 export const DOM_SELECTORS = Object.freeze({
   VIDEO_ELEMENT: "video",
+  AUDIO_ELEMENT: "audio",
+  MEDIA_ELEMENTS: "video, audio",
   STUDIO_LIBRARY: "artifact-library",
   STUDIO_ITEM: "artifact-library-item",
   STUDIO_ITEM_TITLE: ".artifact-title",
@@ -121,11 +126,22 @@ export const DOM_SELECTORS = Object.freeze({
     "movie",
     "play_circle",
   ]),
+  AUDIO_ICON_LIGATURES: Object.freeze([
+    "podcasts",
+    "graphic_eq",
+    "headphones",
+    "spatial_audio_off",
+    "volume_up",
+    "mic",
+  ]),
   GENERATE_VIDEO_BUTTONS: Object.freeze([
     'button[aria-label*="Video Overview" i]',
     'button[aria-label*="Generate video" i]',
     'button[aria-label*="Create video" i]',
     'button.primary-action-button[aria-label*="video" i]',
+    'button[aria-label*="Audio Overview" i]',
+    'button[aria-label*="Generate audio" i]',
+    'button[aria-label*="Deep Dive" i]',
   ]),
   OVERLAY_HOST_ID: "lm-subs-player-root",
   OVERLAY_HOST_CLASS: "lm-subs-player-overlay",
@@ -147,6 +163,19 @@ export const PAGE_MESSAGE = Object.freeze({
   PAGE_DEBUG_EVENT: "LM_SUBS_PAGE_DEBUG_EVENT",
   EXTRACT_AUDIO_REQUEST: "LM_SUBS_EXTRACT_AUDIO_REQUEST",
   EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE",
+  REMOTE_AUDIO_STATE: "LM_SUBS_REMOTE_AUDIO_STATE",
+  REMOTE_AUDIO_COMMAND: "LM_SUBS_REMOTE_AUDIO_COMMAND",
+});
+
+/**
+ * Safe `externally_connectable` messages from `lm-subs.vercel.app` (`/welcome` & `/guide`)
+ * to `service-worker.js` for interactive extension onboarding and two-way setup sync.
+ */
+export const EXTERNAL_MESSAGE = Object.freeze({
+  WEB_HANDSHAKE: "LM_SUBS_WEB_HANDSHAKE",
+  WEB_SAVE_PROVIDER_KEY: "LM_SUBS_WEB_SAVE_PROVIDER_KEY",
+  WEB_UPDATE_SETUP_PREFS: "LM_SUBS_WEB_UPDATE_SETUP_PREFS",
+  WEB_CONNECT_CLOUD_TOKEN: "LM_SUBS_WEB_CONNECT_CLOUD_TOKEN",
 });
 
 /**

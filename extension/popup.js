@@ -56,6 +56,7 @@
       TYPE: 2,
       SOURCES: 3,
       STATUS: 4,
+      AUDIO_METADATA: 6,
       VIDEO_METADATA: 8
     }),
     /** Positional indices inside `row[8]` (`explainerVideo` metadata block). */
@@ -74,8 +75,11 @@
       DOWNLOAD: 4
     })
   });
+  var ARTIFACT_TYPE = BATCHEXECUTE.ARTIFACT_TYPES;
   var DOM_SELECTORS = Object.freeze({
     VIDEO_ELEMENT: "video",
+    AUDIO_ELEMENT: "audio",
+    MEDIA_ELEMENTS: "video, audio",
     STUDIO_LIBRARY: "artifact-library",
     STUDIO_ITEM: "artifact-library-item",
     STUDIO_ITEM_TITLE: ".artifact-title",
@@ -87,11 +91,22 @@
       "movie",
       "play_circle"
     ]),
+    AUDIO_ICON_LIGATURES: Object.freeze([
+      "podcasts",
+      "graphic_eq",
+      "headphones",
+      "spatial_audio_off",
+      "volume_up",
+      "mic"
+    ]),
     GENERATE_VIDEO_BUTTONS: Object.freeze([
       'button[aria-label*="Video Overview" i]',
       'button[aria-label*="Generate video" i]',
       'button[aria-label*="Create video" i]',
-      'button.primary-action-button[aria-label*="video" i]'
+      'button.primary-action-button[aria-label*="video" i]',
+      'button[aria-label*="Audio Overview" i]',
+      'button[aria-label*="Generate audio" i]',
+      'button[aria-label*="Deep Dive" i]'
     ]),
     OVERLAY_HOST_ID: "lm-subs-player-root",
     OVERLAY_HOST_CLASS: "lm-subs-player-overlay",
@@ -108,7 +123,15 @@
     PAGE_STATE_SNAPSHOT: "LM_SUBS_PAGE_STATE_SNAPSHOT",
     PAGE_DEBUG_EVENT: "LM_SUBS_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "LM_SUBS_EXTRACT_AUDIO_REQUEST",
-    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE"
+    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE",
+    REMOTE_AUDIO_STATE: "LM_SUBS_REMOTE_AUDIO_STATE",
+    REMOTE_AUDIO_COMMAND: "LM_SUBS_REMOTE_AUDIO_COMMAND"
+  });
+  var EXTERNAL_MESSAGE = Object.freeze({
+    WEB_HANDSHAKE: "LM_SUBS_WEB_HANDSHAKE",
+    WEB_SAVE_PROVIDER_KEY: "LM_SUBS_WEB_SAVE_PROVIDER_KEY",
+    WEB_UPDATE_SETUP_PREFS: "LM_SUBS_WEB_UPDATE_SETUP_PREFS",
+    WEB_CONNECT_CLOUD_TOKEN: "LM_SUBS_WEB_CONNECT_CLOUD_TOKEN"
   });
   var RUNTIME_MESSAGE = Object.freeze({
     ENSURE_SUBTITLES: "LM_SUBS_ENSURE",
@@ -286,6 +309,7 @@
       const AudioCtor = win?.Audio || globalThis.Audio;
       if (typeof AudioCtor !== "function") return false;
       const audio = new AudioCtor(getChimeWavDataUri());
+      audio.__lmSubsInternal = true;
       audio.volume = 0.72;
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.then === "function") {
@@ -592,7 +616,8 @@
     NOTIFICATIONS: "notifications",
     UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
-    CLOUD_SYNC_SECRET: "cloudSyncSecret"
+    CLOUD_SYNC_SECRET: "cloudSyncSecret",
+    SETUP_STATE: "setupState"
   });
   var CAPTION_FONT_SIZES = Object.freeze([
     "small",
@@ -630,6 +655,7 @@
     debugMode: false,
     autoOnGenerate: true,
     autoOnExistingVideos: true,
+    autoOnAudioOverviews: true,
     primaryProvider: "groq",
     queueOrder: [...DEFAULT_QUEUE_ORDER],
     providerModels: {},
@@ -727,6 +753,7 @@
       debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
       autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
       autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
+      autoOnAudioOverviews: typeof saved.autoOnAudioOverviews === "boolean" ? saved.autoOnAudioOverviews : DEFAULT_SETTINGS.autoOnAudioOverviews,
       primaryProvider,
       queueOrder,
       providerModels,
@@ -907,9 +934,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.4",
+          currentVersion: "0.2.5",
           currentBuildId: "",
-          latestVersion: "0.2.4",
+          latestVersion: "0.2.5",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -921,9 +948,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.4"),
+        currentVersion: String(saved.currentVersion || "0.2.5"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -935,9 +962,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.4",
+        currentVersion: "0.2.5",
         currentBuildId: "",
-        latestVersion: "0.2.4",
+        latestVersion: "0.2.5",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -953,6 +980,44 @@
     const current = await getUpdateStatus(store);
     const next = { ...current, ...partial || {} };
     await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+    return next;
+  }
+  async function getSetupState(storageArea) {
+    try {
+      const store = resolveStorage(storageArea);
+      const raw = await store.get(STORAGE_KEYS.SETUP_STATE);
+      const saved = raw?.[STORAGE_KEYS.SETUP_STATE];
+      if (!saved || typeof saved !== "object") {
+        return {
+          installedAt: null,
+          welcomeOpenedAt: null,
+          popupOpenedCount: 0,
+          lastPopupOpenedAt: null,
+          completedAt: null
+        };
+      }
+      return {
+        installedAt: saved.installedAt || null,
+        welcomeOpenedAt: saved.welcomeOpenedAt || null,
+        popupOpenedCount: Number.isFinite(Number(saved.popupOpenedCount)) ? Number(saved.popupOpenedCount) : 0,
+        lastPopupOpenedAt: saved.lastPopupOpenedAt || null,
+        completedAt: saved.completedAt || null
+      };
+    } catch {
+      return {
+        installedAt: null,
+        welcomeOpenedAt: null,
+        popupOpenedCount: 0,
+        lastPopupOpenedAt: null,
+        completedAt: null
+      };
+    }
+  }
+  async function saveSetupState(partial, storageArea) {
+    const store = resolveStorage(storageArea);
+    const current = await getSetupState(store);
+    const next = { ...current, ...partial || {} };
+    await store.set({ [STORAGE_KEYS.SETUP_STATE]: next });
     return next;
   }
 
@@ -1547,6 +1612,13 @@ ${rows.join("\n")}
     const grantGooglePermsBtn = document.getElementById("grant-google-perms-btn");
     const debugModeToggle = document.getElementById("debug-mode-toggle");
     const copyDebugBtn = document.getElementById("copy-debug-btn");
+    getSetupState().then(
+      (st) => saveSetupState({
+        popupOpenedCount: (st?.popupOpenedCount || 0) + 1,
+        lastPopupOpenedAt: (/* @__PURE__ */ new Date()).toISOString()
+      })
+    ).catch(() => {
+    });
     const specs = listProviderSpecs();
     for (const spec of specs) {
       const opt = document.createElement("option");
@@ -1708,16 +1780,33 @@ ${rows.join("\n")}
       }
       renderExportBar();
     }
+    let setupTabConnected = false;
     async function inspectActiveTab() {
       if (!chrome.tabs?.query) return;
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       const tab = tabs?.[0];
       let host = "";
+      let pathname = "";
       try {
-        host = tab?.url ? new URL(tab.url).hostname : "";
+        const parsed = tab?.url ? new URL(tab.url) : null;
+        host = parsed ? parsed.hostname.toLowerCase() : "";
+        pathname = parsed ? parsed.pathname : "";
       } catch {
         host = "";
+        pathname = "";
       }
+      const isSetupOrigin = host === "lm-subs.vercel.app" || host.endsWith(".vercel.app") || host === "localhost" || host === "127.0.0.1";
+      if (tab?.id && isSetupOrigin && (pathname.startsWith("/welcome") || pathname.startsWith("/setup") || pathname.startsWith("/guide"))) {
+        setupTabConnected = true;
+        tabBadge.textContent = "Setup linked";
+        tabBadge.className = "badge badge-saved";
+        tabDescription.textContent = "Two-way setup wizard verified. Pin LM Subs above, then open NotebookLM.";
+        generateNowBtn.textContent = "Open NotebookLM";
+        generateNowBtn.disabled = false;
+        return;
+      }
+      setupTabConnected = false;
+      generateNowBtn.textContent = "Generate subtitles";
       if (!tab?.id || !NOTEBOOKLM_HOSTS.includes(host)) {
         tabBadge.textContent = "Standby";
         tabBadge.className = "badge";
@@ -1743,20 +1832,23 @@ ${rows.join("\n")}
             activeTabSubtitles = state.activeSubtitles;
             renderExportBar();
           }
+          const isPodcast = state.mediaKind === "audio" || Boolean(state.hasAudioElement);
+          const kindLabel = isPodcast ? "Podcast" : "Video";
+          const kindFull = isPodcast ? "Audio Overview" : "Video Overview";
           if (state.hasVideoElement || state.readyArtifactCount > 0) {
             tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} ready`;
             tabBadge.className = "badge badge-saved";
-            tabDescription.textContent = state.activeArtifact?.title ? `Video: "${state.activeArtifact.title}"` : "Video Overview ready for captioning.";
+            tabDescription.textContent = state.activeArtifact?.title ? `${kindLabel}: "${state.activeArtifact.title}"` : `${kindFull} ready for captioning.`;
             generateNowBtn.disabled = false;
           } else if (state.generatingCount > 0) {
             tabBadge.textContent = "Rendering";
             tabBadge.className = "badge badge-warn";
-            tabDescription.textContent = "Studio is rendering the Video Overview. Captions start automatically when ready.";
+            tabDescription.textContent = `Studio is rendering the ${kindFull}. Captions start automatically when ready.`;
             generateNowBtn.disabled = true;
           } else {
             tabBadge.textContent = "Idle";
             tabBadge.className = "badge";
-            tabDescription.textContent = "Open a Video Overview in NotebookLM Studio to generate captions.";
+            tabDescription.textContent = "Open a Video or Audio Overview in NotebookLM Studio to generate captions.";
             generateNowBtn.disabled = false;
           }
         }
@@ -1765,7 +1857,7 @@ ${rows.join("\n")}
     async function renderUpdateBanner() {
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.4";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.5";
       if (popupUpdateStatusHint) {
         const folderPart = dirInfo.linked ? `Folder linked (${dirInfo.folderName})` : "Auto-check active";
         popupUpdateStatusHint.textContent = updateStatus?.updateAvailable ? `Update v${updateStatus.latestVersion} available \xB7 ${folderPart}` : `Installed v${curVer} \xB7 ${folderPart}`;
@@ -2061,6 +2153,14 @@ ${rows.join("\n")}
       }
     });
     generateNowBtn.addEventListener("click", () => {
+      if (setupTabConnected) {
+        if (chrome.tabs?.create) {
+          chrome.tabs.create({ url: "https://notebooklm.google.com/" });
+        } else {
+          window.open("https://notebooklm.google.com/", "_blank", "noopener,noreferrer");
+        }
+        return;
+      }
       if (!activeTabId) return;
       generateNowBtn.disabled = true;
       chrome.tabs.sendMessage(
@@ -2069,7 +2169,7 @@ ${rows.join("\n")}
         (res) => {
           generateNowBtn.disabled = false;
           if (chrome.runtime.lastError || !res?.ok) {
-            tabDescription.textContent = res?.error || "Open a Video Overview in NotebookLM Studio and click again.";
+            tabDescription.textContent = res?.error || "Open a Video or Audio Overview in NotebookLM Studio and click again.";
             return;
           }
           tabDescription.textContent = `Transcribing "${res.title || "Video Overview"}"\u2026`;

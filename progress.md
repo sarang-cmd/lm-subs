@@ -4,6 +4,18 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `v0.2.5` (2026-10-26)
+
+Adds full synchronized captioning and podcast transcript docks for Google NotebookLM Audio Overviews, launches `/welcome` automatically on Chrome extension install, opens an interactive two-way website-to-extension setup wizard on download, and configures Chrome's Extensions puzzle menu to surface `LM Subs` first under `Access requested` on `/welcome`.
+
+### Added
+* **Google NotebookLM Audio Overviews and podcasts (`src/lib/batchexecute.js`, `src/lib/decide.js`, `src/page/inject.js`, `src/content/content.js`, `src/content/player-overlay.js`, `src/web/ScreeningStage.jsx`):** Added full support for Studio Audio Overviews (`ARTIFACT_TYPE.AUDIO_OVERVIEW = 1`), Shadow DOM `<audio>` discovery, detached `new Audio()` playback bridging (`REMOTE_AUDIO_STATE` and `REMOTE_AUDIO_COMMAND`), direct `.mp3`/`.ogg`/`.wav`/`.m4a` fast-path transcription, and a dedicated viewport-docked Podcast Caption Bar (`data-mode="audio"`) with speaker tags, 3-state spoken-word highlight, word delay, searchable transcript drawer, and 6-format export.
+* **Automatic Welcome page on extension install (`src/background/service-worker.js`, `src/web/WelcomeView.jsx`, `docs/welcome.html`):** Installing `LM Subs` in Chrome (`details.reason === "install"`) automatically opens `https://lm-subs.vercel.app/welcome?installed=1&v=0.2.5&extId=<id>` and records `setupState` in `chrome.storage.local`.
+* **Interactive two-way website and extension setup wizard (`extension/manifest.json`, `src/background/service-worker.js`, `src/web/WelcomeView.jsx`, `src/web/App.jsx`):** Clicking any extension download link on the website automatically opens `/welcome?downloading=1`, discovers the installed extension across tabs via `BroadcastChannel` and `externally_connectable`, and communicates two-way (`WEB_HANDSHAKE`, `WEB_SAVE_PROVIDER_KEY`, `WEB_UPDATE_SETUP_PREFS`, `WEB_CONNECT_CLOUD_TOKEN`) so users can save API keys, toggle Video and Audio Overview preferences, and link cloud sync directly from `/welcome` without exposing raw secrets.
+* **Top-of-puzzle-menu `Access requested` pinning UX (`extension/manifest.json`, `scripts/vercel-build.mjs`, `src/popup/popup.js`, `src/web/WelcomeView.jsx`):** Configured `"activeTab"` + `"optional_host_permissions"` while serving `/releases/*` via CORS so Chrome places `LM Subs` at the top of the Extensions puzzle dropdown under `Access requested` (*"To give an extension access to this site, click it."*) on `/welcome`, verifying toolbar clicks live.
+
+---
+
 ## `v0.2.4` (2026-10-25)
 
 Docks compact player controls inside NotebookLM's bottom play bar, enables 3-state spoken-word caption highlighting by default with adjustable word-for-word highlight delay (`karaokeDelayMs`), upgrades the completion chime (`soundAlerts`) with WebAudio user-gesture unlock and PCM WAV fallback, refreshes the social preview hero card around the Transformer architecture Video Overview, and replaces all product screenshots with real browser renders.

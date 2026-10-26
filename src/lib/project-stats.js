@@ -3,12 +3,12 @@
  * Contains real, machine-counted repository metrics for `/about`.
  */
 export const PROJECT_STATS = Object.freeze({
-  "version": "0.2.4",
-  "totalLoc": 34588,
-  "nonBlankLoc": 31516,
-  "sourceFiles": 92,
-  "automatedTests": 53,
-  "testSuites": 9,
+  "version": "0.2.5",
+  "totalLoc": 37513,
+  "nonBlankLoc": 34293,
+  "sourceFiles": 96,
+  "automatedTests": 56,
+  "testSuites": 10,
   "sttProviders": 12,
   "exportFormats": 6,
   "captionThemes": 6,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 25,
   "postgresTables": 9,
-  "releaseZipKb": 175.5,
+  "releaseZipKb": 182.2,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -35,40 +35,40 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Chrome MV3 Extension & Player Overlay",
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
-      "loc": 11162,
-      "sharePct": 32.3
+      "loc": 11928,
+      "sharePct": 31.8
     },
     {
       "id": "core_engine",
       "label": "Subtitle, Audio & 12-Provider STT Engine",
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
       "files": 13,
-      "loc": 6114,
-      "sharePct": 17.7
+      "loc": 6224,
+      "sharePct": 16.6
     },
     {
       "id": "web_app",
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
-      "files": 11,
-      "loc": 4702,
-      "sharePct": 13.6
-    },
-    {
-      "id": "ui_markup_styles",
-      "label": "Editorial Stylesheets, HTML & Vectors",
-      "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
-      "files": 23,
-      "loc": 4149,
-      "sharePct": 12
+      "files": 12,
+      "loc": 6067,
+      "sharePct": 16.2
     },
     {
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
-      "files": 9,
-      "loc": 3864,
-      "sharePct": 11.2
+      "files": 10,
+      "loc": 4447,
+      "sharePct": 11.9
+    },
+    {
+      "id": "ui_markup_styles",
+      "label": "Editorial Stylesheets, HTML & Vectors",
+      "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
+      "files": 25,
+      "loc": 4224,
+      "sharePct": 11.3
     },
     {
       "id": "cloud_api",
@@ -76,52 +76,52 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "OAuth 2.0, passwordless 6-digit email auth, HKDF + AES-256-GCM key vault, sync, and telemetry",
       "files": 6,
       "loc": 2384,
-      "sharePct": 6.9
+      "sharePct": 6.4
     },
     {
       "id": "docs_schema_tooling",
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 21,
-      "loc": 2213,
-      "sharePct": 6.4
+      "loc": 2239,
+      "sharePct": 6
     }
   ],
   "languages": [
     {
       "label": "JavaScript / ESM (.js, .mjs)",
-      "files": 45,
-      "loc": 24712,
-      "sharePct": 71.4
+      "files": 46,
+      "loc": 26185,
+      "sharePct": 69.8
     },
     {
       "label": "React JSX (.jsx)",
-      "files": 11,
-      "loc": 4702,
-      "sharePct": 13.6
+      "files": 12,
+      "loc": 6067,
+      "sharePct": 16.2
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
       "loc": 2454,
-      "sharePct": 7.1
+      "sharePct": 6.5
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
-      "files": 20,
-      "loc": 1594,
-      "sharePct": 4.6
+      "files": 22,
+      "loc": 1662,
+      "sharePct": 4.4
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 700,
-      "sharePct": 2
+      "loc": 712,
+      "sharePct": 1.9
     },
     {
       "label": "Config & Manifest (.json)",
       "files": 7,
-      "loc": 291,
+      "loc": 298,
       "sharePct": 0.8
     },
     {

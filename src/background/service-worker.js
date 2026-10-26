@@ -15,6 +15,7 @@
 
 import {
   ALARM_NAMES,
+  EXTERNAL_MESSAGE,
   HOSTED_CLOUD_URL,
   KEEPALIVE_PORT_NAME,
   MESSAGE_NAMESPACE,
@@ -59,6 +60,7 @@ import {
   getSecretApiKeysMap,
   getSecretCloudSyncToken,
   getSettings,
+  getSetupState,
   getSubtitleCacheList,
   getUpdateStatus,
   markNotificationsRead,
@@ -71,7 +73,9 @@ import {
   saveCloudSyncProfile,
   saveDebugLogs,
   saveSettings,
+  saveSetupState,
   saveUpdateStatus,
+  setApiKey,
   setLastStatus,
   setSecretCloudSyncToken,
 } from "../lib/storage.js";
@@ -701,7 +705,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.4";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.5";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -1492,11 +1496,15 @@ export function createRuntimeDispatcher({
       downloadedContentType.startsWith("audio/") ||
       (downloadedTrackInfo?.isMp4 && !downloadedTrackInfo.hasVideo);
 
-    // FAST PATH B: Already pure audio (`=m140` DASH `.m4a`, `.webm`, `.wav`) <= 22 MB!
+    // FAST PATH B: Already pure audio (`=m140` DASH `.m4a`, `.webm`, `.wav`, `.mp3`, `.ogg`) <= 22 MB!
     // Never waste 2-4 minutes inflating compact AAC into 45 MB uncompressed WAV over IPC!
     if (isAlreadyPureAudio && originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
       const isWebm = downloadedContentType.includes("webm");
       const isWav = downloadedContentType.includes("wav");
+      const isMp3 =
+        downloadedContentType.includes("mpeg") ||
+        downloadedContentType.includes("mp3");
+      const isOgg = downloadedContentType.includes("ogg");
       const byteStats = resolveAvoidedVideoBytes({
         originalBytes,
         extractedBytes: originalBytes,
@@ -1509,6 +1517,24 @@ export function createRuntimeDispatcher({
         label: "Audio stream ready · Transcribing…",
         detail: `${formatMegabytes(originalBytes)} direct audio`,
       });
+      const resolvedMime = isWav
+        ? "audio/wav"
+        : isWebm
+          ? "audio/webm"
+          : isMp3
+            ? "audio/mpeg"
+            : isOgg
+              ? "audio/ogg"
+              : "audio/mp4";
+      const resolvedExt = isWav
+        ? "wav"
+        : isWebm
+          ? "webm"
+          : isMp3
+            ? "mp3"
+            : isOgg
+              ? "ogg"
+              : "m4a";
       return {
         originalBytes: byteStats.originalBytes,
         extractedBytes: originalBytes,
@@ -1516,16 +1542,8 @@ export function createRuntimeDispatcher({
         chunks: [
           {
             bytes: downloadedBytes,
-            mimeType: isWav
-              ? "audio/wav"
-              : isWebm
-                ? "audio/webm"
-                : "audio/mp4",
-            fileName: isWav
-              ? "overview-audio.wav"
-              : isWebm
-                ? "overview-audio.webm"
-                : "overview-audio.m4a",
+            mimeType: resolvedMime,
+            fileName: `overview-audio.${resolvedExt}`,
             startOffsetSec: 0,
             durationSec: artifact.durationSeconds || null,
           },
@@ -2417,7 +2435,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.4";
+          runtimeApi?.getManifest?.()?.version || "0.2.5";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),
@@ -2530,12 +2548,205 @@ export function createRuntimeDispatcher({
   };
 }
 
+export function isAllowedExternalWebSender(sender) {
+  const raw = String(sender?.origin || sender?.url || "").trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      parsed.protocol === "http:" &&
+      (host === "localhost" || host === "127.0.0.1")
+    ) {
+      return true;
+    }
+    if (
+      parsed.protocol === "https:" &&
+      (host === "lm-subs.vercel.app" || host.endsWith(".vercel.app"))
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function createExternalMessageDispatcher(
+  runtimeDispatcher,
+  {
+    storageArea = globalThis.chrome?.storage?.local,
+    runtimeApi = globalThis.chrome?.runtime,
+  } = {}
+) {
+  const invokeInternal = (msg) =>
+    new Promise((resolve) => {
+      runtimeDispatcher(msg, {}, (res) => resolve(res));
+    });
+
+  async function buildSafeHandshakePayload() {
+    const [settings, presenceMap, cloudProfile, setupState] = await Promise.all([
+      getSettings(storageArea),
+      getSavedKeyPresenceMap(storageArea),
+      getCloudSyncProfile(storageArea),
+      getSetupState(storageArea),
+    ]);
+    const configuredProviders = Object.entries(presenceMap || {})
+      .filter(([, present]) => Boolean(present))
+      .map(([id]) => id);
+    return {
+      ok: true,
+      extensionId: runtimeApi?.id || "",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.5",
+      configuredProviders,
+      primaryProvider: settings.primaryProvider,
+      settings: {
+        enabled: Boolean(settings.enabled),
+        autoOnGenerate: Boolean(settings.autoOnGenerate),
+        autoOnExistingVideos: Boolean(settings.autoOnExistingVideos),
+        autoOnAudioOverviews: Boolean(settings.autoOnAudioOverviews),
+        karaokeHighlight: Boolean(settings.karaokeHighlight),
+        karaokeDelayMs: Number(settings.karaokeDelayMs) || 0,
+        soundAlerts: Boolean(settings.soundAlerts),
+        desktopNotifications: Boolean(settings.desktopNotifications),
+      },
+      cloudLinked: Boolean(cloudProfile?.connected),
+      cloudEmail: cloudProfile?.user?.email || null,
+      setupState,
+    };
+  }
+
+  return (msg, sender, sendResponse) => {
+    if (!isAllowedExternalWebSender(sender)) {
+      sendResponse({ ok: false, error: "Untrusted web origin." });
+      return false;
+    }
+    if (!msg || typeof msg.type !== "string") {
+      sendResponse({ ok: false, error: "Invalid external message." });
+      return false;
+    }
+
+    if (msg.type === EXTERNAL_MESSAGE.WEB_HANDSHAKE) {
+      buildSafeHandshakePayload()
+        .then((payload) => sendResponse(payload))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === EXTERNAL_MESSAGE.WEB_SAVE_PROVIDER_KEY) {
+      (async () => {
+        const providerId = String(msg.provider || "").trim().toLowerCase();
+        const spec = getProviderSpec(providerId);
+        if (!spec) {
+          throw new Error("Unsupported speech-to-text provider.");
+        }
+        const rawKey = String(msg.apiKey || "").trim();
+        if (!rawKey) {
+          throw new Error("Enter an API key first.");
+        }
+        await setApiKey(providerId, rawKey, storageArea);
+        if (msg.makePrimary !== false) {
+          await saveSettings({ primaryProvider: providerId }, storageArea);
+        }
+        return buildSafeHandshakePayload();
+      })()
+        .then((payload) => sendResponse(payload))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === EXTERNAL_MESSAGE.WEB_UPDATE_SETUP_PREFS) {
+      (async () => {
+        const prefs = msg.preferences || {};
+        const patch = {};
+        for (const boolKey of [
+          "enabled",
+          "autoOnGenerate",
+          "autoOnExistingVideos",
+          "autoOnAudioOverviews",
+          "karaokeHighlight",
+          "soundAlerts",
+          "desktopNotifications",
+        ]) {
+          if (typeof prefs[boolKey] === "boolean") {
+            patch[boolKey] = prefs[boolKey];
+          }
+        }
+        if (Number.isFinite(Number(prefs.karaokeDelayMs))) {
+          patch.karaokeDelayMs = Math.max(
+            -1500,
+            Math.min(3000, Math.round(Number(prefs.karaokeDelayMs)))
+          );
+        }
+        if (typeof prefs.primaryProvider === "string" && getProviderSpec(prefs.primaryProvider)) {
+          patch.primaryProvider = prefs.primaryProvider;
+        }
+        if (Object.keys(patch).length > 0) {
+          await saveSettings(patch, storageArea);
+        }
+        if (msg.completedSetup) {
+          await saveSetupState(
+            { completedAt: new Date().toISOString() },
+            storageArea
+          );
+        }
+        return buildSafeHandshakePayload();
+      })()
+        .then((payload) => sendResponse(payload))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    if (msg.type === EXTERNAL_MESSAGE.WEB_CONNECT_CLOUD_TOKEN) {
+      (async () => {
+        const rawToken = String(msg.token || "").trim();
+        if (!rawToken) {
+          throw new Error("Missing cloud session token.");
+        }
+        let serverUrl = HOSTED_CLOUD_URL;
+        try {
+          const parsed = new URL(sender?.origin || sender?.url || HOSTED_CLOUD_URL);
+          serverUrl = parsed.origin;
+        } catch {
+          serverUrl = HOSTED_CLOUD_URL;
+        }
+        const res = await invokeInternal({
+          type: RUNTIME_MESSAGE.SYNC_SIGNIN,
+          token: rawToken,
+          serverUrl,
+        });
+        if (!res?.ok) {
+          throw new Error(res?.error || "Could not link cloud account.");
+        }
+        return buildSafeHandshakePayload();
+      })()
+        .then((payload) => sendResponse(payload))
+        .catch((err) =>
+          sendResponse({ ok: false, error: err?.message || String(err) })
+        );
+      return true;
+    }
+
+    sendResponse({ ok: false, error: "Unsupported external action." });
+    return false;
+  };
+}
+
 export function installBackgroundAutomation(
   dispatcher,
   {
     alarmsApi = globalThis.chrome?.alarms,
     runtimeApi = globalThis.chrome?.runtime,
     notificationsApi = globalThis.chrome?.notifications,
+    tabsApi = globalThis.chrome?.tabs,
+    storageArea = globalThis.chrome?.storage?.local,
+    welcomeBaseUrl = HOSTED_CLOUD_URL,
   } = {}
 ) {
   const invoke = (msg) =>
@@ -2577,8 +2788,26 @@ export function installBackgroundAutomation(
     }).catch(() => {});
   });
 
-  runtimeApi?.onInstalled?.addListener?.(() => {
+  runtimeApi?.onInstalled?.addListener?.((details) => {
     scheduleAlarms();
+    if (details?.reason === "install") {
+      const nowIso = new Date().toISOString();
+      const extId = runtimeApi?.id || "";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.5";
+      const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
+      const qs = new URLSearchParams({ installed: "1", v: ver });
+      if (extId) qs.set("extId", extId);
+      const welcomeUrl = `${base}/welcome?${qs.toString()}`;
+      saveSetupState(
+        { installedAt: nowIso, welcomeOpenedAt: nowIso },
+        storageArea
+      ).catch(() => {});
+      try {
+        tabsApi?.create?.({ url: welcomeUrl, active: true });
+      } catch {
+        // Ignore headless environment without tabs API
+      }
+    }
     invoke({
       type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
       includeUpdateCheck: true,
@@ -2606,6 +2835,8 @@ export function installBackgroundAutomation(
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   const liveDispatcher = createRuntimeDispatcher();
   chrome.runtime.onMessage.addListener(liveDispatcher);
+  const liveExternalDispatcher = createExternalMessageDispatcher(liveDispatcher);
+  chrome.runtime.onMessageExternal?.addListener?.(liveExternalDispatcher);
   installBackgroundAutomation(liveDispatcher);
   chrome.runtime.onConnect?.addListener((port) => {
     if (port?.name !== KEEPALIVE_PORT_NAME) return;

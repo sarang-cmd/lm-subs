@@ -43,10 +43,10 @@ export function SyncPreferencesSwitches({
       <div className="switch-row">
         <div>
           <label className="switch-label" htmlFor="switch-sync-transcripts">
-            Sync Video Overview transcriptions
+            Sync Video and Audio Overview transcriptions
           </label>
           <div className="switch-desc">
-            Stores generated caption cues so opening the same NotebookLM video on another computer loads captions immediately.
+            Stores generated caption cues so opening the same NotebookLM Video or Audio Overview on another computer loads captions immediately.
           </div>
         </div>
         <Switch.Root

@@ -16,6 +16,7 @@
  */
 
 import {
+  ARTIFACT_TYPE,
   DOM_SELECTORS,
   KEEPALIVE_PORT_NAME,
   MESSAGE_NAMESPACE,
@@ -92,25 +93,36 @@ function waitForBody(doc, callback) {
 }
 
 /**
- * Recursively collects `<video>` elements across light DOM and open ShadowRoots
- * (up to depth 6) so custom Web Component players inside `Lot dialog` are discovered.
+ * Recursively collects `<video>` and `<audio>` elements across light DOM and
+ * open ShadowRoots (up to depth 6) so both Studio Video Overviews and Studio
+ * Audio Overviews (podcasts) are discovered immediately.
  */
-export function collectVideosDeep(root, out = [], depth = 0) {
+export function collectMediaElementsDeep(
+  root,
+  out = [],
+  depth = 0,
+  selector = DOM_SELECTORS.MEDIA_ELEMENTS
+) {
   if (!root || depth > 6) return out;
 
   try {
-    if (root.tagName === "VIDEO" && !out.includes(root)) {
+    const tag = String(root.tagName || "").toUpperCase();
+    if (
+      (tag === "VIDEO" || (tag === "AUDIO" && selector !== DOM_SELECTORS.VIDEO_ELEMENT)) &&
+      !root.__lmSubsInternal &&
+      !out.includes(root)
+    ) {
       out.push(root);
     }
     if (typeof root.querySelectorAll === "function") {
-      const videos = root.querySelectorAll(DOM_SELECTORS.VIDEO_ELEMENT);
-      for (const v of videos) {
-        if (!out.includes(v)) out.push(v);
+      const items = root.querySelectorAll(selector);
+      for (const el of items) {
+        if (!el.__lmSubsInternal && !out.includes(el)) out.push(el);
       }
       const allEls = root.querySelectorAll("*");
       for (const el of allEls) {
         if (el.shadowRoot) {
-          collectVideosDeep(el.shadowRoot, out, depth + 1);
+          collectMediaElementsDeep(el.shadowRoot, out, depth + 1, selector);
         }
       }
     }
@@ -119,6 +131,105 @@ export function collectVideosDeep(root, out = [], depth = 0) {
   }
 
   return out;
+}
+
+export function collectVideosDeep(root, out = [], depth = 0) {
+  return collectMediaElementsDeep(root, out, depth, DOM_SELECTORS.VIDEO_ELEMENT);
+}
+
+class RemoteAudioElementProxy {
+  constructor(audioId, sendCommand) {
+    this.audioId = audioId;
+    this._sendCommand = sendCommand;
+    this.tagName = "AUDIO";
+    this.isConnected = true;
+    this.src = "";
+    this.currentSrc = "";
+    this._currentTime = 0;
+    this.duration = 0;
+    this.paused = true;
+    this._playbackRate = 1;
+    this.readyState = 2;
+    this._listeners = new Map();
+  }
+
+  get currentTime() {
+    return this._currentTime;
+  }
+
+  set currentTime(val) {
+    const next = Math.max(0, Number(val) || 0);
+    this._currentTime = next;
+    this._sendCommand("seek", next);
+    this._emit("seeking");
+    this._emit("timeupdate");
+  }
+
+  get playbackRate() {
+    return this._playbackRate;
+  }
+
+  set playbackRate(val) {
+    const next = Number(val) || 1;
+    this._playbackRate = next;
+    this._sendCommand("rate", next);
+  }
+
+  play() {
+    this.paused = false;
+    this._sendCommand("play");
+    this._emit("play");
+    return Promise.resolve();
+  }
+
+  pause() {
+    this.paused = true;
+    this._sendCommand("pause");
+    this._emit("pause");
+  }
+
+  addEventListener(type, fn) {
+    if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+    this._listeners.get(type).add(fn);
+  }
+
+  removeEventListener(type, fn) {
+    this._listeners.get(type)?.delete(fn);
+  }
+
+  _emit(type) {
+    const set = this._listeners.get(type);
+    if (!set) return;
+    for (const fn of set) {
+      try {
+        fn({ type, target: this });
+      } catch {
+        // Ignore listener error
+      }
+    }
+  }
+
+  applySnapshot(snap = {}) {
+    if (typeof snap.src === "string" && snap.src) {
+      this.src = snap.src;
+      this.currentSrc = snap.src;
+    }
+    if (Number.isFinite(snap.currentTime)) {
+      this._currentTime = snap.currentTime;
+    }
+    if (Number.isFinite(snap.duration) && snap.duration > 0) {
+      this.duration = snap.duration;
+    }
+    if (typeof snap.paused === "boolean") {
+      this.paused = snap.paused;
+    }
+    if (Number.isFinite(snap.playbackRate) && snap.playbackRate > 0) {
+      this._playbackRate = snap.playbackRate;
+    }
+    const evt = snap.eventType || "timeupdate";
+    this._emit(evt);
+    if (evt !== "timeupdate") this._emit("timeupdate");
+  }
 }
 
 export async function initContentCoordinator({
@@ -137,7 +248,8 @@ export async function initContentCoordinator({
   const cachedKeys = new Set();
   const inFlightKeys = new Set();
   const exhaustedKeys = new Set();
-  const controllers = new Map(); // HTMLVideoElement -> { video, controller, artifactId, cacheKey, inFlight }
+  const controllers = new Map(); // HTMLMediaElement -> { video, mediaKind, controller, artifactId, cacheKey, inFlight }
+  const remoteAudioProxies = new Map();
   const pendingPageRequests = new Map();
   let pageReqSeq = 1;
   let createIntentTimestamp = 0;
@@ -483,17 +595,24 @@ export async function initContentCoordinator({
   }
 
   function matchArtifactForVideo(video) {
+    const isAudioEl = String(video?.tagName || "").toUpperCase() === "AUDIO";
     const src = video.currentSrc || video.src || "";
     const token = extractMediaToken(src);
     if (token && artifactsByToken.has(token)) {
       return artifactsByToken.get(token);
     }
 
-    const readyList = [...artifactsById.values()].filter(
+    const allReady = [...artifactsById.values()].filter(
       (a) =>
         a.status === "ready" &&
         (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length)
     );
+    const kindMatched = allReady.filter((a) =>
+      isAudioEl
+        ? a.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW || a.mediaKind === "audio"
+        : a.typeCode !== ARTIFACT_TYPE.AUDIO_OVERVIEW && a.mediaKind !== "audio"
+    );
+    const readyList = kindMatched.length > 0 ? kindMatched : allReady;
 
     if (readyList.length === 1) {
       return readyList[0];
@@ -660,9 +779,12 @@ export async function initContentCoordinator({
       artifact?.progressiveUrl ||
       artifact?.mediaUrl ||
       (isTrustedGoogleMediaUrl(rawSrc) ? rawSrc : "") ||
-      (rawSrc.startsWith("blob:") ? rawSrc : "");
+      (rawSrc.startsWith("blob:") || rawSrc.startsWith("data:audio/")
+        ? rawSrc
+        : "");
 
-    const isBlobSrc = rawSrc.startsWith("blob:");
+    const isBlobSrc =
+      rawSrc.startsWith("blob:") || rawSrc.startsWith("data:audio/");
 
     if (!primaryMediaUrl) {
       recordDebug(
@@ -673,10 +795,24 @@ export async function initContentCoordinator({
       return;
     }
 
+    const isAudioMedia =
+      entry.mediaKind === "audio" ||
+      artifact?.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW ||
+      artifact?.mediaKind === "audio";
+    const resolvedTypeCode =
+      artifact?.typeCode ??
+      (isAudioMedia
+        ? ARTIFACT_TYPE.AUDIO_OVERVIEW
+        : ARTIFACT_TYPE.VIDEO_OVERVIEW);
     const artifactId = artifact?.artifactId || null;
     const mediaToken =
       artifact?.mediaToken || extractMediaToken(primaryMediaUrl) || null;
-    const title = artifact?.title || getNotebookTitleFallback();
+    const fallbackTitle = getNotebookTitleFallback();
+    const title =
+      artifact?.title ||
+      (isAudioMedia && fallbackTitle === "NotebookLM Video Overview"
+        ? "NotebookLM Audio Overview"
+        : fallbackTitle);
     const isNewlyGenerated = Boolean(
       artifactId && pendingGeneratedVideoIds.has(artifactId)
     );
@@ -690,6 +826,8 @@ export async function initContentCoordinator({
       settings,
       trigger: effectiveTrigger,
       force,
+      typeCode: resolvedTypeCode,
+      mediaKind: isAudioMedia ? "audio" : "video",
       status: "ready",
       title,
       artifactId:
@@ -790,7 +928,9 @@ export async function initContentCoordinator({
       }
 
       showToast(
-        "Extracting audio from Video Overview…",
+        isAudioMedia
+          ? "Extracting audio from Audio Overview…"
+          : "Extracting audio from Video Overview…",
         title,
         "working",
         0
@@ -949,13 +1089,24 @@ export async function initContentCoordinator({
   }
 
   function bindVideoElement(video) {
-    if (!video || controllers.has(video)) return controllers.get(video) || null;
-    if (isLikelySilentCardPreviewVideo(video)) {
+    if (!video || video.__lmSubsInternal || controllers.has(video)) {
+      return controllers.get(video) || null;
+    }
+    const isAudioEl = String(video?.tagName || "").toUpperCase() === "AUDIO";
+    if (!isAudioEl && isLikelySilentCardPreviewVideo(video)) {
       return null;
     }
+    if (isAudioEl) {
+      const aSrc = String(video.currentSrc || video.src || "");
+      if (aSrc.startsWith("data:audio/wav") && video.duration > 0 && video.duration < 3) {
+        return null;
+      }
+    }
 
+    const mediaKind = isAudioEl ? "audio" : "video";
     const entry = {
       video,
+      mediaKind,
       controller: null,
       artifactId: null,
       mediaToken: null,
@@ -965,6 +1116,7 @@ export async function initContentCoordinator({
 
     const controller = new VideoSubtitleController(video, {
       doc,
+      mediaKind,
       initialFontSize: settings.fontSize,
       initialCaptionStyle: settings.captionStyle,
       initialFontFamily: settings.captionFontFamily,
@@ -1063,8 +1215,8 @@ export async function initContentCoordinator({
 
     recordDebug(
       "CONTENT",
-      "video.bound",
-      `Bound <video> overlay (mounted=${Boolean(
+      isAudioEl ? "audio.bound" : "video.bound",
+      `Bound <${mediaKind}> overlay (mounted=${Boolean(
         controller.host
       )}, src=${summarizeMediaUrlForDebug(video.currentSrc || video.src || "")})`
     );
@@ -1095,17 +1247,21 @@ export async function initContentCoordinator({
       }
     }
 
-    const videos = collectVideosDeep(doc);
-    for (const video of videos) {
-      bindVideoElement(video);
+    const mediaEls = collectMediaElementsDeep(doc);
+    for (const mediaEl of mediaEls) {
+      bindVideoElement(mediaEl);
     }
   }
 
-  function ingestArtifactsList(artifacts = [], isCreateVideoRequest = false) {
-    if (isCreateVideoRequest) {
+  function ingestArtifactsList(
+    artifacts = [],
+    isCreateMediaRequest = false,
+    isAudioCreate = false
+  ) {
+    if (isCreateMediaRequest) {
       createIntentTimestamp = Date.now();
       showToast(
-        "Video Overview queued",
+        isAudioCreate ? "Audio Overview queued" : "Video Overview queued",
         "Subtitles will generate automatically as soon as rendering finishes.",
         "info",
         4000
@@ -1122,7 +1278,7 @@ export async function initContentCoordinator({
       if (
         art.status === "initializing" ||
         art.status === "processing" ||
-        (isCreateVideoRequest && !previous) ||
+        (isCreateMediaRequest && !previous) ||
         Date.now() - createIntentTimestamp < 45_000
       ) {
         pendingGeneratedVideoIds.add(art.artifactId);
@@ -1168,19 +1324,24 @@ export async function initContentCoordinator({
       }
     }
 
-    // Background prewarm when a newly generated Video Overview transitions to `ready`
+    // Background prewarm when a newly generated Video or Audio Overview transitions to `ready`
     for (const art of artifacts) {
       if (
         art.status === "ready" &&
         (art.mediaUrl || art.progressiveUrl || art.mediaVariants?.length) &&
         pendingGeneratedVideoIds.has(art.artifactId)
       ) {
+        const isAudioArt =
+          art.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW ||
+          art.mediaKind === "audio";
         const primaryUrl =
           art.mediaVariants?.[0] || art.progressiveUrl || art.mediaUrl;
         const decision = shouldGenerateSubtitles({
           settings,
           trigger: "generate",
           force: false,
+          typeCode: art.typeCode,
+          mediaKind: isAudioArt ? "audio" : "video",
           status: "ready",
           title: art.title || getNotebookTitleFallback(),
           artifactId: art.artifactId,
@@ -1195,7 +1356,9 @@ export async function initContentCoordinator({
           inFlightKeys.add(decision.cacheKey);
           startKeepalive();
           showToast(
-            "Video Overview ready — generating subtitles…",
+            isAudioArt
+              ? "Audio Overview ready, generating subtitles…"
+              : "Video Overview ready, generating subtitles…",
             art.title || "Untitled",
             "working",
             4500
@@ -1221,7 +1384,9 @@ export async function initContentCoordinator({
                 cachedKeys.add(decision.cacheKey);
                 showToast(
                   `Subtitles ready (${res.entry.cues.length} cues)`,
-                  `Open "${art.title || "Video Overview"}" to watch with CC`,
+                  `Open "${
+                    art.title || (isAudioArt ? "Audio Overview" : "Video Overview")
+                  }" to follow with CC`,
                   "success",
                   4500
                 );
@@ -1299,8 +1464,45 @@ export async function initContentCoordinator({
     if (msg.type === PAGE_MESSAGE.PAGE_DEBUG_EVENT) {
       const p = msg.payload || {};
       recordDebug(p.layer || "PAGE", p.event || "event", p.detail || "");
-      if (p.event === "video.play") {
+      if (p.event === "video.play" || p.event === "audio.play") {
         scanForVideos();
+      }
+      return;
+    }
+
+    if (msg.type === PAGE_MESSAGE.REMOTE_AUDIO_STATE) {
+      const snap = msg.payload || {};
+      if (!snap.audioId) return;
+      let proxy = remoteAudioProxies.get(snap.audioId);
+      if (!proxy) {
+        proxy = new RemoteAudioElementProxy(snap.audioId, (command, value) => {
+          try {
+            win.postMessage(
+              {
+                source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+                type: PAGE_MESSAGE.REMOTE_AUDIO_COMMAND,
+                payload: { audioId: snap.audioId, command, value },
+              },
+              getPostOrigin()
+            );
+          } catch {
+            // Ignore
+          }
+        });
+        remoteAudioProxies.set(snap.audioId, proxy);
+      }
+      proxy.applySnapshot(snap);
+      const entry = bindVideoElement(proxy);
+      if (
+        entry &&
+        entry.controller.cues.length === 0 &&
+        !entry.inFlight &&
+        (snap.src || artifactsById.size > 0)
+      ) {
+        ensureSubtitlesForEntry(entry, {
+          force: false,
+          trigger: "player_open",
+        });
       }
       return;
     }
@@ -1323,19 +1525,25 @@ export async function initContentCoordinator({
     if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
       ingestArtifactsList(
         msg.payload?.artifacts || [],
-        Boolean(msg.payload?.isCreateVideoRequest)
+        Boolean(
+          msg.payload?.isCreateMediaRequest ||
+            msg.payload?.isCreateVideoRequest ||
+            msg.payload?.isCreateAudioRequest
+        ),
+        Boolean(msg.payload?.isCreateAudioRequest)
       );
     }
   });
 
-  // 2. Capture-phase media event listeners on `doc` catch `<video>` playback even inside
-  //    open Shadow DOMs (`event.composedPath()[0]`) inside Angular Material `Lot dialog`.
+  // 2. Capture-phase media event listeners on `doc` catch `<video>` and `<audio>` playback
+  //    even inside open Shadow DOMs (`event.composedPath()[0]`) inside Angular Material `Lot dialog`.
   const handleCapturedMediaEvent = (event) => {
     try {
       const path =
         typeof event.composedPath === "function" ? event.composedPath() : [];
       const candidate = path[0] || event.target;
-      if (candidate && candidate.tagName === "VIDEO") {
+      const tag = String(candidate?.tagName || "").toUpperCase();
+      if (tag === "VIDEO" || tag === "AUDIO") {
         const entry = bindVideoElement(candidate);
         if (entry && (event.type === "play" || event.type === "loadedmetadata")) {
           ensureSubtitlesForEntry(entry, {
@@ -1529,17 +1737,33 @@ export async function initContentCoordinator({
       const matched = target ? matchArtifactForVideo(target.video) : readyArts[readyArts.length - 1] || null;
 
       const hasLiveCues = Boolean(target && target.controller.cues.length > 0);
+      const activeMediaKind =
+        target?.mediaKind ||
+        (matched?.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW
+          ? "audio"
+          : matched?.mediaKind || "video");
       sendResponse({
         ok: true,
         hasVideoElement: controllers.size > 0,
+        hasAudioElement: [...controllers.values()].some(
+          (e) => e.mediaKind === "audio"
+        ),
+        mediaKind: activeMediaKind,
         videoCount: controllers.size,
         readyArtifactCount: readyArts.length,
         generatingCount: generatingArts.length,
         hasSubtitles: hasLiveCues,
         activeArtifact: matched
-          ? { artifactId: matched.artifactId, title: matched.title }
+          ? {
+              artifactId: matched.artifactId,
+              title: matched.title,
+              mediaKind: activeMediaKind,
+            }
           : target
-            ? { title: target.controller.title || getNotebookTitleFallback() }
+            ? {
+                title: target.controller.title || getNotebookTitleFallback(),
+                mediaKind: activeMediaKind,
+              }
             : null,
         activeSubtitles: hasLiveCues
           ? {
@@ -1561,14 +1785,14 @@ export async function initContentCoordinator({
       scanForVideos();
       const target = pickTargetVideoEntry();
       if (!target) {
-        // If no `<video>` element is open yet, check if a ready Studio Video Overview exists to pre-caption!
+        // If no `<video>` or `<audio>` element is open yet, check if a ready Studio Video or Audio Overview exists to pre-caption!
         const readyArt = [...artifactsById.values()]
           .filter((a) => a.status === "ready" && (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length))
           .pop();
         if (!readyArt) {
           sendResponse({
             ok: false,
-            error: "Open a Video Overview in NotebookLM Studio first, then click Generate.",
+            error: "Open a Video or Audio Overview in NotebookLM Studio first, then click Generate.",
           });
           return false;
         }

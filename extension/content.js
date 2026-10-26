@@ -59,6 +59,7 @@
       TYPE: 2,
       SOURCES: 3,
       STATUS: 4,
+      AUDIO_METADATA: 6,
       VIDEO_METADATA: 8
     }),
     /** Positional indices inside `row[8]` (`explainerVideo` metadata block). */
@@ -77,8 +78,11 @@
       DOWNLOAD: 4
     })
   });
+  var ARTIFACT_TYPE = BATCHEXECUTE.ARTIFACT_TYPES;
   var DOM_SELECTORS = Object.freeze({
     VIDEO_ELEMENT: "video",
+    AUDIO_ELEMENT: "audio",
+    MEDIA_ELEMENTS: "video, audio",
     STUDIO_LIBRARY: "artifact-library",
     STUDIO_ITEM: "artifact-library-item",
     STUDIO_ITEM_TITLE: ".artifact-title",
@@ -90,11 +94,22 @@
       "movie",
       "play_circle"
     ]),
+    AUDIO_ICON_LIGATURES: Object.freeze([
+      "podcasts",
+      "graphic_eq",
+      "headphones",
+      "spatial_audio_off",
+      "volume_up",
+      "mic"
+    ]),
     GENERATE_VIDEO_BUTTONS: Object.freeze([
       'button[aria-label*="Video Overview" i]',
       'button[aria-label*="Generate video" i]',
       'button[aria-label*="Create video" i]',
-      'button.primary-action-button[aria-label*="video" i]'
+      'button.primary-action-button[aria-label*="video" i]',
+      'button[aria-label*="Audio Overview" i]',
+      'button[aria-label*="Generate audio" i]',
+      'button[aria-label*="Deep Dive" i]'
     ]),
     OVERLAY_HOST_ID: "lm-subs-player-root",
     OVERLAY_HOST_CLASS: "lm-subs-player-overlay",
@@ -111,7 +126,15 @@
     PAGE_STATE_SNAPSHOT: "LM_SUBS_PAGE_STATE_SNAPSHOT",
     PAGE_DEBUG_EVENT: "LM_SUBS_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "LM_SUBS_EXTRACT_AUDIO_REQUEST",
-    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE"
+    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE",
+    REMOTE_AUDIO_STATE: "LM_SUBS_REMOTE_AUDIO_STATE",
+    REMOTE_AUDIO_COMMAND: "LM_SUBS_REMOTE_AUDIO_COMMAND"
+  });
+  var EXTERNAL_MESSAGE = Object.freeze({
+    WEB_HANDSHAKE: "LM_SUBS_WEB_HANDSHAKE",
+    WEB_SAVE_PROVIDER_KEY: "LM_SUBS_WEB_SAVE_PROVIDER_KEY",
+    WEB_UPDATE_SETUP_PREFS: "LM_SUBS_WEB_UPDATE_SETUP_PREFS",
+    WEB_CONNECT_CLOUD_TOKEN: "LM_SUBS_WEB_CONNECT_CLOUD_TOKEN"
   });
   var RUNTIME_MESSAGE = Object.freeze({
     ENSURE_SUBTITLES: "LM_SUBS_ENSURE",
@@ -476,6 +499,7 @@
       const AudioCtor = win?.Audio || globalThis.Audio;
       if (typeof AudioCtor !== "function") return false;
       const audio = new AudioCtor(getChimeWavDataUri());
+      audio.__lmSubsInternal = true;
       audio.volume = 0.72;
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.then === "function") {
@@ -598,8 +622,10 @@
     if (!isManual && settings.enabled === false) {
       return { allow: false, reason: "extension_disabled", cacheKey: null };
     }
-    if (typeCode !== BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW) {
-      return { allow: false, reason: "not_video_overview", cacheKey: null };
+    const isVideoOverview = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW;
+    const isAudioOverview = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW;
+    if (!isVideoOverview && !isAudioOverview) {
+      return { allow: false, reason: "not_media_overview", cacheKey: null };
     }
     if (status !== "ready") {
       return { allow: false, reason: `artifact_${status || "not_ready"}`, cacheKey: null };
@@ -624,7 +650,10 @@
       if (cachedSet.has(cacheKey)) {
         return { allow: false, reason: "already_cached", cacheKey };
       }
-      if (trigger === "player_open" && settings.autoOnExistingVideos === false) {
+      if (isAudioOverview && settings.autoOnAudioOverviews === false) {
+        return { allow: false, reason: "auto_audio_disabled", cacheKey };
+      }
+      if (isVideoOverview && trigger === "player_open" && settings.autoOnExistingVideos === false) {
         return { allow: false, reason: "auto_existing_disabled", cacheKey };
       }
       if (trigger === "generate" && settings.autoOnGenerate === false) {
@@ -852,7 +881,8 @@
     NOTIFICATIONS: "notifications",
     UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
-    CLOUD_SYNC_SECRET: "cloudSyncSecret"
+    CLOUD_SYNC_SECRET: "cloudSyncSecret",
+    SETUP_STATE: "setupState"
   });
   var CAPTION_FONT_SIZES = Object.freeze([
     "small",
@@ -890,6 +920,7 @@
     debugMode: false,
     autoOnGenerate: true,
     autoOnExistingVideos: true,
+    autoOnAudioOverviews: true,
     primaryProvider: "groq",
     queueOrder: [...DEFAULT_QUEUE_ORDER],
     providerModels: {},
@@ -987,6 +1018,7 @@
       debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
       autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
       autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
+      autoOnAudioOverviews: typeof saved.autoOnAudioOverviews === "boolean" ? saved.autoOnAudioOverviews : DEFAULT_SETTINGS.autoOnAudioOverviews,
       primaryProvider,
       queueOrder,
       providerModels,
@@ -1925,6 +1957,10 @@ ${rows.join("\n")}
     container-type: size;
     font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
+  :host([data-mode="audio"]) {
+    position: fixed;
+    inset: 0;
+  }
   .toolbar {
     position: absolute;
     bottom: 10px;
@@ -1944,6 +1980,49 @@ ${rows.join("\n")}
     opacity: 0.96;
     font-variant-numeric: tabular-nums;
     transition: opacity 150ms ease, background-color 120ms ease;
+  }
+  :host([data-mode="audio"]) .toolbar {
+    bottom: 14px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    height: 34px;
+    gap: 4px;
+    padding: 0 8px;
+    background: rgba(17, 19, 21, 0.92);
+    box-shadow: 0 10px 28px rgba(17, 19, 21, 0.22);
+  }
+  :host([data-mode="audio"]) .caption-stage {
+    bottom: 56px;
+  }
+  :host([data-mode="audio"]) .tools-popover,
+  :host([data-mode="audio"]) .style-popover,
+  :host([data-mode="audio"]) .shortcuts-popover {
+    bottom: 56px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+  :host([data-mode="audio"]) .transcript-drawer {
+    top: 72px;
+    right: 18px;
+    left: auto;
+    bottom: 60px;
+    transform: none;
+    width: min(360px, calc(100vw - 36px));
+  }
+  .audio-mode-tag {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    padding: 0 7px 0 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #93c5fd;
+    letter-spacing: 0.01em;
+  }
+  :host([data-mode="audio"]) .audio-mode-tag {
+    display: inline-flex;
   }
   .toolbar[data-idle="true"] {
     opacity: 0;
@@ -2504,6 +2583,7 @@ ${rows.join("\n")}
   var VideoSubtitleController = class {
     constructor(video, {
       doc = globalThis.document,
+      mediaKind = null,
       initialFontSize = "medium",
       initialCaptionStyle = "classic",
       initialFontFamily = "sans",
@@ -2536,8 +2616,9 @@ ${rows.join("\n")}
     } = {}) {
       this.video = video;
       this.doc = doc;
+      this.mediaKind = mediaKind === "audio" || String(video?.tagName || "").toUpperCase() === "AUDIO" ? "audio" : "video";
       this.cues = [];
-      this.title = "NotebookLM Video Overview";
+      this.title = this.mediaKind === "audio" ? "NotebookLM Audio Overview" : "NotebookLM Video Overview";
       this.ccEnabled = true;
       this.fontSize = CAPTION_FONT_SIZES.includes(initialFontSize) ? initialFontSize : "medium";
       this.captionStyle = CAPTION_STYLES.includes(initialCaptionStyle) ? initialCaptionStyle : "classic";
@@ -2585,6 +2666,9 @@ ${rows.join("\n")}
       this._applyPlaybackSpeed(this.playbackSpeed, false);
     }
     _resolveMountParent() {
+      if (this.mediaKind === "audio") {
+        return this.doc?.body || this.doc?.documentElement || this.video?.parentElement || null;
+      }
       if (this.video?.parentElement) {
         return this.video.parentElement;
       }
@@ -2654,16 +2738,21 @@ ${rows.join("\n")}
     _mount() {
       const parent = this._resolveMountParent();
       if (!parent) return;
-      if (parent.style) {
+      if (parent.style && this.mediaKind !== "audio") {
         const computedPos = globalThis.getComputedStyle?.(parent)?.position;
         if (!computedPos || computedPos === "static") {
           parent.style.position = "relative";
         }
       }
-      const old = parent.querySelector?.(`.${DOM_SELECTORS.OVERLAY_HOST_CLASS}`);
+      const hostClass = this.mediaKind === "audio" ? `${DOM_SELECTORS.OVERLAY_HOST_CLASS}-audio` : DOM_SELECTORS.OVERLAY_HOST_CLASS;
+      const old = parent.querySelector?.(`.${hostClass}`);
       if (old) old.remove();
       this.host = this.doc.createElement("div");
-      this.host.className = DOM_SELECTORS.OVERLAY_HOST_CLASS;
+      this.host.className = hostClass;
+      if (this.host.dataset) {
+        this.host.dataset.mode = this.mediaKind;
+      }
+      this.host.setAttribute?.("data-mode", this.mediaKind);
       const shadow = this.host.attachShadow({ mode: "closed" });
       this.shadow = shadow;
       const style = this.doc.createElement("style");
@@ -2874,13 +2963,30 @@ ${rows.join("\n")}
         this.shortcutsBtn
       );
       this.toolsPopoverEl.append(this.controlsGroup, utilitySection);
-      this.toolbar.append(
-        this.ccBtn,
-        this.statusEl,
-        this.transcriptBtn,
-        this.moreBtn,
-        this.fileInput
-      );
+      if (this.mediaKind === "audio" && this.pipBtn) {
+        this.pipBtn.style.display = "none";
+      }
+      if (this.mediaKind === "audio") {
+        this.audioTagEl = this.doc.createElement("span");
+        this.audioTagEl.className = "audio-mode-tag";
+        this.audioTagEl.textContent = "Podcast";
+        this.toolbar.append(
+          this.audioTagEl,
+          this.ccBtn,
+          this.statusEl,
+          this.transcriptBtn,
+          this.moreBtn,
+          this.fileInput
+        );
+      } else {
+        this.toolbar.append(
+          this.ccBtn,
+          this.statusEl,
+          this.transcriptBtn,
+          this.moreBtn,
+          this.fileInput
+        );
+      }
       this._mountStylePopover();
       this._mountTranscriptDrawer();
       this.shortcutsEl = this.doc.createElement("div");
@@ -3262,10 +3368,11 @@ ${rows.join("\n")}
       if (!this.toolbar) return;
       this.toolbar.dataset.idle = "false";
       if (this.idleTimer) clearTimeout(this.idleTimer);
-      const anyPopoverOpen = this.drawerOpen || this.styleOpen || this.shortcutsOpen;
+      if (this.mediaKind === "audio") return;
+      const anyPopoverOpen = this.drawerOpen || this.styleOpen || this.shortcutsOpen || this.toolsOpen;
       if (!this.video.paused && this.statusState !== "working" && !anyPopoverOpen) {
         this.idleTimer = setTimeout(() => {
-          const stillClosed = !this.drawerOpen && !this.styleOpen && !this.shortcutsOpen;
+          const stillClosed = !this.drawerOpen && !this.styleOpen && !this.shortcutsOpen && !this.toolsOpen;
           if (this.toolbar && !this.video.paused && stillClosed) {
             this.toolbar.dataset.idle = "true";
           }
@@ -4287,21 +4394,22 @@ ${rows.join("\n")}
     doc?.addEventListener?.("DOMContentLoaded", check);
     setTimeout(check, 250);
   }
-  function collectVideosDeep(root, out = [], depth = 0) {
+  function collectMediaElementsDeep(root, out = [], depth = 0, selector = DOM_SELECTORS.MEDIA_ELEMENTS) {
     if (!root || depth > 6) return out;
     try {
-      if (root.tagName === "VIDEO" && !out.includes(root)) {
+      const tag = String(root.tagName || "").toUpperCase();
+      if ((tag === "VIDEO" || tag === "AUDIO" && selector !== DOM_SELECTORS.VIDEO_ELEMENT) && !root.__lmSubsInternal && !out.includes(root)) {
         out.push(root);
       }
       if (typeof root.querySelectorAll === "function") {
-        const videos = root.querySelectorAll(DOM_SELECTORS.VIDEO_ELEMENT);
-        for (const v of videos) {
-          if (!out.includes(v)) out.push(v);
+        const items = root.querySelectorAll(selector);
+        for (const el of items) {
+          if (!el.__lmSubsInternal && !out.includes(el)) out.push(el);
         }
         const allEls = root.querySelectorAll("*");
         for (const el of allEls) {
           if (el.shadowRoot) {
-            collectVideosDeep(el.shadowRoot, out, depth + 1);
+            collectMediaElementsDeep(el.shadowRoot, out, depth + 1, selector);
           }
         }
       }
@@ -4309,6 +4417,92 @@ ${rows.join("\n")}
     }
     return out;
   }
+  function collectVideosDeep(root, out = [], depth = 0) {
+    return collectMediaElementsDeep(root, out, depth, DOM_SELECTORS.VIDEO_ELEMENT);
+  }
+  var RemoteAudioElementProxy = class {
+    constructor(audioId, sendCommand) {
+      this.audioId = audioId;
+      this._sendCommand = sendCommand;
+      this.tagName = "AUDIO";
+      this.isConnected = true;
+      this.src = "";
+      this.currentSrc = "";
+      this._currentTime = 0;
+      this.duration = 0;
+      this.paused = true;
+      this._playbackRate = 1;
+      this.readyState = 2;
+      this._listeners = /* @__PURE__ */ new Map();
+    }
+    get currentTime() {
+      return this._currentTime;
+    }
+    set currentTime(val) {
+      const next = Math.max(0, Number(val) || 0);
+      this._currentTime = next;
+      this._sendCommand("seek", next);
+      this._emit("seeking");
+      this._emit("timeupdate");
+    }
+    get playbackRate() {
+      return this._playbackRate;
+    }
+    set playbackRate(val) {
+      const next = Number(val) || 1;
+      this._playbackRate = next;
+      this._sendCommand("rate", next);
+    }
+    play() {
+      this.paused = false;
+      this._sendCommand("play");
+      this._emit("play");
+      return Promise.resolve();
+    }
+    pause() {
+      this.paused = true;
+      this._sendCommand("pause");
+      this._emit("pause");
+    }
+    addEventListener(type, fn) {
+      if (!this._listeners.has(type)) this._listeners.set(type, /* @__PURE__ */ new Set());
+      this._listeners.get(type).add(fn);
+    }
+    removeEventListener(type, fn) {
+      this._listeners.get(type)?.delete(fn);
+    }
+    _emit(type) {
+      const set = this._listeners.get(type);
+      if (!set) return;
+      for (const fn of set) {
+        try {
+          fn({ type, target: this });
+        } catch {
+        }
+      }
+    }
+    applySnapshot(snap = {}) {
+      if (typeof snap.src === "string" && snap.src) {
+        this.src = snap.src;
+        this.currentSrc = snap.src;
+      }
+      if (Number.isFinite(snap.currentTime)) {
+        this._currentTime = snap.currentTime;
+      }
+      if (Number.isFinite(snap.duration) && snap.duration > 0) {
+        this.duration = snap.duration;
+      }
+      if (typeof snap.paused === "boolean") {
+        this.paused = snap.paused;
+      }
+      if (Number.isFinite(snap.playbackRate) && snap.playbackRate > 0) {
+        this._playbackRate = snap.playbackRate;
+      }
+      const evt = snap.eventType || "timeupdate";
+      this._emit(evt);
+      if (evt !== "timeupdate") this._emit("timeupdate");
+    }
+  };
   async function initContentCoordinator({
     win = globalThis.window,
     doc = globalThis.document,
@@ -4325,6 +4519,7 @@ ${rows.join("\n")}
     const inFlightKeys = /* @__PURE__ */ new Set();
     const exhaustedKeys = /* @__PURE__ */ new Set();
     const controllers = /* @__PURE__ */ new Map();
+    const remoteAudioProxies = /* @__PURE__ */ new Map();
     const pendingPageRequests = /* @__PURE__ */ new Map();
     let pageReqSeq = 1;
     let createIntentTimestamp = 0;
@@ -4619,14 +4814,19 @@ ${rows.join("\n")}
       return false;
     }
     function matchArtifactForVideo(video) {
+      const isAudioEl = String(video?.tagName || "").toUpperCase() === "AUDIO";
       const src = video.currentSrc || video.src || "";
       const token = extractMediaToken(src);
       if (token && artifactsByToken.has(token)) {
         return artifactsByToken.get(token);
       }
-      const readyList = [...artifactsById.values()].filter(
+      const allReady = [...artifactsById.values()].filter(
         (a) => a.status === "ready" && (a.mediaUrl || a.progressiveUrl || a.mediaVariants?.length)
       );
+      const kindMatched = allReady.filter(
+        (a) => isAudioEl ? a.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW || a.mediaKind === "audio" : a.typeCode !== ARTIFACT_TYPE.AUDIO_OVERVIEW && a.mediaKind !== "audio"
+      );
+      const readyList = kindMatched.length > 0 ? kindMatched : allReady;
       if (readyList.length === 1) {
         return readyList[0];
       }
@@ -4761,8 +4961,8 @@ ${rows.join("\n")}
         pushVariant(rawSrc);
       }
       for (const u of timingUrls) pushVariant(u);
-      const primaryMediaUrl = mediaVariants[0] || artifact?.progressiveUrl || artifact?.mediaUrl || (isTrustedGoogleMediaUrl(rawSrc) ? rawSrc : "") || (rawSrc.startsWith("blob:") ? rawSrc : "");
-      const isBlobSrc = rawSrc.startsWith("blob:");
+      const primaryMediaUrl = mediaVariants[0] || artifact?.progressiveUrl || artifact?.mediaUrl || (isTrustedGoogleMediaUrl(rawSrc) ? rawSrc : "") || (rawSrc.startsWith("blob:") || rawSrc.startsWith("data:audio/") ? rawSrc : "");
+      const isBlobSrc = rawSrc.startsWith("blob:") || rawSrc.startsWith("data:audio/");
       if (!primaryMediaUrl) {
         recordDebug(
           "CONTENT",
@@ -4771,9 +4971,12 @@ ${rows.join("\n")}
         );
         return;
       }
+      const isAudioMedia = entry.mediaKind === "audio" || artifact?.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW || artifact?.mediaKind === "audio";
+      const resolvedTypeCode = artifact?.typeCode ?? (isAudioMedia ? ARTIFACT_TYPE.AUDIO_OVERVIEW : ARTIFACT_TYPE.VIDEO_OVERVIEW);
       const artifactId = artifact?.artifactId || null;
       const mediaToken = artifact?.mediaToken || extractMediaToken(primaryMediaUrl) || null;
-      const title = artifact?.title || getNotebookTitleFallback();
+      const fallbackTitle = getNotebookTitleFallback();
+      const title = artifact?.title || (isAudioMedia && fallbackTitle === "NotebookLM Video Overview" ? "NotebookLM Audio Overview" : fallbackTitle);
       const isNewlyGenerated = Boolean(
         artifactId && pendingGeneratedVideoIds.has(artifactId)
       );
@@ -4782,6 +4985,8 @@ ${rows.join("\n")}
         settings,
         trigger: effectiveTrigger,
         force,
+        typeCode: resolvedTypeCode,
+        mediaKind: isAudioMedia ? "audio" : "video",
         status: "ready",
         title,
         artifactId: artifactId || (!mediaToken && isBlobSrc ? `blob_${Math.round((video.duration || 1) * 10)}` : null),
@@ -4870,7 +5075,7 @@ ${rows.join("\n")}
           }
         }
         showToast(
-          "Extracting audio from Video Overview\u2026",
+          isAudioMedia ? "Extracting audio from Audio Overview\u2026" : "Extracting audio from Video Overview\u2026",
           title,
           "working",
           0
@@ -5000,12 +5205,23 @@ ${formattedText} ` : `${formattedText} `;
       }
     }
     function bindVideoElement(video) {
-      if (!video || controllers.has(video)) return controllers.get(video) || null;
-      if (isLikelySilentCardPreviewVideo(video)) {
+      if (!video || video.__lmSubsInternal || controllers.has(video)) {
+        return controllers.get(video) || null;
+      }
+      const isAudioEl = String(video?.tagName || "").toUpperCase() === "AUDIO";
+      if (!isAudioEl && isLikelySilentCardPreviewVideo(video)) {
         return null;
       }
+      if (isAudioEl) {
+        const aSrc = String(video.currentSrc || video.src || "");
+        if (aSrc.startsWith("data:audio/wav") && video.duration > 0 && video.duration < 3) {
+          return null;
+        }
+      }
+      const mediaKind = isAudioEl ? "audio" : "video";
       const entry = {
         video,
+        mediaKind,
         controller: null,
         artifactId: null,
         mediaToken: null,
@@ -5014,6 +5230,7 @@ ${formattedText} ` : `${formattedText} `;
       };
       const controller = new VideoSubtitleController(video, {
         doc,
+        mediaKind,
         initialFontSize: settings.fontSize,
         initialCaptionStyle: settings.captionStyle,
         initialFontFamily: settings.captionFontFamily,
@@ -5112,8 +5329,8 @@ ${formattedText} ` : `${formattedText} `;
       lastActiveVideo = video;
       recordDebug(
         "CONTENT",
-        "video.bound",
-        `Bound <video> overlay (mounted=${Boolean(
+        isAudioEl ? "audio.bound" : "video.bound",
+        `Bound <${mediaKind}> overlay (mounted=${Boolean(
           controller.host
         )}, src=${summarizeMediaUrlForDebug(video.currentSrc || video.src || "")})`
       );
@@ -5138,16 +5355,16 @@ ${formattedText} ` : `${formattedText} `;
           entry.controller._ensureMounted?.();
         }
       }
-      const videos = collectVideosDeep(doc);
-      for (const video of videos) {
-        bindVideoElement(video);
+      const mediaEls = collectMediaElementsDeep(doc);
+      for (const mediaEl of mediaEls) {
+        bindVideoElement(mediaEl);
       }
     }
-    function ingestArtifactsList(artifacts = [], isCreateVideoRequest = false) {
-      if (isCreateVideoRequest) {
+    function ingestArtifactsList(artifacts = [], isCreateMediaRequest = false, isAudioCreate = false) {
+      if (isCreateMediaRequest) {
         createIntentTimestamp = Date.now();
         showToast(
-          "Video Overview queued",
+          isAudioCreate ? "Audio Overview queued" : "Video Overview queued",
           "Subtitles will generate automatically as soon as rendering finishes.",
           "info",
           4e3
@@ -5158,7 +5375,7 @@ ${formattedText} ` : `${formattedText} `;
       for (const art of artifacts) {
         if (!art?.artifactId) continue;
         const previous = artifactsById.get(art.artifactId);
-        if (art.status === "initializing" || art.status === "processing" || isCreateVideoRequest && !previous || Date.now() - createIntentTimestamp < 45e3) {
+        if (art.status === "initializing" || art.status === "processing" || isCreateMediaRequest && !previous || Date.now() - createIntentTimestamp < 45e3) {
           pendingGeneratedVideoIds.add(art.artifactId);
         }
         artifactsById.set(art.artifactId, art);
@@ -5193,11 +5410,14 @@ ${formattedText} ` : `${formattedText} `;
       }
       for (const art of artifacts) {
         if (art.status === "ready" && (art.mediaUrl || art.progressiveUrl || art.mediaVariants?.length) && pendingGeneratedVideoIds.has(art.artifactId)) {
+          const isAudioArt = art.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW || art.mediaKind === "audio";
           const primaryUrl = art.mediaVariants?.[0] || art.progressiveUrl || art.mediaUrl;
           const decision = shouldGenerateSubtitles({
             settings,
             trigger: "generate",
             force: false,
+            typeCode: art.typeCode,
+            mediaKind: isAudioArt ? "audio" : "video",
             status: "ready",
             title: art.title || getNotebookTitleFallback(),
             artifactId: art.artifactId,
@@ -5212,7 +5432,7 @@ ${formattedText} ` : `${formattedText} `;
             inFlightKeys.add(decision.cacheKey);
             startKeepalive();
             showToast(
-              "Video Overview ready \u2014 generating subtitles\u2026",
+              isAudioArt ? "Audio Overview ready, generating subtitles\u2026" : "Video Overview ready, generating subtitles\u2026",
               art.title || "Untitled",
               "working",
               4500
@@ -5237,7 +5457,7 @@ ${formattedText} ` : `${formattedText} `;
                 cachedKeys.add(decision.cacheKey);
                 showToast(
                   `Subtitles ready (${res.entry.cues.length} cues)`,
-                  `Open "${art.title || "Video Overview"}" to watch with CC`,
+                  `Open "${art.title || (isAudioArt ? "Audio Overview" : "Video Overview")}" to follow with CC`,
                   "success",
                   4500
                 );
@@ -5306,8 +5526,38 @@ ${formattedText} ` : `${formattedText} `;
       if (msg.type === PAGE_MESSAGE.PAGE_DEBUG_EVENT) {
         const p = msg.payload || {};
         recordDebug(p.layer || "PAGE", p.event || "event", p.detail || "");
-        if (p.event === "video.play") {
+        if (p.event === "video.play" || p.event === "audio.play") {
           scanForVideos();
+        }
+        return;
+      }
+      if (msg.type === PAGE_MESSAGE.REMOTE_AUDIO_STATE) {
+        const snap = msg.payload || {};
+        if (!snap.audioId) return;
+        let proxy = remoteAudioProxies.get(snap.audioId);
+        if (!proxy) {
+          proxy = new RemoteAudioElementProxy(snap.audioId, (command, value) => {
+            try {
+              win.postMessage(
+                {
+                  source: PAGE_MESSAGE.BRIDGE_SOURCE_CONTENT,
+                  type: PAGE_MESSAGE.REMOTE_AUDIO_COMMAND,
+                  payload: { audioId: snap.audioId, command, value }
+                },
+                getPostOrigin()
+              );
+            } catch {
+            }
+          });
+          remoteAudioProxies.set(snap.audioId, proxy);
+        }
+        proxy.applySnapshot(snap);
+        const entry = bindVideoElement(proxy);
+        if (entry && entry.controller.cues.length === 0 && !entry.inFlight && (snap.src || artifactsById.size > 0)) {
+          ensureSubtitlesForEntry(entry, {
+            force: false,
+            trigger: "player_open"
+          });
         }
         return;
       }
@@ -5326,7 +5576,10 @@ ${formattedText} ` : `${formattedText} `;
       if (msg.type === PAGE_MESSAGE.BATCH_ARTIFACTS) {
         ingestArtifactsList(
           msg.payload?.artifacts || [],
-          Boolean(msg.payload?.isCreateVideoRequest)
+          Boolean(
+            msg.payload?.isCreateMediaRequest || msg.payload?.isCreateVideoRequest || msg.payload?.isCreateAudioRequest
+          ),
+          Boolean(msg.payload?.isCreateAudioRequest)
         );
       }
     });
@@ -5334,7 +5587,8 @@ ${formattedText} ` : `${formattedText} `;
       try {
         const path = typeof event.composedPath === "function" ? event.composedPath() : [];
         const candidate = path[0] || event.target;
-        if (candidate && candidate.tagName === "VIDEO") {
+        const tag = String(candidate?.tagName || "").toUpperCase();
+        if (tag === "VIDEO" || tag === "AUDIO") {
           const entry = bindVideoElement(candidate);
           if (entry && (event.type === "play" || event.type === "loadedmetadata")) {
             ensureSubtitlesForEntry(entry, {
@@ -5504,14 +5758,26 @@ ${formattedText} ` : `${formattedText} `;
         );
         const matched = target ? matchArtifactForVideo(target.video) : readyArts[readyArts.length - 1] || null;
         const hasLiveCues = Boolean(target && target.controller.cues.length > 0);
+        const activeMediaKind = target?.mediaKind || (matched?.typeCode === ARTIFACT_TYPE.AUDIO_OVERVIEW ? "audio" : matched?.mediaKind || "video");
         sendResponse({
           ok: true,
           hasVideoElement: controllers.size > 0,
+          hasAudioElement: [...controllers.values()].some(
+            (e) => e.mediaKind === "audio"
+          ),
+          mediaKind: activeMediaKind,
           videoCount: controllers.size,
           readyArtifactCount: readyArts.length,
           generatingCount: generatingArts.length,
           hasSubtitles: hasLiveCues,
-          activeArtifact: matched ? { artifactId: matched.artifactId, title: matched.title } : target ? { title: target.controller.title || getNotebookTitleFallback() } : null,
+          activeArtifact: matched ? {
+            artifactId: matched.artifactId,
+            title: matched.title,
+            mediaKind: activeMediaKind
+          } : target ? {
+            title: target.controller.title || getNotebookTitleFallback(),
+            mediaKind: activeMediaKind
+          } : null,
           activeSubtitles: hasLiveCues ? {
             title: matched?.title || target.controller.title || getNotebookTitleFallback(),
             language: target.controller.language || "en",
@@ -5530,7 +5796,7 @@ ${formattedText} ` : `${formattedText} `;
           if (!readyArt) {
             sendResponse({
               ok: false,
-              error: "Open a Video Overview in NotebookLM Studio first, then click Generate."
+              error: "Open a Video or Audio Overview in NotebookLM Studio first, then click Generate."
             });
             return false;
           }

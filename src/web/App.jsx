@@ -9,12 +9,21 @@ import { NotificationCenter } from "./NotificationCenter.jsx";
 import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
 import { StatsView } from "./StatsView.jsx";
+import { WelcomeView } from "./WelcomeView.jsx";
 
 const TOKEN_STORAGE_KEY = "lmsubs_web_session_token";
 const ALL_PROVIDERS = listProviderSpecs();
 
 function resolveInitialView() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (
+    path === "/welcome" ||
+    path === "/welcome.html" ||
+    path === "/setup" ||
+    path === "/setup.html"
+  ) {
+    return "welcome";
+  }
   if (path === "/guide" || path === "/guide.html" || path === "/install") {
     return "guide";
   }
@@ -32,6 +41,7 @@ function resolveInitialView() {
 
   const params = new URLSearchParams(window.location.search);
   const v = params.get("view");
+  if (v === "welcome" || v === "setup") return "welcome";
   if (v === "guide" || v === "install") return "guide";
   if (v === "about") return "about";
   if (v === "library" || v === "workspace") return "library";
@@ -70,6 +80,7 @@ export function BrandMark({ size = 26 }) {
 
 const VIEW_URL_MAP = {
   overview: "/",
+  welcome: "/welcome",
   guide: "/guide",
   library: "/library",
   stats: "/stats",
@@ -127,6 +138,12 @@ export function App() {
     setView(nextView);
     const targetUrl = VIEW_URL_MAP[nextView] || "/";
     window.history.pushState({ view: nextView }, "", targetUrl);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const handleStartDownloadSetup = useCallback(() => {
+    setView("welcome");
+    window.history.pushState({ view: "welcome" }, "", "/welcome?downloading=1");
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
@@ -403,8 +420,9 @@ export function App() {
             )}
             <a
               className="btn btn-sm btn-primary"
-              href="/releases/lm-subs-v0.2.4.zip"
+              href="/releases/lm-subs-v0.2.5.zip"
               download
+              onClick={handleStartDownloadSetup}
             >
               Download extension
             </a>
@@ -422,22 +440,23 @@ export function App() {
                   Captions inside NotebookLM in seconds
                 </h1>
                 <p className="hero-lead">
-                  LM Subs adds synchronized closed captions, searchable transcripts, and SRT, WebVTT, TXT, and JSON exports directly inside Google NotebookLM Video Overviews. Sign in to sync your transcripts and encrypted API keys across browsers.
+                  LM Subs adds synchronized closed captions, word-by-word highlighting, searchable transcripts, and six export formats inside Google NotebookLM Video and Audio Overviews. Sign in to sync transcripts and encrypted API keys across browsers.
                 </p>
                 <div className="hero-cta-row">
                   <a
                     className="btn btn-primary"
-                    href="/releases/lm-subs-v0.2.4.zip"
+                    href="/releases/lm-subs-v0.2.5.zip"
                     download
+                    onClick={handleStartDownloadSetup}
                   >
                     Download Chrome extension (.zip)
                   </a>
                   <button
                     type="button"
                     className="btn"
-                    onClick={() => navigate("guide")}
+                    onClick={() => navigate("welcome")}
                   >
-                    Step-by-step setup guide
+                    Interactive setup guide
                   </button>
                   <button
                     type="button"
@@ -450,7 +469,7 @@ export function App() {
                   </button>
                 </div>
                 <div className="hero-footnote">
-                  Open-source MIT Chrome extension (v0.2.4). Bring your own free-tier Groq, Mistral, or Gemini key.
+                  Open-source MIT Chrome extension (v0.2.5). Bring your own free-tier Groq, Mistral, or Gemini key.
                 </div>
               </div>
 
@@ -465,20 +484,21 @@ export function App() {
                     Set up LM Subs in under two minutes
                   </h2>
                   <p className="section-prose">
-                    No coding background, terminal commands, or paid subscriptions are needed. Follow four steps in Chrome, Brave, Edge, or Arc.
+                    No coding background, terminal commands, or paid subscriptions are needed. Downloading opens an interactive setup guide that connects directly to the extension as soon as you load it.
                   </p>
                   <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "18px" }}>
                     <button
                       type="button"
                       className="btn btn-ink"
-                      onClick={() => navigate("guide")}
+                      onClick={() => navigate("welcome")}
                     >
-                      Open visual installation guide
+                      Open interactive setup
                     </button>
                     <a
                       className="btn"
-                      href="/releases/lm-subs-v0.2.4.zip"
+                      href="/releases/lm-subs-v0.2.5.zip"
                       download
+                      onClick={handleStartDownloadSetup}
                     >
                       Download .zip package
                     </a>
@@ -498,15 +518,15 @@ export function App() {
                   >
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Download and unzip:</strong>{" "}
-                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.4.zip</code> and extract it into a regular folder in your Documents folder.
+                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.5.zip</code> and extract it into a regular folder in your Documents folder.
                     </li>
                     <li>
-                      <strong style={{ color: "var(--ink)" }}>Load in Chrome:</strong>{" "}
-                      Open <code style={{ fontFamily: "var(--font-mono)" }}>chrome://extensions</code>, turn on <strong style={{ color: "var(--ink)" }}>Developer mode</strong> in the top-right corner, click <strong style={{ color: "var(--ink)" }}>Load unpacked</strong>, and select that unzipped folder.
+                      <strong style={{ color: "var(--ink)" }}>Load and pin from top of menu:</strong>{" "}
+                      Open <code style={{ fontFamily: "var(--font-mono)" }}>chrome://extensions</code>, enable <strong style={{ color: "var(--ink)" }}>Developer mode</strong>, click <strong style={{ color: "var(--ink)" }}>Load unpacked</strong>, then pin <strong style={{ color: "var(--ink)" }}>LM Subs</strong> from the top <strong style={{ color: "var(--ink)" }}>Access requested</strong> section of Chrome’s puzzle menu.
                     </li>
                     <li>
-                      <strong style={{ color: "var(--ink)" }}>Paste one free key:</strong>{" "}
-                      Sign in at{" "}
+                      <strong style={{ color: "var(--ink)" }}>Save one free key:</strong>{" "}
+                      Create a free{" "}
                       <a
                         className="link"
                         href="https://console.groq.com/keys"
@@ -515,11 +535,11 @@ export function App() {
                       >
                         console.groq.com/keys
                       </a>{" "}
-                      (no card required), create a <code style={{ fontFamily: "var(--font-mono)" }}>gsk_...</code> key, paste it into the LM Subs toolbar icon, and click <strong style={{ color: "var(--ink)" }}>Save</strong>.
+                      key (<code style={{ fontFamily: "var(--font-mono)" }}>gsk_...</code>) and save it directly from the setup page or toolbar popup.
                     </li>
                     <li>
-                      <strong style={{ color: "var(--ink)" }}>Play any Video Overview:</strong>{" "}
-                      Open NotebookLM and press play. Captions and export buttons appear automatically inside the video player.
+                      <strong style={{ color: "var(--ink)" }}>Play any Video or Audio Overview:</strong>{" "}
+                      Open NotebookLM and press play on a Video Overview or podcast Audio Overview. Captions and export controls appear automatically.
                     </li>
                   </ol>
                 </div>
@@ -579,7 +599,7 @@ export function App() {
 
                   <figure className="product-figure">
                     <img
-                      src="/assets/screenshots/01-player-subtitles.png?v=6"
+                      src="/assets/screenshots/01-player-subtitles.png?v=7"
                       alt="LM Subs highlighted spoken-word captions and bottom play-bar CC controls inside a Google NotebookLM Video Overview player"
                       width="1280"
                       height="800"
@@ -733,9 +753,20 @@ export function App() {
           </div>
         ) : null}
 
+        {view === "welcome" ? (
+          <WelcomeView
+            token={token}
+            user={user}
+            onNavigate={navigate}
+            onOpenSignIn={() => setAuthDialogOpen(true)}
+            onAuthenticated={handleAuthenticated}
+          />
+        ) : null}
+
         {view === "guide" ? (
           <GuideView
             onNavigate={navigate}
+            onStartDownloadSetup={handleStartDownloadSetup}
             onOpenSignIn={() => setAuthDialogOpen(true)}
             user={user}
           />
@@ -775,7 +806,7 @@ export function App() {
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div>
-            <strong>LM Subs</strong> (v0.2.4, MIT License) by{" "}
+            <strong>LM Subs</strong> (v0.2.5, MIT License) by{" "}
             <a
               className="link"
               href="/about"
@@ -789,6 +820,15 @@ export function App() {
             . Independent open-source tool, unaffiliated with Google LLC.
           </div>
           <div className="footer-links">
+            <a
+              href="/welcome"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("welcome");
+              }}
+            >
+              Interactive setup
+            </a>
             <a
               href="/guide"
               onClick={(e) => {

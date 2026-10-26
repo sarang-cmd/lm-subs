@@ -70,7 +70,56 @@ export const SAMPLE_VIDEO_OVERVIEW = {
     {
       startSec: 28.6,
       endSec: 34.0,
-      text: "Export these synchronized captions as SRT, WebVTT, plain text, or structured JSON.",
+      text: "Export these synchronized captions as SRT, WebVTT, Markdown, CSV, plain text, or JSON.",
+    },
+  ],
+};
+
+export const SAMPLE_AUDIO_OVERVIEW = {
+  title: "Deep Dive Podcast: Attention Is All You Need",
+  durationSec: 34,
+  language: "en",
+  provider: "groq",
+  model: "whisper-large-v3-turbo",
+  originalBytes: 3145728, // 3.0 MB audio stream
+  extractedBytes: 3145728,
+  latencyMs: 1900,
+  cues: [
+    {
+      startSec: 0.0,
+      endSec: 5.6,
+      speaker: "Host 1",
+      text: "[Host 1] Today we are unpacking why Transformers replaced recurrent networks in sequence modeling.",
+    },
+    {
+      startSec: 5.6,
+      endSec: 11.4,
+      speaker: "Host 2",
+      text: "[Host 2] Instead of stepping token by token, self-attention compares every position in parallel.",
+    },
+    {
+      startSec: 11.4,
+      endSec: 17.2,
+      speaker: "Host 1",
+      text: "[Host 1] Multi-head projections let one head track syntax while another links distant pronouns.",
+    },
+    {
+      startSec: 17.2,
+      endSec: 23.0,
+      speaker: "Host 2",
+      text: "[Host 2] Positional encodings preserve token order without slowing down matrix multiplication.",
+    },
+    {
+      startSec: 23.0,
+      endSec: 28.8,
+      speaker: "Host 1",
+      text: "[Host 1] That parallel training speed cut machine translation compute time by an order of magnitude.",
+    },
+    {
+      startSec: 28.8,
+      endSec: 34.0,
+      speaker: "Host 2",
+      text: "[Host 2] Click any podcast line in the transcript drawer to jump directly to that spoken moment.",
     },
   ],
 };

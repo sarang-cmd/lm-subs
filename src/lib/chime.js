@@ -129,6 +129,7 @@ async function playWavElementFallback(win = globalThis) {
     const AudioCtor = win?.Audio || globalThis.Audio;
     if (typeof AudioCtor !== "function") return false;
     const audio = new AudioCtor(getChimeWavDataUri());
+    audio.__lmSubsInternal = true;
     audio.volume = 0.72;
     const playPromise = audio.play();
     if (playPromise && typeof playPromise.then === "function") {

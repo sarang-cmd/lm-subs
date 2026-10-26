@@ -448,13 +448,14 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
 
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8"));
   const manifestJson = JSON.parse(fs.readFileSync(path.resolve("extension/manifest.json"), "utf8"));
-  assert.equal(pkgJson.version, "0.2.4");
-  assert.equal(manifestJson.version, "0.2.4");
+  assert.equal(pkgJson.version, "0.2.5");
+  assert.equal(manifestJson.version, "0.2.5");
   assert.equal(pkgJson.repository?.url, "https://github.com/sarang-cmd/lm-subs.git");
   assert.equal(pkgJson.homepage, "https://lm-subs.vercel.app");
-  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.4.zip")));
+  assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.5.zip")));
   assert.ok(fs.existsSync(path.resolve("docs/releases/lm-subs-latest.zip")));
   assert.ok(fs.existsSync(path.resolve("docs/releases/latest.json")));
+  assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.4.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.3.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.2.zip")));
   assert.ok(!fs.existsSync(path.resolve("docs/releases/lm-subs-v0.2.1.zip")));
@@ -531,7 +532,12 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
     "LibraryView.jsx must render the open local extension code box and collapsible API keys section"
   );
 
-  assert.deepEqual(manifestJson.permissions, ["storage", "notifications", "alarms"]);
+  assert.deepEqual(manifestJson.permissions, [
+    "storage",
+    "notifications",
+    "alarms",
+    "activeTab",
+  ]);
 });
 
 test("Notifications Center, Desktop OS Alerts, Toolbar Badge, Inline Cue Editor, and Markdown Study Notes", async () => {
@@ -840,7 +846,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   assert.equal(verRes.status, 200);
   const verJson = await verRes.json();
   assert.equal(verJson.ok, true);
-  assert.equal(verJson.version, "0.2.4");
+  assert.equal(verJson.version, "0.2.5");
 
   const realZipBytes = new Uint8Array(
     fs.readFileSync(path.resolve("docs/releases/lm-subs-latest.zip"))
@@ -848,7 +854,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   const latestMeta = JSON.parse(
     fs.readFileSync(path.resolve("docs/releases/latest.json"), "utf8")
   );
-  assert.equal(latestMeta.version, "0.2.4");
+  assert.equal(latestMeta.version, "0.2.5");
   assert.match(latestMeta.buildId, /^[0-9a-f]{12}$/);
   assert.match(latestMeta.zipSha256, /^[0-9a-f]{64}$/);
 
@@ -983,7 +989,7 @@ test("Automatic Extension Notifications, SHA-256 Verified Unpacked Folder Auto-U
   assert.equal(checkUnlinked.autoApplied, false);
   assert.equal(badges.at(-1), "UPD");
   assert.equal(desktopAlerts.length, 1);
-  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.4/);
+  assert.match(desktopAlerts[0].opts.title, /Update available: LM Subs v0\.2\.5/);
   assert.equal(desktopAlerts[0].opts.iconUrl, "icons/icon128.png");
 
   // 4. Linked unpacked folder: CHECK_FOR_UPDATES automatically verifies SHA-256, writes all files, notifies, and reloads!
@@ -1243,7 +1249,7 @@ test("Caption Studio Customizations, NotebookLM Study Controls, Split-Grid Overf
   ctrl.destroy();
 
   // 4. Verify real machine-counted PROJECT_STATS for /about
-  assert.equal(PROJECT_STATS.version, "0.2.4");
+  assert.equal(PROJECT_STATS.version, "0.2.5");
   assert.ok(PROJECT_STATS.totalLoc > 25000, "PROJECT_STATS must reflect real repository LOC");
   assert.ok(PROJECT_STATS.nonBlankLoc > 20000);
   assert.ok(PROJECT_STATS.sourceFiles >= 40);

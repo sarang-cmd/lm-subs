@@ -1,10 +1,10 @@
 {
   "name": "lm-subs",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "license": "MIT",
   "private": true,
   "type": "module",
-  "description": "LM Subs: Synchronized captions, .SRT/.VTT/.TXT/.JSON export, 12-provider BYOK speech-to-text, and hosted encrypted Neon Postgres sync for Google NotebookLM Video Overviews.",
+  "description": "LM Subs: Synchronized captions, .SRT/.VTT/.TXT/.JSON/.MD/.CSV export, 12-provider BYOK speech-to-text, and hosted encrypted Neon Postgres sync for Google NotebookLM Video and Audio Overviews.",
   "keywords": [
     "lm-subs",
     "notebooklm",

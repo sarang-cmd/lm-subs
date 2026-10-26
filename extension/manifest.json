@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "LM Subs",
   "short_name": "LM Subs",
-  "version": "0.2.4",
-  "description": "Sub-5s synchronized captions, live caption styler, smart chapters, .SRT/.VTT/.TXT/.MD/.CSV/.JSON export & encrypted Neon sync for NotebookLM.",
+  "version": "0.2.5",
+  "description": "Sub-5s synchronized captions, live caption styler, smart chapters, 6-format export, and encrypted Neon sync for NotebookLM Video and Audio Overviews.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -28,7 +28,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage", "notifications", "alarms"],
+  "permissions": ["storage", "notifications", "alarms", "activeTab"],
   "host_permissions": [
     "https://notebooklm.google.com/*",
     "https://notebook.google.com/*",
@@ -50,14 +50,21 @@
     "https://api.elevenlabs.io/*",
     "https://router.huggingface.co/*",
     "https://openrouter.ai/*",
-    "https://api.openai.com/*",
-    "https://lm-subs.vercel.app/*"
+    "https://api.openai.com/*"
   ],
   "optional_host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://*/*"
   ],
+  "externally_connectable": {
+    "matches": [
+      "https://lm-subs.vercel.app/*",
+      "https://*.vercel.app/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
+  },
   "content_scripts": [
     {
       "matches": [

@@ -61,8 +61,8 @@ function copyStaticTree(srcDir, destDir) {
 
 copyStaticTree(DOCS_DIR, STATIC_OUT);
 
-// Guarantee clean URLs like /guide, /stats, /about, /library, /privacy, /terms also resolve directly
-for (const page of ["guide", "about", "stats", "library", "privacy", "terms"]) {
+// Guarantee clean URLs like /welcome, /setup, /guide, /stats, /about, /library, /privacy, /terms also resolve directly
+for (const page of ["welcome", "setup", "guide", "about", "stats", "library", "privacy", "terms"]) {
   const htmlFile = path.join(STATIC_OUT, `${page}.html`);
   if (fs.existsSync(htmlFile)) {
     const cleanDir = path.join(STATIC_OUT, page);
@@ -119,6 +119,14 @@ fs.writeFileSync(
       version: 3,
       routes: [
         {
+          src: "^/releases/(.*)$",
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          },
+          continue: true,
+        },
+        {
           src: "^/releases/(.*\\.zip)$",
           headers: {
             "Content-Type": "application/zip",
@@ -142,7 +150,7 @@ fs.writeFileSync(
           handle: "filesystem",
         },
         {
-          src: "^/(guide|install|about|library|workspace|stats)/?$",
+          src: "^/(welcome|setup|guide|install|about|library|workspace|stats)/?$",
           dest: "/index.html",
         },
       ],

@@ -57,6 +57,7 @@ var BATCHEXECUTE = Object.freeze({
     TYPE: 2,
     SOURCES: 3,
     STATUS: 4,
+    AUDIO_METADATA: 6,
     VIDEO_METADATA: 8
   }),
   /** Positional indices inside `row[8]` (`explainerVideo` metadata block). */
@@ -75,8 +76,11 @@ var BATCHEXECUTE = Object.freeze({
     DOWNLOAD: 4
   })
 });
+var ARTIFACT_TYPE = BATCHEXECUTE.ARTIFACT_TYPES;
 var DOM_SELECTORS = Object.freeze({
   VIDEO_ELEMENT: "video",
+  AUDIO_ELEMENT: "audio",
+  MEDIA_ELEMENTS: "video, audio",
   STUDIO_LIBRARY: "artifact-library",
   STUDIO_ITEM: "artifact-library-item",
   STUDIO_ITEM_TITLE: ".artifact-title",
@@ -88,11 +92,22 @@ var DOM_SELECTORS = Object.freeze({
     "movie",
     "play_circle"
   ]),
+  AUDIO_ICON_LIGATURES: Object.freeze([
+    "podcasts",
+    "graphic_eq",
+    "headphones",
+    "spatial_audio_off",
+    "volume_up",
+    "mic"
+  ]),
   GENERATE_VIDEO_BUTTONS: Object.freeze([
     'button[aria-label*="Video Overview" i]',
     'button[aria-label*="Generate video" i]',
     'button[aria-label*="Create video" i]',
-    'button.primary-action-button[aria-label*="video" i]'
+    'button.primary-action-button[aria-label*="video" i]',
+    'button[aria-label*="Audio Overview" i]',
+    'button[aria-label*="Generate audio" i]',
+    'button[aria-label*="Deep Dive" i]'
   ]),
   OVERLAY_HOST_ID: "lm-subs-player-root",
   OVERLAY_HOST_CLASS: "lm-subs-player-overlay",
@@ -109,7 +124,15 @@ var PAGE_MESSAGE = Object.freeze({
   PAGE_STATE_SNAPSHOT: "LM_SUBS_PAGE_STATE_SNAPSHOT",
   PAGE_DEBUG_EVENT: "LM_SUBS_PAGE_DEBUG_EVENT",
   EXTRACT_AUDIO_REQUEST: "LM_SUBS_EXTRACT_AUDIO_REQUEST",
-  EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE"
+  EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE",
+  REMOTE_AUDIO_STATE: "LM_SUBS_REMOTE_AUDIO_STATE",
+  REMOTE_AUDIO_COMMAND: "LM_SUBS_REMOTE_AUDIO_COMMAND"
+});
+var EXTERNAL_MESSAGE = Object.freeze({
+  WEB_HANDSHAKE: "LM_SUBS_WEB_HANDSHAKE",
+  WEB_SAVE_PROVIDER_KEY: "LM_SUBS_WEB_SAVE_PROVIDER_KEY",
+  WEB_UPDATE_SETUP_PREFS: "LM_SUBS_WEB_UPDATE_SETUP_PREFS",
+  WEB_CONNECT_CLOUD_TOKEN: "LM_SUBS_WEB_CONNECT_CLOUD_TOKEN"
 });
 var RUNTIME_MESSAGE = Object.freeze({
   ENSURE_SUBTITLES: "LM_SUBS_ENSURE",
@@ -2685,7 +2708,8 @@ var STORAGE_KEYS = Object.freeze({
   NOTIFICATIONS: "notifications",
   UPDATE_STATUS: "updateStatus",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
-  CLOUD_SYNC_SECRET: "cloudSyncSecret"
+  CLOUD_SYNC_SECRET: "cloudSyncSecret",
+  SETUP_STATE: "setupState"
 });
 var MAX_CACHE_ENTRIES = 35;
 var MAX_HISTORY_ENTRIES = 60;
@@ -2727,6 +2751,7 @@ var DEFAULT_SETTINGS = Object.freeze({
   debugMode: false,
   autoOnGenerate: true,
   autoOnExistingVideos: true,
+  autoOnAudioOverviews: true,
   primaryProvider: "groq",
   queueOrder: [...DEFAULT_QUEUE_ORDER],
   providerModels: {},
@@ -2824,6 +2849,7 @@ async function getSettings(storageArea) {
     debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
     autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
     autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
+    autoOnAudioOverviews: typeof saved.autoOnAudioOverviews === "boolean" ? saved.autoOnAudioOverviews : DEFAULT_SETTINGS.autoOnAudioOverviews,
     primaryProvider,
     queueOrder,
     providerModels,
@@ -2918,6 +2944,18 @@ async function getSavedKeyPresenceMap(storageArea) {
     presence[id] = typeof map[id] === "string" && map[id].trim().length > 0;
   }
   return presence;
+}
+async function setApiKey(providerId, apiKey, storageArea) {
+  const store = resolveStorage(storageArea);
+  const raw = await store.get(STORAGE_KEYS.API_KEYS);
+  const current = raw?.[STORAGE_KEYS.API_KEYS] && typeof raw[STORAGE_KEYS.API_KEYS] === "object" ? { ...raw[STORAGE_KEYS.API_KEYS] } : {};
+  const trimmed = typeof apiKey === "string" ? apiKey.trim() : "";
+  if (trimmed) {
+    current[providerId] = trimmed;
+  } else {
+    delete current[providerId];
+  }
+  await store.set({ [STORAGE_KEYS.API_KEYS]: current });
 }
 async function getSubtitleCacheList(storageArea) {
   const store = resolveStorage(storageArea);
@@ -3302,9 +3340,9 @@ async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.4",
+        currentVersion: "0.2.5",
         currentBuildId: "",
-        latestVersion: "0.2.4",
+        latestVersion: "0.2.5",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -3316,9 +3354,9 @@ async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.4"),
+      currentVersion: String(saved.currentVersion || "0.2.5"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -3330,9 +3368,9 @@ async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.4",
+      currentVersion: "0.2.5",
       currentBuildId: "",
-      latestVersion: "0.2.4",
+      latestVersion: "0.2.5",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -3348,6 +3386,44 @@ async function saveUpdateStatus(partial, storageArea) {
   const current = await getUpdateStatus(store);
   const next = { ...current, ...partial || {} };
   await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+  return next;
+}
+async function getSetupState(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.SETUP_STATE);
+    const saved = raw?.[STORAGE_KEYS.SETUP_STATE];
+    if (!saved || typeof saved !== "object") {
+      return {
+        installedAt: null,
+        welcomeOpenedAt: null,
+        popupOpenedCount: 0,
+        lastPopupOpenedAt: null,
+        completedAt: null
+      };
+    }
+    return {
+      installedAt: saved.installedAt || null,
+      welcomeOpenedAt: saved.welcomeOpenedAt || null,
+      popupOpenedCount: Number.isFinite(Number(saved.popupOpenedCount)) ? Number(saved.popupOpenedCount) : 0,
+      lastPopupOpenedAt: saved.lastPopupOpenedAt || null,
+      completedAt: saved.completedAt || null
+    };
+  } catch {
+    return {
+      installedAt: null,
+      welcomeOpenedAt: null,
+      popupOpenedCount: 0,
+      lastPopupOpenedAt: null,
+      completedAt: null
+    };
+  }
+}
+async function saveSetupState(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getSetupState(store);
+  const next = { ...current, ...partial || {} };
+  await store.set({ [STORAGE_KEYS.SETUP_STATE]: next });
   return next;
 }
 
@@ -4148,7 +4224,7 @@ function createRuntimeDispatcher({
     return { ok: true, profile: updatedProfile, mergeResult };
   }
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.4";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.5";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -4820,6 +4896,8 @@ function createRuntimeDispatcher({
     if (isAlreadyPureAudio && originalBytes <= MAX_SINGLE_M4A_FOR_ALL_PROVIDERS) {
       const isWebm = downloadedContentType.includes("webm");
       const isWav = downloadedContentType.includes("wav");
+      const isMp3 = downloadedContentType.includes("mpeg") || downloadedContentType.includes("mp3");
+      const isOgg = downloadedContentType.includes("ogg");
       const byteStats = resolveAvoidedVideoBytes({
         originalBytes,
         extractedBytes: originalBytes,
@@ -4832,6 +4910,8 @@ function createRuntimeDispatcher({
         label: "Audio stream ready \xB7 Transcribing\u2026",
         detail: `${formatMegabytes(originalBytes)} direct audio`
       });
+      const resolvedMime = isWav ? "audio/wav" : isWebm ? "audio/webm" : isMp3 ? "audio/mpeg" : isOgg ? "audio/ogg" : "audio/mp4";
+      const resolvedExt = isWav ? "wav" : isWebm ? "webm" : isMp3 ? "mp3" : isOgg ? "ogg" : "m4a";
       return {
         originalBytes: byteStats.originalBytes,
         extractedBytes: originalBytes,
@@ -4839,8 +4919,8 @@ function createRuntimeDispatcher({
         chunks: [
           {
             bytes: downloadedBytes,
-            mimeType: isWav ? "audio/wav" : isWebm ? "audio/webm" : "audio/mp4",
-            fileName: isWav ? "overview-audio.wav" : isWebm ? "overview-audio.webm" : "overview-audio.m4a",
+            mimeType: resolvedMime,
+            fileName: `overview-audio.${resolvedExt}`,
             startOffsetSec: 0,
             durationSec: artifact.durationSeconds || null
           }
@@ -5561,7 +5641,7 @@ function createRuntimeDispatcher({
           getCloudSyncProfile(storageArea)
         ]);
         const configuredProviders = Object.entries(presenceMap).filter(([, has]) => Boolean(has)).map(([id]) => id);
-        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.4";
+        const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.5";
         const reportObj = {
           generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           extensionVersion: manifestVersion,
@@ -5637,10 +5717,174 @@ function createRuntimeDispatcher({
     return false;
   };
 }
+function isAllowedExternalWebSender(sender) {
+  const raw = String(sender?.origin || sender?.url || "").trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol === "http:" && (host === "localhost" || host === "127.0.0.1")) {
+      return true;
+    }
+    if (parsed.protocol === "https:" && (host === "lm-subs.vercel.app" || host.endsWith(".vercel.app"))) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+function createExternalMessageDispatcher(runtimeDispatcher, {
+  storageArea = globalThis.chrome?.storage?.local,
+  runtimeApi = globalThis.chrome?.runtime
+} = {}) {
+  const invokeInternal = (msg) => new Promise((resolve) => {
+    runtimeDispatcher(msg, {}, (res) => resolve(res));
+  });
+  async function buildSafeHandshakePayload() {
+    const [settings, presenceMap, cloudProfile, setupState] = await Promise.all([
+      getSettings(storageArea),
+      getSavedKeyPresenceMap(storageArea),
+      getCloudSyncProfile(storageArea),
+      getSetupState(storageArea)
+    ]);
+    const configuredProviders = Object.entries(presenceMap || {}).filter(([, present]) => Boolean(present)).map(([id]) => id);
+    return {
+      ok: true,
+      extensionId: runtimeApi?.id || "",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.5",
+      configuredProviders,
+      primaryProvider: settings.primaryProvider,
+      settings: {
+        enabled: Boolean(settings.enabled),
+        autoOnGenerate: Boolean(settings.autoOnGenerate),
+        autoOnExistingVideos: Boolean(settings.autoOnExistingVideos),
+        autoOnAudioOverviews: Boolean(settings.autoOnAudioOverviews),
+        karaokeHighlight: Boolean(settings.karaokeHighlight),
+        karaokeDelayMs: Number(settings.karaokeDelayMs) || 0,
+        soundAlerts: Boolean(settings.soundAlerts),
+        desktopNotifications: Boolean(settings.desktopNotifications)
+      },
+      cloudLinked: Boolean(cloudProfile?.connected),
+      cloudEmail: cloudProfile?.user?.email || null,
+      setupState
+    };
+  }
+  return (msg, sender, sendResponse) => {
+    if (!isAllowedExternalWebSender(sender)) {
+      sendResponse({ ok: false, error: "Untrusted web origin." });
+      return false;
+    }
+    if (!msg || typeof msg.type !== "string") {
+      sendResponse({ ok: false, error: "Invalid external message." });
+      return false;
+    }
+    if (msg.type === EXTERNAL_MESSAGE.WEB_HANDSHAKE) {
+      buildSafeHandshakePayload().then((payload) => sendResponse(payload)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === EXTERNAL_MESSAGE.WEB_SAVE_PROVIDER_KEY) {
+      (async () => {
+        const providerId = String(msg.provider || "").trim().toLowerCase();
+        const spec = getProviderSpec(providerId);
+        if (!spec) {
+          throw new Error("Unsupported speech-to-text provider.");
+        }
+        const rawKey = String(msg.apiKey || "").trim();
+        if (!rawKey) {
+          throw new Error("Enter an API key first.");
+        }
+        await setApiKey(providerId, rawKey, storageArea);
+        if (msg.makePrimary !== false) {
+          await saveSettings({ primaryProvider: providerId }, storageArea);
+        }
+        return buildSafeHandshakePayload();
+      })().then((payload) => sendResponse(payload)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === EXTERNAL_MESSAGE.WEB_UPDATE_SETUP_PREFS) {
+      (async () => {
+        const prefs = msg.preferences || {};
+        const patch = {};
+        for (const boolKey of [
+          "enabled",
+          "autoOnGenerate",
+          "autoOnExistingVideos",
+          "autoOnAudioOverviews",
+          "karaokeHighlight",
+          "soundAlerts",
+          "desktopNotifications"
+        ]) {
+          if (typeof prefs[boolKey] === "boolean") {
+            patch[boolKey] = prefs[boolKey];
+          }
+        }
+        if (Number.isFinite(Number(prefs.karaokeDelayMs))) {
+          patch.karaokeDelayMs = Math.max(
+            -1500,
+            Math.min(3e3, Math.round(Number(prefs.karaokeDelayMs)))
+          );
+        }
+        if (typeof prefs.primaryProvider === "string" && getProviderSpec(prefs.primaryProvider)) {
+          patch.primaryProvider = prefs.primaryProvider;
+        }
+        if (Object.keys(patch).length > 0) {
+          await saveSettings(patch, storageArea);
+        }
+        if (msg.completedSetup) {
+          await saveSetupState(
+            { completedAt: (/* @__PURE__ */ new Date()).toISOString() },
+            storageArea
+          );
+        }
+        return buildSafeHandshakePayload();
+      })().then((payload) => sendResponse(payload)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    if (msg.type === EXTERNAL_MESSAGE.WEB_CONNECT_CLOUD_TOKEN) {
+      (async () => {
+        const rawToken = String(msg.token || "").trim();
+        if (!rawToken) {
+          throw new Error("Missing cloud session token.");
+        }
+        let serverUrl = HOSTED_CLOUD_URL;
+        try {
+          const parsed = new URL(sender?.origin || sender?.url || HOSTED_CLOUD_URL);
+          serverUrl = parsed.origin;
+        } catch {
+          serverUrl = HOSTED_CLOUD_URL;
+        }
+        const res = await invokeInternal({
+          type: RUNTIME_MESSAGE.SYNC_SIGNIN,
+          token: rawToken,
+          serverUrl
+        });
+        if (!res?.ok) {
+          throw new Error(res?.error || "Could not link cloud account.");
+        }
+        return buildSafeHandshakePayload();
+      })().then((payload) => sendResponse(payload)).catch(
+        (err) => sendResponse({ ok: false, error: err?.message || String(err) })
+      );
+      return true;
+    }
+    sendResponse({ ok: false, error: "Unsupported external action." });
+    return false;
+  };
+}
 function installBackgroundAutomation(dispatcher, {
   alarmsApi = globalThis.chrome?.alarms,
   runtimeApi = globalThis.chrome?.runtime,
-  notificationsApi = globalThis.chrome?.notifications
+  notificationsApi = globalThis.chrome?.notifications,
+  tabsApi = globalThis.chrome?.tabs,
+  storageArea = globalThis.chrome?.storage?.local,
+  welcomeBaseUrl = HOSTED_CLOUD_URL
 } = {}) {
   const invoke = (msg) => new Promise((resolve) => {
     dispatcher(msg, {}, (res) => resolve(res));
@@ -5677,8 +5921,26 @@ function installBackgroundAutomation(dispatcher, {
     }).catch(() => {
     });
   });
-  runtimeApi?.onInstalled?.addListener?.(() => {
+  runtimeApi?.onInstalled?.addListener?.((details) => {
     scheduleAlarms();
+    if (details?.reason === "install") {
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      const extId = runtimeApi?.id || "";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.5";
+      const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
+      const qs = new URLSearchParams({ installed: "1", v: ver });
+      if (extId) qs.set("extId", extId);
+      const welcomeUrl = `${base}/welcome?${qs.toString()}`;
+      saveSetupState(
+        { installedAt: nowIso, welcomeOpenedAt: nowIso },
+        storageArea
+      ).catch(() => {
+      });
+      try {
+        tabsApi?.create?.({ url: welcomeUrl, active: true });
+      } catch {
+      }
+    }
     invoke({
       type: RUNTIME_MESSAGE.BACKGROUND_SYNC_TICK,
       includeUpdateCheck: true
@@ -5701,6 +5963,8 @@ function installBackgroundAutomation(dispatcher, {
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   const liveDispatcher = createRuntimeDispatcher();
   chrome.runtime.onMessage.addListener(liveDispatcher);
+  const liveExternalDispatcher = createExternalMessageDispatcher(liveDispatcher);
+  chrome.runtime.onMessageExternal?.addListener?.(liveExternalDispatcher);
   installBackgroundAutomation(liveDispatcher);
   chrome.runtime.onConnect?.addListener((port) => {
     if (port?.name !== KEEPALIVE_PORT_NAME) return;
@@ -5713,6 +5977,8 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   });
 }
 export {
+  createExternalMessageDispatcher,
   createRuntimeDispatcher,
-  installBackgroundAutomation
+  installBackgroundAutomation,
+  isAllowedExternalWebSender
 };
