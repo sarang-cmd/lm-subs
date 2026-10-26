@@ -76,8 +76,10 @@ export function shouldGenerateSubtitles({
     return { allow: false, reason: "extension_disabled", cacheKey: null };
   }
 
-  if (typeCode !== BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW) {
-    return { allow: false, reason: "not_video_overview", cacheKey: null };
+  const isVideoOverview = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW;
+  const isAudioOverview = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW;
+  if (!isVideoOverview && !isAudioOverview) {
+    return { allow: false, reason: "not_media_overview", cacheKey: null };
   }
 
   if (status !== "ready") {
@@ -112,7 +114,12 @@ export function shouldGenerateSubtitles({
       return { allow: false, reason: "already_cached", cacheKey };
     }
 
+    if (isAudioOverview && settings.autoOnAudioOverviews === false) {
+      return { allow: false, reason: "auto_audio_disabled", cacheKey };
+    }
+
     if (
+      isVideoOverview &&
       trigger === "player_open" &&
       settings.autoOnExistingVideos === false
     ) {

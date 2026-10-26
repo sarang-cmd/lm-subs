@@ -56,6 +56,7 @@
       TYPE: 2,
       SOURCES: 3,
       STATUS: 4,
+      AUDIO_METADATA: 6,
       VIDEO_METADATA: 8
     }),
     /** Positional indices inside `row[8]` (`explainerVideo` metadata block). */
@@ -74,8 +75,11 @@
       DOWNLOAD: 4
     })
   });
+  var ARTIFACT_TYPE = BATCHEXECUTE.ARTIFACT_TYPES;
   var DOM_SELECTORS = Object.freeze({
     VIDEO_ELEMENT: "video",
+    AUDIO_ELEMENT: "audio",
+    MEDIA_ELEMENTS: "video, audio",
     STUDIO_LIBRARY: "artifact-library",
     STUDIO_ITEM: "artifact-library-item",
     STUDIO_ITEM_TITLE: ".artifact-title",
@@ -87,11 +91,22 @@
       "movie",
       "play_circle"
     ]),
+    AUDIO_ICON_LIGATURES: Object.freeze([
+      "podcasts",
+      "graphic_eq",
+      "headphones",
+      "spatial_audio_off",
+      "volume_up",
+      "mic"
+    ]),
     GENERATE_VIDEO_BUTTONS: Object.freeze([
       'button[aria-label*="Video Overview" i]',
       'button[aria-label*="Generate video" i]',
       'button[aria-label*="Create video" i]',
-      'button.primary-action-button[aria-label*="video" i]'
+      'button.primary-action-button[aria-label*="video" i]',
+      'button[aria-label*="Audio Overview" i]',
+      'button[aria-label*="Generate audio" i]',
+      'button[aria-label*="Deep Dive" i]'
     ]),
     OVERLAY_HOST_ID: "lm-subs-player-root",
     OVERLAY_HOST_CLASS: "lm-subs-player-overlay",
@@ -108,7 +123,15 @@
     PAGE_STATE_SNAPSHOT: "LM_SUBS_PAGE_STATE_SNAPSHOT",
     PAGE_DEBUG_EVENT: "LM_SUBS_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "LM_SUBS_EXTRACT_AUDIO_REQUEST",
-    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE"
+    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE",
+    REMOTE_AUDIO_STATE: "LM_SUBS_REMOTE_AUDIO_STATE",
+    REMOTE_AUDIO_COMMAND: "LM_SUBS_REMOTE_AUDIO_COMMAND"
+  });
+  var EXTERNAL_MESSAGE = Object.freeze({
+    WEB_HANDSHAKE: "LM_SUBS_WEB_HANDSHAKE",
+    WEB_SAVE_PROVIDER_KEY: "LM_SUBS_WEB_SAVE_PROVIDER_KEY",
+    WEB_UPDATE_SETUP_PREFS: "LM_SUBS_WEB_UPDATE_SETUP_PREFS",
+    WEB_CONNECT_CLOUD_TOKEN: "LM_SUBS_WEB_CONNECT_CLOUD_TOKEN"
   });
   var RUNTIME_MESSAGE = Object.freeze({
     ENSURE_SUBTITLES: "LM_SUBS_ENSURE",
@@ -304,6 +327,7 @@
       const AudioCtor = win?.Audio || globalThis.Audio;
       if (typeof AudioCtor !== "function") return false;
       const audio = new AudioCtor(getChimeWavDataUri());
+      audio.__lmSubsInternal = true;
       audio.volume = 0.72;
       const playPromise = audio.play();
       if (playPromise && typeof playPromise.then === "function") {
@@ -607,7 +631,8 @@
     NOTIFICATIONS: "notifications",
     UPDATE_STATUS: "updateStatus",
     CLOUD_SYNC_PROFILE: "cloudSyncProfile",
-    CLOUD_SYNC_SECRET: "cloudSyncSecret"
+    CLOUD_SYNC_SECRET: "cloudSyncSecret",
+    SETUP_STATE: "setupState"
   });
   var CAPTION_FONT_SIZES = Object.freeze([
     "small",
@@ -645,6 +670,7 @@
     debugMode: false,
     autoOnGenerate: true,
     autoOnExistingVideos: true,
+    autoOnAudioOverviews: true,
     primaryProvider: "groq",
     queueOrder: [...DEFAULT_QUEUE_ORDER],
     providerModels: {},
@@ -742,6 +768,7 @@
       debugMode: typeof saved.debugMode === "boolean" ? saved.debugMode : DEFAULT_SETTINGS.debugMode,
       autoOnGenerate: typeof saved.autoOnGenerate === "boolean" ? saved.autoOnGenerate : DEFAULT_SETTINGS.autoOnGenerate,
       autoOnExistingVideos: typeof saved.autoOnExistingVideos === "boolean" ? saved.autoOnExistingVideos : DEFAULT_SETTINGS.autoOnExistingVideos,
+      autoOnAudioOverviews: typeof saved.autoOnAudioOverviews === "boolean" ? saved.autoOnAudioOverviews : DEFAULT_SETTINGS.autoOnAudioOverviews,
       primaryProvider,
       queueOrder,
       providerModels,
@@ -949,9 +976,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.4",
+          currentVersion: "0.2.5",
           currentBuildId: "",
-          latestVersion: "0.2.4",
+          latestVersion: "0.2.5",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -963,9 +990,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.4"),
+        currentVersion: String(saved.currentVersion || "0.2.5"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -977,9 +1004,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.4",
+        currentVersion: "0.2.5",
         currentBuildId: "",
-        latestVersion: "0.2.4",
+        latestVersion: "0.2.5",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -1580,6 +1607,7 @@ ${rows.join("\n")}
     const toggleSectionBtn = document.getElementById("provider-section-toggle-btn");
     const optAutoGenerate = document.getElementById("opt-auto-generate");
     const optAutoExisting = document.getElementById("opt-auto-existing");
+    const optAutoAudio = document.getElementById("opt-auto-audio");
     const optShowToast = document.getElementById("opt-show-toast");
     const optLanguageHint = document.getElementById("opt-language-hint");
     const optTranslateTo = document.getElementById("opt-translate-to");
@@ -1926,6 +1954,7 @@ ${rows.join("\n")}
       if (optDebugMode) optDebugMode.checked = Boolean(settings.debugMode);
       optAutoGenerate.checked = settings.autoOnGenerate;
       optAutoExisting.checked = settings.autoOnExistingVideos;
+      if (optAutoAudio) optAutoAudio.checked = settings.autoOnAudioOverviews !== false;
       optShowToast.checked = settings.showToast;
       if (optAutoUpdate) optAutoUpdate.checked = Boolean(settings.autoUpdateExtension);
       if (optAutoBgSync) optAutoBgSync.checked = Boolean(settings.autoBackgroundSync);
@@ -1963,7 +1992,7 @@ ${rows.join("\n")}
       if (!optUpdateCard) return;
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.4";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.5";
       const avail = Boolean(updateStatus?.updateAvailable);
       optUpdateCard.dataset.available = avail ? "true" : "false";
       if (optUpdateBadge) {
@@ -2950,6 +2979,7 @@ ${rows.join("\n")}
       return {
         autoOnGenerate: optAutoGenerate.checked,
         autoOnExistingVideos: optAutoExisting.checked,
+        autoOnAudioOverviews: optAutoAudio ? Boolean(optAutoAudio.checked) : settings.autoOnAudioOverviews !== false,
         showToast: optShowToast.checked,
         languageHint: optLanguageHint.value,
         translateTo: optTranslateTo.value,
@@ -2971,6 +3001,10 @@ ${rows.join("\n")}
       };
     }
     for (const liveCtrl of [
+      optAutoGenerate,
+      optAutoExisting,
+      optAutoAudio,
+      optShowToast,
       optFontSize,
       optCaptionStyle,
       optCaptionFont,

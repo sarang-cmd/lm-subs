@@ -22,6 +22,7 @@ export const STORAGE_KEYS = Object.freeze({
   UPDATE_STATUS: "updateStatus",
   CLOUD_SYNC_PROFILE: "cloudSyncProfile",
   CLOUD_SYNC_SECRET: "cloudSyncSecret",
+  SETUP_STATE: "setupState",
 });
 
 export const MAX_CACHE_ENTRIES = 35;
@@ -66,6 +67,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   debugMode: false,
   autoOnGenerate: true,
   autoOnExistingVideos: true,
+  autoOnAudioOverviews: true,
   primaryProvider: "groq",
   queueOrder: [...DEFAULT_QUEUE_ORDER],
   providerModels: {},
@@ -178,6 +180,10 @@ export async function getSettings(storageArea) {
       typeof saved.autoOnExistingVideos === "boolean"
         ? saved.autoOnExistingVideos
         : DEFAULT_SETTINGS.autoOnExistingVideos,
+    autoOnAudioOverviews:
+      typeof saved.autoOnAudioOverviews === "boolean"
+        ? saved.autoOnAudioOverviews
+        : DEFAULT_SETTINGS.autoOnAudioOverviews,
     primaryProvider,
     queueOrder,
     providerModels,
@@ -907,9 +913,9 @@ export async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.4",
+        currentVersion: "0.2.5",
         currentBuildId: "",
-        latestVersion: "0.2.4",
+        latestVersion: "0.2.5",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -921,9 +927,9 @@ export async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.4"),
+      currentVersion: String(saved.currentVersion || "0.2.5"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.4"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.5"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -935,9 +941,9 @@ export async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.4",
+      currentVersion: "0.2.5",
       currentBuildId: "",
-      latestVersion: "0.2.4",
+      latestVersion: "0.2.5",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",
@@ -954,6 +960,48 @@ export async function saveUpdateStatus(partial, storageArea) {
   const current = await getUpdateStatus(store);
   const next = { ...current, ...(partial || {}) };
   await store.set({ [STORAGE_KEYS.UPDATE_STATUS]: next });
+  return next;
+}
+
+export async function getSetupState(storageArea) {
+  try {
+    const store = resolveStorage(storageArea);
+    const raw = await store.get(STORAGE_KEYS.SETUP_STATE);
+    const saved = raw?.[STORAGE_KEYS.SETUP_STATE];
+    if (!saved || typeof saved !== "object") {
+      return {
+        installedAt: null,
+        welcomeOpenedAt: null,
+        popupOpenedCount: 0,
+        lastPopupOpenedAt: null,
+        completedAt: null,
+      };
+    }
+    return {
+      installedAt: saved.installedAt || null,
+      welcomeOpenedAt: saved.welcomeOpenedAt || null,
+      popupOpenedCount: Number.isFinite(Number(saved.popupOpenedCount))
+        ? Number(saved.popupOpenedCount)
+        : 0,
+      lastPopupOpenedAt: saved.lastPopupOpenedAt || null,
+      completedAt: saved.completedAt || null,
+    };
+  } catch {
+    return {
+      installedAt: null,
+      welcomeOpenedAt: null,
+      popupOpenedCount: 0,
+      lastPopupOpenedAt: null,
+      completedAt: null,
+    };
+  }
+}
+
+export async function saveSetupState(partial, storageArea) {
+  const store = resolveStorage(storageArea);
+  const current = await getSetupState(store);
+  const next = { ...current, ...(partial || {}) };
+  await store.set({ [STORAGE_KEYS.SETUP_STATE]: next });
   return next;
 }
 

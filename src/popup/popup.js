@@ -20,10 +20,12 @@ import {
   getNotifications,
   getSavedKeyPresenceMap,
   getSettings,
+  getSetupState,
   getSubtitleCacheList,
   getUpdateStatus,
   normalizeSyncServerUrl,
   saveSettings,
+  saveSetupState,
   saveUpdateStatus,
   setApiKey,
 } from "../lib/storage.js";
@@ -152,6 +154,16 @@ async function initPopup() {
   const grantGooglePermsBtn = document.getElementById("grant-google-perms-btn");
   const debugModeToggle = document.getElementById("debug-mode-toggle");
   const copyDebugBtn = document.getElementById("copy-debug-btn");
+
+  // Record popup open so the /welcome interactive setup wizard verifies pinning live
+  getSetupState()
+    .then((st) =>
+      saveSetupState({
+        popupOpenedCount: (st?.popupOpenedCount || 0) + 1,
+        lastPopupOpenedAt: new Date().toISOString(),
+      })
+    )
+    .catch(() => {});
 
   const specs = listProviderSpecs();
   for (const spec of specs) {
@@ -344,16 +356,47 @@ async function initPopup() {
     renderExportBar();
   }
 
+  let setupTabConnected = false;
+
   async function inspectActiveTab() {
     if (!chrome.tabs?.query) return;
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = tabs?.[0];
     let host = "";
+    let pathname = "";
     try {
-      host = tab?.url ? new URL(tab.url).hostname : "";
+      const parsed = tab?.url ? new URL(tab.url) : null;
+      host = parsed ? parsed.hostname.toLowerCase() : "";
+      pathname = parsed ? parsed.pathname : "";
     } catch {
       host = "";
+      pathname = "";
     }
+
+    const isSetupOrigin =
+      host === "lm-subs.vercel.app" ||
+      host.endsWith(".vercel.app") ||
+      host === "localhost" ||
+      host === "127.0.0.1";
+    if (
+      tab?.id &&
+      isSetupOrigin &&
+      (pathname.startsWith("/welcome") ||
+        pathname.startsWith("/setup") ||
+        pathname.startsWith("/guide"))
+    ) {
+      setupTabConnected = true;
+      tabBadge.textContent = "Setup linked";
+      tabBadge.className = "badge badge-saved";
+      tabDescription.textContent =
+        "Two-way setup wizard verified. Pin LM Subs above, then open NotebookLM.";
+      generateNowBtn.textContent = "Open NotebookLM";
+      generateNowBtn.disabled = false;
+      return;
+    }
+
+    setupTabConnected = false;
+    generateNowBtn.textContent = "Generate subtitles";
 
     if (!tab?.id || !NOTEBOOKLM_HOSTS.includes(host)) {
       tabBadge.textContent = "Standby";
@@ -383,24 +426,29 @@ async function initPopup() {
           activeTabSubtitles = state.activeSubtitles;
           renderExportBar();
         }
+        const isPodcast =
+          state.mediaKind === "audio" || Boolean(state.hasAudioElement);
+        const kindLabel = isPodcast ? "Podcast" : "Video";
+        const kindFull = isPodcast ? "Audio Overview" : "Video Overview";
+
         if (state.hasVideoElement || state.readyArtifactCount > 0) {
           tabBadge.textContent = `${Math.max(1, state.readyArtifactCount)} ready`;
           tabBadge.className = "badge badge-saved";
           tabDescription.textContent = state.activeArtifact?.title
-            ? `Video: "${state.activeArtifact.title}"`
-            : "Video Overview ready for captioning.";
+            ? `${kindLabel}: "${state.activeArtifact.title}"`
+            : `${kindFull} ready for captioning.`;
           generateNowBtn.disabled = false;
         } else if (state.generatingCount > 0) {
           tabBadge.textContent = "Rendering";
           tabBadge.className = "badge badge-warn";
           tabDescription.textContent =
-            "Studio is rendering the Video Overview. Captions start automatically when ready.";
+            `Studio is rendering the ${kindFull}. Captions start automatically when ready.`;
           generateNowBtn.disabled = true;
         } else {
           tabBadge.textContent = "Idle";
           tabBadge.className = "badge";
           tabDescription.textContent =
-            "Open a Video Overview in NotebookLM Studio to generate captions.";
+            "Open a Video or Audio Overview in NotebookLM Studio to generate captions.";
           generateNowBtn.disabled = false;
         }
       }
@@ -413,7 +461,7 @@ async function initPopup() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.4";
+      "0.2.5";
 
     if (popupUpdateStatusHint) {
       const folderPart = dirInfo.linked
@@ -770,6 +818,14 @@ async function initPopup() {
   });
 
   generateNowBtn.addEventListener("click", () => {
+    if (setupTabConnected) {
+      if (chrome.tabs?.create) {
+        chrome.tabs.create({ url: "https://notebooklm.google.com/" });
+      } else {
+        window.open("https://notebooklm.google.com/", "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
     if (!activeTabId) return;
     generateNowBtn.disabled = true;
     chrome.tabs.sendMessage(
@@ -780,7 +836,7 @@ async function initPopup() {
         if (chrome.runtime.lastError || !res?.ok) {
           tabDescription.textContent =
             res?.error ||
-            "Open a Video Overview in NotebookLM Studio and click again.";
+            "Open a Video or Audio Overview in NotebookLM Studio and click again.";
           return;
         }
         tabDescription.textContent = `Transcribing "${res.title || "Video Overview"}"…`;

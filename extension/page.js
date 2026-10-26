@@ -55,6 +55,7 @@
       TYPE: 2,
       SOURCES: 3,
       STATUS: 4,
+      AUDIO_METADATA: 6,
       VIDEO_METADATA: 8
     }),
     /** Positional indices inside `row[8]` (`explainerVideo` metadata block). */
@@ -73,8 +74,11 @@
       DOWNLOAD: 4
     })
   });
+  var ARTIFACT_TYPE = BATCHEXECUTE.ARTIFACT_TYPES;
   var DOM_SELECTORS = Object.freeze({
     VIDEO_ELEMENT: "video",
+    AUDIO_ELEMENT: "audio",
+    MEDIA_ELEMENTS: "video, audio",
     STUDIO_LIBRARY: "artifact-library",
     STUDIO_ITEM: "artifact-library-item",
     STUDIO_ITEM_TITLE: ".artifact-title",
@@ -86,11 +90,22 @@
       "movie",
       "play_circle"
     ]),
+    AUDIO_ICON_LIGATURES: Object.freeze([
+      "podcasts",
+      "graphic_eq",
+      "headphones",
+      "spatial_audio_off",
+      "volume_up",
+      "mic"
+    ]),
     GENERATE_VIDEO_BUTTONS: Object.freeze([
       'button[aria-label*="Video Overview" i]',
       'button[aria-label*="Generate video" i]',
       'button[aria-label*="Create video" i]',
-      'button.primary-action-button[aria-label*="video" i]'
+      'button.primary-action-button[aria-label*="video" i]',
+      'button[aria-label*="Audio Overview" i]',
+      'button[aria-label*="Generate audio" i]',
+      'button[aria-label*="Deep Dive" i]'
     ]),
     OVERLAY_HOST_ID: "lm-subs-player-root",
     OVERLAY_HOST_CLASS: "lm-subs-player-overlay",
@@ -107,7 +122,15 @@
     PAGE_STATE_SNAPSHOT: "LM_SUBS_PAGE_STATE_SNAPSHOT",
     PAGE_DEBUG_EVENT: "LM_SUBS_PAGE_DEBUG_EVENT",
     EXTRACT_AUDIO_REQUEST: "LM_SUBS_EXTRACT_AUDIO_REQUEST",
-    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE"
+    EXTRACT_AUDIO_RESPONSE: "LM_SUBS_EXTRACT_AUDIO_RESPONSE",
+    REMOTE_AUDIO_STATE: "LM_SUBS_REMOTE_AUDIO_STATE",
+    REMOTE_AUDIO_COMMAND: "LM_SUBS_REMOTE_AUDIO_COMMAND"
+  });
+  var EXTERNAL_MESSAGE = Object.freeze({
+    WEB_HANDSHAKE: "LM_SUBS_WEB_HANDSHAKE",
+    WEB_SAVE_PROVIDER_KEY: "LM_SUBS_WEB_SAVE_PROVIDER_KEY",
+    WEB_UPDATE_SETUP_PREFS: "LM_SUBS_WEB_UPDATE_SETUP_PREFS",
+    WEB_CONNECT_CLOUD_TOKEN: "LM_SUBS_WEB_CONNECT_CLOUD_TOKEN"
   });
   var RUNTIME_MESSAGE = Object.freeze({
     ENSURE_SUBTITLES: "LM_SUBS_ENSURE",
@@ -763,15 +786,21 @@
       if (!Array.isArray(params) || params.length < 3) continue;
       const notebookId = typeof params[1] === "string" ? params[1] : null;
       const content = params[2];
+      const typeCode = Array.isArray(content) ? content[2] : null;
+      const isSupportedMediaType = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW || typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW;
       const isCreateIdMatch = rpcId === createRpcId;
-      const isStructuralVideoCreate = Array.isArray(content) && content[2] === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW && Array.isArray(content[3]);
-      if ((isCreateIdMatch || isStructuralVideoCreate) && Array.isArray(content) && content[2] === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW) {
-        const videoOpts = content[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
-        const innerOpts = Array.isArray(videoOpts) ? videoOpts[2] : null;
+      const isStructuralMediaCreate = Array.isArray(content) && isSupportedMediaType && Array.isArray(content[3]);
+      if ((isCreateIdMatch || isStructuralMediaCreate) && isSupportedMediaType) {
+        const metaSlot = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW ? content[BATCHEXECUTE.ROW_POS.AUDIO_METADATA] ?? content[BATCHEXECUTE.ROW_POS.VIDEO_METADATA] : content[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
+        const innerOpts = Array.isArray(metaSlot) ? metaSlot[2] : null;
         const language = Array.isArray(innerOpts) && typeof innerOpts[1] === "string" ? innerOpts[1] : null;
         const focusPrompt = Array.isArray(innerOpts) && typeof innerOpts[2] === "string" ? innerOpts[2] : null;
         return {
-          isVideoCreate: true,
+          isVideoCreate: typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW,
+          isAudioCreate: typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW,
+          isMediaCreate: true,
+          typeCode,
+          mediaKind: typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW ? "audio" : "video",
           rpcId,
           notebookId,
           language,
@@ -781,16 +810,25 @@
     }
     return null;
   }
-  function extractVideoMetadataFromRow(row) {
+  function extractArtifactMetadataFromRow(row) {
     if (!Array.isArray(row)) return null;
     const typeCode = row[BATCHEXECUTE.ROW_POS.TYPE];
-    if (typeCode !== BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW) return null;
+    const isVideo = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW;
+    const isAudio = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW;
+    if (!isVideo && !isAudio) return null;
     const artifactId = row[BATCHEXECUTE.ROW_POS.ID];
     if (typeof artifactId !== "string" || !artifactId) return null;
     const title = typeof row[BATCHEXECUTE.ROW_POS.TITLE] === "string" ? row[BATCHEXECUTE.ROW_POS.TITLE].trim() : "";
     const statusCode = typeof row[BATCHEXECUTE.ROW_POS.STATUS] === "number" ? row[BATCHEXECUTE.ROW_POS.STATUS] : 0;
     const status = normalizeStatusCode(statusCode);
-    const videoBlock = row[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
+    const primaryBlock = isAudio ? row[BATCHEXECUTE.ROW_POS.AUDIO_METADATA] : row[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
+    const candidateBlocks = [];
+    if (Array.isArray(primaryBlock)) candidateBlocks.push(primaryBlock);
+    for (let slot = 5; slot <= Math.min(row.length - 1, 12); slot++) {
+      if (Array.isArray(row[slot]) && row[slot] !== primaryBlock) {
+        candidateBlocks.push(row[slot]);
+      }
+    }
     let mediaUrl = null;
     let progressiveUrl = null;
     let directAudioUrl = null;
@@ -802,69 +840,79 @@
         discoveredStreamUrls.push(u);
       }
     };
-    if (Array.isArray(videoBlock)) {
-      const progCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
+    const scanNestedForStreams = (node, depth = 0) => {
+      if (depth > 5 || node == null) return;
+      if (typeof node === "string") {
+        if (isTrustedGoogleMediaUrl(node) && !isThumbnailOrManifestUrl(node)) {
+          if (isAudio && !directAudioUrl) directAudioUrl = node;
+          if (!mediaUrl) mediaUrl = node;
+          pushStreamUrl(node);
+        } else if (!language && /^[a-z]{2}(?:-[A-Z]{2})?$/.test(node) && node !== "id") {
+          language = node;
+        }
+        return;
+      }
+      if (!Array.isArray(node)) return;
+      if (durationSeconds === null && node.length === 2 && typeof node[0] === "number" && node[0] > 3 && node[0] < 36e3 && typeof node[1] === "number" && node[1] >= 0) {
+        durationSeconds = Math.round((node[0] + node[1] / 1e9) * 100) / 100;
+      }
+      if (typeof node[0] === "string" && isTrustedGoogleMediaUrl(node[0])) {
+        const url = node[0];
+        const kind = node[1];
+        const mime = typeof node[2] === "string" ? node[2].toLowerCase() : "";
+        if (mime.startsWith("audio/") || isAudio && !isThumbnailOrManifestUrl(url)) {
+          if (!directAudioUrl) directAudioUrl = url;
+          if (!mediaUrl) mediaUrl = url;
+          pushStreamUrl(url);
+        } else if (mime === "video/mp4" || !mime && !isThumbnailOrManifestUrl(url)) {
+          pushStreamUrl(url);
+          if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
+            progressiveUrl = url;
+          }
+          if (kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD || !mediaUrl) {
+            mediaUrl = url;
+          }
+        }
+      }
+      for (const child of node) {
+        scanNestedForStreams(child, depth + 1);
+      }
+    };
+    if (Array.isArray(primaryBlock)) {
+      const progCandidate = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
       if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
         if (!isThumbnailOrManifestUrl(progCandidate)) {
           progressiveUrl = progCandidate;
+          if (isAudio && !directAudioUrl) directAudioUrl = progCandidate;
           pushStreamUrl(progCandidate);
         } else if (!progressiveUrl) {
           progressiveUrl = progCandidate;
         }
       }
-      const genOpts = videoBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
+      const genOpts = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
       if (Array.isArray(genOpts) && typeof genOpts[1] === "string" && genOpts[1]) {
         language = genOpts[1];
       }
-      const dlCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
+      const dlCandidate = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
       if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
         if (!isThumbnailOrManifestUrl(dlCandidate)) {
           mediaUrl = dlCandidate;
+          if (isAudio && !directAudioUrl) directAudioUrl = dlCandidate;
           pushStreamUrl(dlCandidate);
         }
       }
-      let fallbackMp4 = null;
-      let fallbackAnyTrusted = null;
-      for (const subBlock of videoBlock) {
-        if (!Array.isArray(subBlock)) continue;
-        for (const entry of subBlock) {
-          if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
-          const url = entry[0];
-          const kind = entry[1];
-          const mime = typeof entry[2] === "string" ? entry[2].toLowerCase() : "";
-          if (!isTrustedGoogleMediaUrl(url)) continue;
-          if (!fallbackAnyTrusted) fallbackAnyTrusted = url;
-          if (mime === "audio/mp4" || mime === "audio/mpeg" || mime === "audio/webm") {
-            if (!directAudioUrl) directAudioUrl = url;
-            pushStreamUrl(url);
-          } else if (mime === "video/mp4" || !mime && !isThumbnailOrManifestUrl(url)) {
-            pushStreamUrl(url);
-            if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
-              progressiveUrl = url;
-            }
-            if (kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD) {
-              mediaUrl = url;
-            } else if (!fallbackMp4) {
-              fallbackMp4 = url;
-            }
-          }
-        }
-      }
-      if (!mediaUrl && fallbackMp4) {
-        mediaUrl = fallbackMp4;
-      }
-      if (!mediaUrl && progressiveUrl) {
-        mediaUrl = progressiveUrl;
-      }
-      if (!mediaUrl && fallbackAnyTrusted) {
-        mediaUrl = fallbackAnyTrusted;
-      }
-      const durTuple = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DURATION];
+      const durTuple = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.DURATION];
       if (Array.isArray(durTuple) && typeof durTuple[0] === "number") {
         const secs = durTuple[0];
         const nanos = typeof durTuple[1] === "number" ? durTuple[1] : 0;
         durationSeconds = Math.round((secs + nanos / 1e9) * 100) / 100;
       }
+    }
+    for (const blk of candidateBlocks) {
+      scanNestedForStreams(blk, 0);
+    }
+    if (!mediaUrl && progressiveUrl) {
+      mediaUrl = progressiveUrl;
     }
     const looksLikeArtifactRow = UUID_RE.test(artifactId) || Boolean(mediaUrl) || Array.isArray(row[BATCHEXECUTE.ROW_POS.SOURCES]);
     if (!looksLikeArtifactRow) return null;
@@ -887,6 +935,7 @@
       artifactId,
       title,
       typeCode,
+      mediaKind: isAudio ? "audio" : "video",
       statusCode,
       status,
       language,
@@ -898,6 +947,7 @@
       durationSeconds
     };
   }
+  var extractVideoMetadataFromRow = extractArtifactMetadataFromRow;
   function collectVideoRowsFromPayload(node, out, seenIds, depth = 0) {
     if (!Array.isArray(node) || depth > 7) return;
     const maybeVideo = extractVideoMetadataFromRow(node);
@@ -1036,6 +1086,8 @@
     let rpcOverrides = {};
     let ssrScanned = false;
     const bufferedArtifacts = /* @__PURE__ */ new Map();
+    const remoteAudios = /* @__PURE__ */ new Map();
+    let remoteAudioSeq = 1;
     const rpcTrace = [];
     const nativeFetch = typeof win.fetch === "function" ? win.fetch.bind(win) : null;
     const trackedMediaBlobs = /* @__PURE__ */ new Map();
@@ -1181,6 +1233,20 @@
       if (typeof url !== "string" || !url) {
         throw new Error("Empty media URL");
       }
+      if (url.startsWith("data:audio/")) {
+        const commaIdx = url.indexOf(",");
+        if (commaIdx < 0) throw new Error("Invalid data:audio URI");
+        const metaPart = url.slice(5, commaIdx);
+        const mimeType = metaPart.split(";")[0] || "audio/mp4";
+        const rawData = url.slice(commaIdx + 1);
+        const bin = metaPart.includes(";base64") ? atob(rawData) : decodeURIComponent(rawData);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return {
+          bytes: validateMediaPayload(bytes, mimeType),
+          contentType: mimeType
+        };
+      }
       if (url.startsWith("blob:")) {
         const tracked = trackedMediaBlobs.get(url);
         if (tracked) {
@@ -1271,7 +1337,7 @@
           expanded.push(u);
         }
       };
-      if (videoCurrentSrc && videoCurrentSrc.startsWith("blob:")) {
+      if (videoCurrentSrc && (videoCurrentSrc.startsWith("blob:") || videoCurrentSrc.startsWith("data:audio/"))) {
         pushUrl(videoCurrentSrc);
       }
       if (!blobOnly) {
@@ -1355,7 +1421,7 @@
           const normalizedMime = /^audio\/(?:webm|mpeg|ogg|wav)/i.test(
             downloaded.contentType || ""
           ) ? downloaded.contentType.split(";")[0].trim().toLowerCase() : "audio/mp4";
-          const ext = normalizedMime === "audio/webm" ? "webm" : normalizedMime === "audio/mpeg" ? "mp3" : "m4a";
+          const ext = normalizedMime === "audio/webm" ? "webm" : normalizedMime === "audio/mpeg" ? "mp3" : normalizedMime === "audio/wav" ? "wav" : normalizedMime === "audio/ogg" ? "ogg" : "m4a";
           const byteStats = resolveAvoidedVideoBytes({
             originalBytes: rawDownloadedBytes,
             extractedBytes: cleanCopy.byteLength,
@@ -1443,6 +1509,24 @@
       }
       if (msg.type === PAGE_MESSAGE.EXTRACT_AUDIO_REQUEST) {
         handleExtractAudioRequest(msg.payload);
+        return;
+      }
+      if (msg.type === PAGE_MESSAGE.REMOTE_AUDIO_COMMAND) {
+        const p = msg.payload || {};
+        const audioEl = p.audioId ? remoteAudios.get(p.audioId) : null;
+        if (!audioEl) return;
+        try {
+          if (p.command === "seek" && Number.isFinite(Number(p.value))) {
+            audioEl.currentTime = Number(p.value);
+          } else if (p.command === "rate" && Number.isFinite(Number(p.value))) {
+            audioEl.playbackRate = Number(p.value);
+          } else if (p.command === "pause") {
+            audioEl.pause?.();
+          } else if (p.command === "play") {
+            audioEl.play?.();
+          }
+        } catch {
+        }
       }
     });
     function inspectTransaction(url, requestBody, responseText, transport = "xhr") {
@@ -1473,9 +1557,15 @@
           );
         }
         const isCreateVideoRequest = Boolean(reqMeta?.isVideoCreate);
-        if (isCreateVideoRequest || artifacts.length > 0) {
+        const isCreateAudioRequest = Boolean(reqMeta?.isAudioCreate);
+        const isCreateMediaRequest = Boolean(
+          reqMeta?.isMediaCreate || isCreateVideoRequest || isCreateAudioRequest
+        );
+        if (isCreateMediaRequest || artifacts.length > 0) {
           postToContent(PAGE_MESSAGE.BATCH_ARTIFACTS, {
             isCreateVideoRequest,
+            isCreateAudioRequest,
+            isCreateMediaRequest,
             notebookId: reqMeta?.notebookId || null,
             artifacts,
             observedAt: Date.now()
@@ -1543,16 +1633,79 @@
         return Reflect.apply(nativeSend, this, arguments);
       };
     }
+    function attachDetachedAudioBridge(audioEl) {
+      if (!audioEl || audioEl.__lmSubsRemoteId) return audioEl?.__lmSubsRemoteId;
+      const audioId = `remote_audio_${remoteAudioSeq++}`;
+      audioEl.__lmSubsRemoteId = audioId;
+      remoteAudios.set(audioId, audioEl);
+      let syncTimer = null;
+      const emitState = (eventType = "timeupdate") => {
+        try {
+          if (audioEl.isConnected) {
+            if (syncTimer) {
+              clearInterval(syncTimer);
+              syncTimer = null;
+            }
+            emitPageDebug("audio.play", "Connected <audio> detected");
+            return;
+          }
+          const src = audioEl.currentSrc || audioEl.src || "";
+          postToContent(PAGE_MESSAGE.REMOTE_AUDIO_STATE, {
+            audioId,
+            eventType,
+            src,
+            currentTime: Number(audioEl.currentTime) || 0,
+            duration: Number.isFinite(audioEl.duration) ? audioEl.duration : 0,
+            paused: Boolean(audioEl.paused),
+            playbackRate: Number(audioEl.playbackRate) || 1
+          });
+        } catch {
+        }
+      };
+      const startTimer = () => {
+        if (syncTimer) return;
+        syncTimer = setInterval(() => {
+          if (audioEl.paused || audioEl.ended || audioEl.isConnected) {
+            clearInterval(syncTimer);
+            syncTimer = null;
+            emitState("pause");
+            return;
+          }
+          emitState("timeupdate");
+        }, 80);
+      };
+      for (const evt of [
+        "play",
+        "pause",
+        "seeking",
+        "seeked",
+        "ratechange",
+        "loadedmetadata",
+        "ended"
+      ]) {
+        audioEl.addEventListener?.(evt, () => {
+          emitState(evt);
+          if (evt === "play") startTimer();
+        });
+      }
+      emitState("play");
+      startTimer();
+      return audioId;
+    }
     const MediaProto = win.HTMLMediaElement?.prototype;
     if (MediaProto && typeof MediaProto.play === "function") {
       const origPlay = MediaProto.play;
       MediaProto.play = function patchedPlay() {
         try {
-          if (this?.tagName === "VIDEO") {
+          const tag = this?.tagName;
+          if ((tag === "VIDEO" || tag === "AUDIO") && !this?.__lmSubsInternal) {
             const src = this.currentSrc || this.src || "";
+            if (tag === "AUDIO" && !this.isConnected) {
+              attachDetachedAudioBridge(this);
+            }
             emitPageDebug(
-              "video.play",
-              `<video>.play() src=${summarizeMediaUrlForDebug(src)} dur=${Number.isFinite(this.duration) ? Math.round(this.duration) + "s" : "?"}`,
+              tag === "AUDIO" ? "audio.play" : "video.play",
+              `<${tag.toLowerCase()}>.play() src=${summarizeMediaUrlForDebug(src)} dur=${Number.isFinite(this.duration) ? Math.round(this.duration) + "s" : "?"}`,
               {
                 currentSrc: isTrustedGoogleMediaUrl(src) ? src : "",
                 isBlob: src.startsWith("blob:")

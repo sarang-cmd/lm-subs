@@ -33,6 +33,8 @@ const MIME_TYPES = {
 
 const SPA_ROUTES = new Set([
   "/",
+  "/welcome",
+  "/setup",
   "/guide",
   "/install",
   "/about",
@@ -117,10 +119,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     const ext = path.extname(candidate).toLowerCase();
-    res.writeHead(200, {
+    const outHeaders = {
       "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
       "Cache-Control": "no-cache",
-    });
+    };
+    if (normalized.startsWith("/releases/")) {
+      outHeaders["Access-Control-Allow-Origin"] = "*";
+    }
+    res.writeHead(200, outHeaders);
     fs.createReadStream(candidate).pipe(res);
   } catch (err) {
     res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });

@@ -23,7 +23,7 @@ test("shouldGenerateSubtitles allows eligible ready Video Overview", () => {
   assert.equal(res.cacheKey, "artifact:art-123");
 });
 
-test("shouldGenerateSubtitles blocks disabled extension, non-videos, and processing artifacts", () => {
+test("shouldGenerateSubtitles blocks disabled extension, non-media artifacts, and processing artifacts while allowing Audio Overviews", () => {
   assert.equal(
     shouldGenerateSubtitles({
       ...BASE_ARGS,
@@ -33,8 +33,22 @@ test("shouldGenerateSubtitles blocks disabled extension, non-videos, and process
   );
 
   assert.equal(
-    shouldGenerateSubtitles({ ...BASE_ARGS, typeCode: 1 }).reason,
-    "not_video_overview"
+    shouldGenerateSubtitles({ ...BASE_ARGS, typeCode: 2 }).reason,
+    "not_media_overview"
+  );
+
+  assert.equal(
+    shouldGenerateSubtitles({ ...BASE_ARGS, typeCode: 1 }).allow,
+    true
+  );
+
+  assert.equal(
+    shouldGenerateSubtitles({
+      ...BASE_ARGS,
+      typeCode: 1,
+      settings: { ...BASE_ARGS.settings, autoOnAudioOverviews: false },
+    }).reason,
+    "auto_audio_disabled"
   );
 
   assert.equal(

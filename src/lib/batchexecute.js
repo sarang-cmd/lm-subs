@@ -263,19 +263,23 @@ export function parseBatchExecuteRequest(body, rpcOverrides = {}) {
 
     const notebookId = typeof params[1] === "string" ? params[1] : null;
     const content = params[2];
+    const typeCode = Array.isArray(content) ? content[2] : null;
+    const isSupportedMediaType =
+      typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW ||
+      typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW;
     const isCreateIdMatch = rpcId === createRpcId;
-    const isStructuralVideoCreate =
+    const isStructuralMediaCreate =
       Array.isArray(content) &&
-      content[2] === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW &&
+      isSupportedMediaType &&
       Array.isArray(content[3]);
 
-    if (
-      (isCreateIdMatch || isStructuralVideoCreate) &&
-      Array.isArray(content) &&
-      content[2] === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW
-    ) {
-      const videoOpts = content[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
-      const innerOpts = Array.isArray(videoOpts) ? videoOpts[2] : null;
+    if ((isCreateIdMatch || isStructuralMediaCreate) && isSupportedMediaType) {
+      const metaSlot =
+        typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW
+          ? content[BATCHEXECUTE.ROW_POS.AUDIO_METADATA] ??
+            content[BATCHEXECUTE.ROW_POS.VIDEO_METADATA]
+          : content[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
+      const innerOpts = Array.isArray(metaSlot) ? metaSlot[2] : null;
       const language =
         Array.isArray(innerOpts) && typeof innerOpts[1] === "string"
           ? innerOpts[1]
@@ -286,7 +290,14 @@ export function parseBatchExecuteRequest(body, rpcOverrides = {}) {
           : null;
 
       return {
-        isVideoCreate: true,
+        isVideoCreate: typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW,
+        isAudioCreate: typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW,
+        isMediaCreate: true,
+        typeCode,
+        mediaKind:
+          typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW
+            ? "audio"
+            : "video",
         rpcId,
         notebookId,
         language,
@@ -299,13 +310,15 @@ export function parseBatchExecuteRequest(body, rpcOverrides = {}) {
 }
 
 /**
- * Extracts the best audio/video MP4 URLs from a Studio Video Overview row (`row[8]`).
- * Aligned with `ExplainerVideoArtifact` & `CinematicVideo` wire shapes on `notebook.google.com`.
+ * Extracts audio/video stream URLs from a Studio Video Overview (`row[2] === 3`)
+ * or Studio Audio Overview / Deep-Dive Podcast (`row[2] === 1`).
  */
-export function extractVideoMetadataFromRow(row) {
+export function extractArtifactMetadataFromRow(row) {
   if (!Array.isArray(row)) return null;
   const typeCode = row[BATCHEXECUTE.ROW_POS.TYPE];
-  if (typeCode !== BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW) return null;
+  const isVideo = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.VIDEO_OVERVIEW;
+  const isAudio = typeCode === BATCHEXECUTE.ARTIFACT_TYPES.AUDIO_OVERVIEW;
+  if (!isVideo && !isAudio) return null;
 
   const artifactId = row[BATCHEXECUTE.ROW_POS.ID];
   if (typeof artifactId !== "string" || !artifactId) return null;
@@ -320,7 +333,17 @@ export function extractVideoMetadataFromRow(row) {
       : 0;
   const status = normalizeStatusCode(statusCode);
 
-  const videoBlock = row[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
+  const primaryBlock = isAudio
+    ? row[BATCHEXECUTE.ROW_POS.AUDIO_METADATA]
+    : row[BATCHEXECUTE.ROW_POS.VIDEO_METADATA];
+  const candidateBlocks = [];
+  if (Array.isArray(primaryBlock)) candidateBlocks.push(primaryBlock);
+  for (let slot = 5; slot <= Math.min(row.length - 1, 12); slot++) {
+    if (Array.isArray(row[slot]) && row[slot] !== primaryBlock) {
+      candidateBlocks.push(row[slot]);
+    }
+  }
+
   let mediaUrl = null;
   let progressiveUrl = null;
   let directAudioUrl = null;
@@ -339,80 +362,108 @@ export function extractVideoMetadataFromRow(row) {
     }
   };
 
-  if (Array.isArray(videoBlock)) {
-    const progCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
-    if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
-      if (!isThumbnailOrManifestUrl(progCandidate)) {
-        progressiveUrl = progCandidate;
-        pushStreamUrl(progCandidate);
-      } else if (!progressiveUrl) {
-        // Still keep token seed if needed
-        progressiveUrl = progCandidate;
+  const scanNestedForStreams = (node, depth = 0) => {
+    if (depth > 5 || node == null) return;
+    if (typeof node === "string") {
+      if (isTrustedGoogleMediaUrl(node) && !isThumbnailOrManifestUrl(node)) {
+        if (isAudio && !directAudioUrl) directAudioUrl = node;
+        if (!mediaUrl) mediaUrl = node;
+        pushStreamUrl(node);
+      } else if (
+        !language &&
+        /^[a-z]{2}(?:-[A-Z]{2})?$/.test(node) &&
+        node !== "id"
+      ) {
+        language = node;
       }
+      return;
+    }
+    if (!Array.isArray(node)) return;
+
+    // Tuple `[seconds, nanos]` check when duration is still unset
+    if (
+      durationSeconds === null &&
+      node.length === 2 &&
+      typeof node[0] === "number" &&
+      node[0] > 3 &&
+      node[0] < 36000 &&
+      typeof node[1] === "number" &&
+      node[1] >= 0
+    ) {
+      durationSeconds = Math.round((node[0] + node[1] / 1e9) * 100) / 100;
     }
 
-    const genOpts = videoBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
-    if (Array.isArray(genOpts) && typeof genOpts[1] === "string" && genOpts[1]) {
-      language = genOpts[1];
-    }
-
-    const dlCandidate = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
-    if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
-      if (!isThumbnailOrManifestUrl(dlCandidate)) {
-        mediaUrl = dlCandidate;
-        pushStreamUrl(dlCandidate);
-      }
-    }
-
-    // Scan ALL nested media-list arrays inside `row[8]` (matches `ArtifactRow.video_url`
-    // in `notebooklm-py` so both Explainer and Cinematic Video Overview rows resolve).
-    let fallbackMp4 = null;
-    let fallbackAnyTrusted = null;
-
-    for (const subBlock of videoBlock) {
-      if (!Array.isArray(subBlock)) continue;
-      for (const entry of subBlock) {
-        if (!Array.isArray(entry) || typeof entry[0] !== "string") continue;
-        const url = entry[0];
-        const kind = entry[1];
-        const mime = typeof entry[2] === "string" ? entry[2].toLowerCase() : "";
-        if (!isTrustedGoogleMediaUrl(url)) continue;
-
-        if (!fallbackAnyTrusted) fallbackAnyTrusted = url;
-
-        if (mime === "audio/mp4" || mime === "audio/mpeg" || mime === "audio/webm") {
-          if (!directAudioUrl) directAudioUrl = url;
-          pushStreamUrl(url);
-        } else if (mime === "video/mp4" || (!mime && !isThumbnailOrManifestUrl(url))) {
-          pushStreamUrl(url);
-          if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
-            progressiveUrl = url;
-          }
-          if (kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD) {
-            mediaUrl = url;
-          } else if (!fallbackMp4) {
-            fallbackMp4 = url;
-          }
+    // Media entry `[url, kind, mime]`
+    if (typeof node[0] === "string" && isTrustedGoogleMediaUrl(node[0])) {
+      const url = node[0];
+      const kind = node[1];
+      const mime = typeof node[2] === "string" ? node[2].toLowerCase() : "";
+      if (
+        mime.startsWith("audio/") ||
+        (isAudio && !isThumbnailOrManifestUrl(url))
+      ) {
+        if (!directAudioUrl) directAudioUrl = url;
+        if (!mediaUrl) mediaUrl = url;
+        pushStreamUrl(url);
+      } else if (
+        mime === "video/mp4" ||
+        (!mime && !isThumbnailOrManifestUrl(url))
+      ) {
+        pushStreamUrl(url);
+        if (kind === BATCHEXECUTE.MEDIA_KIND.PROGRESSIVE && !progressiveUrl) {
+          progressiveUrl = url;
+        }
+        if (kind === BATCHEXECUTE.MEDIA_KIND.DOWNLOAD || !mediaUrl) {
+          mediaUrl = url;
         }
       }
     }
 
-    if (!mediaUrl && fallbackMp4) {
-      mediaUrl = fallbackMp4;
+    for (const child of node) {
+      scanNestedForStreams(child, depth + 1);
     }
-    if (!mediaUrl && progressiveUrl) {
-      mediaUrl = progressiveUrl;
-    }
-    if (!mediaUrl && fallbackAnyTrusted) {
-      mediaUrl = fallbackAnyTrusted;
+  };
+
+  if (Array.isArray(primaryBlock)) {
+    const progCandidate = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.PROGRESSIVE_URL];
+    if (typeof progCandidate === "string" && isTrustedGoogleMediaUrl(progCandidate)) {
+      if (!isThumbnailOrManifestUrl(progCandidate)) {
+        progressiveUrl = progCandidate;
+        if (isAudio && !directAudioUrl) directAudioUrl = progCandidate;
+        pushStreamUrl(progCandidate);
+      } else if (!progressiveUrl) {
+        progressiveUrl = progCandidate;
+      }
     }
 
-    const durTuple = videoBlock[BATCHEXECUTE.VIDEO_META_POS.DURATION];
+    const genOpts = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.GENERATION_OPTIONS];
+    if (Array.isArray(genOpts) && typeof genOpts[1] === "string" && genOpts[1]) {
+      language = genOpts[1];
+    }
+
+    const dlCandidate = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.DOWNLOAD_URL];
+    if (typeof dlCandidate === "string" && isTrustedGoogleMediaUrl(dlCandidate)) {
+      if (!isThumbnailOrManifestUrl(dlCandidate)) {
+        mediaUrl = dlCandidate;
+        if (isAudio && !directAudioUrl) directAudioUrl = dlCandidate;
+        pushStreamUrl(dlCandidate);
+      }
+    }
+
+    const durTuple = primaryBlock[BATCHEXECUTE.VIDEO_META_POS.DURATION];
     if (Array.isArray(durTuple) && typeof durTuple[0] === "number") {
       const secs = durTuple[0];
       const nanos = typeof durTuple[1] === "number" ? durTuple[1] : 0;
       durationSeconds = Math.round((secs + nanos / 1e9) * 100) / 100;
     }
+  }
+
+  for (const blk of candidateBlocks) {
+    scanNestedForStreams(blk, 0);
+  }
+
+  if (!mediaUrl && progressiveUrl) {
+    mediaUrl = progressiveUrl;
   }
 
   const looksLikeArtifactRow =
@@ -442,6 +493,7 @@ export function extractVideoMetadataFromRow(row) {
     artifactId,
     title,
     typeCode,
+    mediaKind: isAudio ? "audio" : "video",
     statusCode,
     status,
     language,
@@ -453,6 +505,8 @@ export function extractVideoMetadataFromRow(row) {
     durationSeconds,
   };
 }
+
+export const extractVideoMetadataFromRow = extractArtifactMetadataFromRow;
 
 function collectVideoRowsFromPayload(node, out, seenIds, depth = 0) {
   if (!Array.isArray(node) || depth > 7) return;

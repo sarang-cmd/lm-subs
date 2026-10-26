@@ -83,10 +83,27 @@ test("Security invariant: getApiKey & getSecretApiKeysMap are strictly isolated 
   }
 });
 
-test("Manifest V3 least-privilege invariant: storage/notifications/alarms permissions only, Google CDN redirect coverage, and strict CSP", () => {
+test("Manifest V3 least-privilege & Access-requested pinning invariant: storage/notifications/alarms/activeTab permissions, externally_connectable setup bridge, Google CDN redirect coverage, and strict CSP", () => {
   const manifest = JSON.parse(fs.readFileSync("extension/manifest.json", "utf8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions, ["storage", "notifications", "alarms"]);
+  assert.deepEqual(manifest.permissions, [
+    "storage",
+    "notifications",
+    "alarms",
+    "activeTab",
+  ]);
+  // Crucial for Chrome top-of-puzzle-menu "Access requested" UX on /welcome:
+  // lm-subs.vercel.app must NOT be pre-granted in host_permissions
+  assert.ok(
+    !manifest.host_permissions.includes("https://lm-subs.vercel.app/*"),
+    "lm-subs.vercel.app must not be pre-granted in host_permissions so Chrome surfaces LM Subs at the top under Access requested on /welcome"
+  );
+  assert.ok(
+    manifest.externally_connectable?.matches?.includes(
+      "https://lm-subs.vercel.app/*"
+    ),
+    "manifest.externally_connectable must allow two-way setup messages from https://lm-subs.vercel.app/*"
+  );
   assert.ok(
     manifest.content_security_policy.extension_pages.includes("script-src 'self'")
   );

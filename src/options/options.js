@@ -112,6 +112,7 @@ async function initOptions() {
 
   const optAutoGenerate = document.getElementById("opt-auto-generate");
   const optAutoExisting = document.getElementById("opt-auto-existing");
+  const optAutoAudio = document.getElementById("opt-auto-audio");
   const optShowToast = document.getElementById("opt-show-toast");
   const optLanguageHint = document.getElementById("opt-language-hint");
   const optTranslateTo = document.getElementById("opt-translate-to");
@@ -509,6 +510,7 @@ async function initOptions() {
     if (optDebugMode) optDebugMode.checked = Boolean(settings.debugMode);
     optAutoGenerate.checked = settings.autoOnGenerate;
     optAutoExisting.checked = settings.autoOnExistingVideos;
+    if (optAutoAudio) optAutoAudio.checked = settings.autoOnAudioOverviews !== false;
     optShowToast.checked = settings.showToast;
     if (optAutoUpdate) optAutoUpdate.checked = Boolean(settings.autoUpdateExtension);
     if (optAutoBgSync) optAutoBgSync.checked = Boolean(settings.autoBackgroundSync);
@@ -550,7 +552,7 @@ async function initOptions() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.4";
+      "0.2.5";
 
     const avail = Boolean(updateStatus?.updateAvailable);
     optUpdateCard.dataset.available = avail ? "true" : "false";
@@ -1740,6 +1742,9 @@ async function initOptions() {
     return {
       autoOnGenerate: optAutoGenerate.checked,
       autoOnExistingVideos: optAutoExisting.checked,
+      autoOnAudioOverviews: optAutoAudio
+        ? Boolean(optAutoAudio.checked)
+        : settings.autoOnAudioOverviews !== false,
       showToast: optShowToast.checked,
       languageHint: optLanguageHint.value,
       translateTo: optTranslateTo.value,
@@ -1762,6 +1767,10 @@ async function initOptions() {
   }
 
   for (const liveCtrl of [
+    optAutoGenerate,
+    optAutoExisting,
+    optAutoAudio,
+    optShowToast,
     optFontSize,
     optCaptionStyle,
     optCaptionFont,

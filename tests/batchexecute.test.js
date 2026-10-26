@@ -131,15 +131,26 @@ test("parseBatchExecuteRequest detects Video Overview CREATE_STUDIO (R7cb6c) and
   assert.equal(parsed.language, "en");
   assert.equal(parsed.focusPrompt, "Focus on architecture");
 
-  // Audio Overview (`typeCode === 1`) should NOT trigger video subtitle pipeline
+  // Audio Overview (`typeCode === 1`) triggers the podcast/audio subtitle pipeline
   const audioCreateParams = [[2], "nb-uuid-9876", [null, null, 1, [[["src-1"]]]]];
   const audioBody = new URLSearchParams({
     "f.req": JSON.stringify([[["R7cb6c", JSON.stringify(audioCreateParams), null, "generic"]]]),
   }).toString();
-  assert.equal(parseBatchExecuteRequest(audioBody), null);
+  const parsedAudio = parseBatchExecuteRequest(audioBody);
+  assert.ok(parsedAudio);
+  assert.equal(parsedAudio.isAudioCreate, true);
+  assert.equal(parsedAudio.isVideoCreate, false);
+  assert.equal(parsedAudio.isMediaCreate, true);
+
+  // Non-media Studio artifact (`typeCode === 2`, Report) must NOT trigger subtitle pipeline
+  const reportCreateParams = [[2], "nb-uuid-9876", [null, null, 2, [[["src-1"]]]]];
+  const reportBody = new URLSearchParams({
+    "f.req": JSON.stringify([[["R7cb6c", JSON.stringify(reportCreateParams), null, "generic"]]]),
+  }).toString();
+  assert.equal(parseBatchExecuteRequest(reportBody), null);
 });
 
-test("parseBatchExecuteResponse extracts ready Video Overviews from gArtLc and supports rotated RPC IDs", () => {
+test("parseBatchExecuteResponse extracts ready Video and Audio Overviews from gArtLc and supports rotated RPC IDs", () => {
   const readyVideoRow = [
     "33333333-aaaa-4bbb-8ccc-444444444444",
     "Distributed Consensus Explained",
@@ -163,24 +174,47 @@ test("parseBatchExecuteResponse extracts ready Video Overviews from gArtLc and s
     ],
   ];
 
+  const reportRow = [
+    "22222222-aaaa-4bbb-8ccc-222222222222",
+    "Briefing Document",
+    2, // REPORT (ignored)
+    [[["src-1"]]],
+    3,
+  ];
+
   const audioRow = [
     "11111111-aaaa-4bbb-8ccc-222222222222",
     "Audio Deep Dive",
     1, // AUDIO_OVERVIEW
     [[["src-1"]]],
     3,
+    null,
+    [
+      null,
+      `https://lh3.googleusercontent.com/notebooklm/${SAMPLE_TOKEN}=m140`,
+      null,
+      null,
+      null,
+      [312, 0],
+    ],
   ];
 
-  const raw = wrapBatchResponse("gArtLc", [[audioRow, readyVideoRow]]);
+  const raw = wrapBatchResponse("gArtLc", [[reportRow, readyVideoRow, audioRow]]);
   const artifacts = parseBatchExecuteResponse(raw);
-  assert.equal(artifacts.length, 1);
+  assert.equal(artifacts.length, 2);
   assert.equal(artifacts[0].artifactId, "33333333-aaaa-4bbb-8ccc-444444444444");
+  assert.equal(artifacts[0].mediaKind, "video");
   assert.equal(artifacts[0].title, "Distributed Consensus Explained");
   assert.equal(artifacts[0].status, "ready");
   assert.equal(artifacts[0].language, "en");
   assert.equal(artifacts[0].mediaUrl, SAMPLE_DL_URL);
   assert.equal(artifacts[0].durationSeconds, 184.5);
   assert.equal(artifacts[0].origin, "poll");
+
+  assert.equal(artifacts[1].artifactId, "11111111-aaaa-4bbb-8ccc-222222222222");
+  assert.equal(artifacts[1].typeCode, 1);
+  assert.equal(artifacts[1].mediaKind, "audio");
+  assert.equal(artifacts[1].durationSeconds, 312);
 
   // Even if Google rotates `gArtLc` to an unknown 6-char RPC ID, structural parser still finds it
   const rotatedRaw = wrapBatchResponse("z9Qp1w", [[readyVideoRow]]);
