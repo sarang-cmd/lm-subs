@@ -237,7 +237,12 @@ export function StatsView({ token, user, onOpenSignIn }) {
                 Daily Video Overviews captioned over the past two weeks (UTC). Hover or focus any bar for exact cue and byte counts.
               </p>
 
-              <div className="chart-bars" role="list" aria-label="14-day transcription counts">
+              <div className="chart-scroll">
+                <div
+                  className="chart-bars"
+                  role="list"
+                  aria-label="14-day transcription counts"
+                >
                 {dailySeries.map((day) => {
                   const pct =
                     day.videos > 0
@@ -280,6 +285,7 @@ export function StatsView({ token, user, onOpenSignIn }) {
                     </Tooltip.Root>
                   );
                 })}
+                </div>
               </div>
             </div>
 

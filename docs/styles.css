@@ -45,6 +45,15 @@
   --max-page: 1120px;
   --max-prose: 64ch;
   --nav-h: 54px;
+
+  /* Padding scale: one source of truth for page gutters, sheet insets and
+     section rhythm so every page breathes the same way. */
+  --pad-gutter: 24px;
+  --pad-sheet: 26px;
+  --pad-sheet-sm: 20px;
+  --pad-section-y: clamp(56px, 7vw, 96px);
+  --pad-card-y: 18px;
+  --pad-card-x: 20px;
 }
 
 *,
@@ -128,7 +137,7 @@ textarea:focus-visible,
   max-width: var(--max-page);
   height: 100%;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--pad-gutter);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -258,11 +267,11 @@ textarea:focus-visible,
 .page-wrap {
   max-width: var(--max-page);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--pad-gutter);
 }
 
 .section-block {
-  padding: clamp(56px, 7vw, 96px) 0;
+  padding: var(--pad-section-y) 0;
   border-bottom: 1px solid var(--border-hairline);
 }
 
@@ -814,12 +823,12 @@ textarea:focus-visible,
 }
 
 .kpi-cell {
-  padding: 20px 18px 20px 0;
+  padding: 22px 20px 22px 0;
   border-right: 1px solid var(--border-hairline);
 }
 
 .kpi-cell:not(:first-child) {
-  padding-left: 20px;
+  padding-left: 22px;
 }
 
 .kpi-cell:last-child {
@@ -855,6 +864,20 @@ textarea:focus-visible,
   height: 164px;
   padding: 20px 0 10px;
   border-bottom: 1px solid var(--border-hairline);
+}
+
+/* Narrow screens: fewer bars stay legible, the rest scroll horizontally */
+.chart-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 2px;
+}
+
+@media (max-width: 620px) {
+  .chart-bars {
+    min-width: 460px;
+    gap: 6px;
+  }
 }
 
 .chart-col {
@@ -1043,7 +1066,7 @@ textarea:focus-visible,
 /* Legal Document Layout */
 .legal-article {
   max-width: 68ch;
-  padding: 48px 0 80px;
+  padding: clamp(40px, 6vw, 72px) 0 clamp(64px, 9vw, 104px);
 }
 
 .legal-article h1 {
@@ -1087,7 +1110,7 @@ textarea:focus-visible,
 .site-footer-inner {
   max-width: var(--max-page);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--pad-gutter);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1117,6 +1140,28 @@ textarea:focus-visible,
 .footer-links button:hover {
   color: var(--ink-primary);
   text-decoration: underline;
+}
+
+/* Padding scale responds to the viewport instead of hard-coded per page */
+@media (max-width: 760px) {
+  :root {
+    --pad-gutter: 18px;
+    --pad-sheet: 20px;
+    --pad-sheet-sm: 16px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --pad-gutter: 32px;
+    --pad-sheet: 30px;
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --pad-gutter: 14px;
+  }
 }
 
 /* Responsive Breakpoints (Desktop -> Tablet -> Mobile 375px) */
@@ -1160,7 +1205,7 @@ textarea:focus-visible,
     padding-bottom: 2px;
   }
   .page-wrap {
-    padding: 0 16px;
+    padding: 0 var(--pad-gutter);
   }
   .stage-viewport {
     padding: 18px 16px 16px;
@@ -1365,7 +1410,7 @@ textarea:focus-visible,
 }
 
 .notif-empty-state {
-  padding: 22px 4px;
+  padding: 26px 6px;
   font-size: 13.5px;
   color: var(--ink-secondary);
 }
@@ -1424,12 +1469,54 @@ textarea:focus-visible,
 
 .blog-card {
   border-top: 1px solid var(--border-hairline);
-  padding: 22px 0 4px;
+  padding: 26px 0 8px;
 }
 
 .faq-item {
   border-top: 1px solid var(--border-hairline);
-  padding: 18px 0 2px;
+  padding: 22px 0 6px;
+}
+
+/* Blog articles keep a readable measure instead of stretching to the full grid */
+.page-wrap article.section-block > *:not(nav):not(figure):not(img) {
+  max-width: 72ch;
+}
+
+/* Release notes rendered by the extension UI and the update banner */
+.update-notes {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.update-notes-heading {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-primary);
+  margin-bottom: 6px;
+}
+
+.update-notes-lede {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+  margin-bottom: 8px;
+}
+
+.update-notes-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.update-notes-list li {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-secondary);
 }
 
 .faq-q {

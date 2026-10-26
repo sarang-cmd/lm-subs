@@ -4,6 +4,40 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `v0.2.7` (2026-10-26)
+
+Makes long Google NotebookLM Audio Overviews finish reliably, explains every update in the alert itself, and gives every page one shared padding scale.
+
+### Added
+* **Bounded parallel media downloads (`src/lib/media-download.js`):** New pure module with `orderMediaCandidates`, `planRangeSegments`, `downloadWithProgress`, `downloadRangedParallel`, and `formatDownloadProgress`. Any media above 6 MB now downloads across six concurrent HTTP `206` ranges with a 150 second global deadline and live progress, and the URL already playing in the tab is always probed first instead of sweeping muxed video variants before reaching audio.
+* **Service worker job heartbeat (`src/background/service-worker.js`):** `startJobKeepAlive` and `stopJobKeepAlive` touch an extension API every 20 seconds while a transcript job runs, so Chrome's idle timer and port lifetime no longer tear the worker down mid download.
+* **Release notes in the update alert (`src/lib/release-notes.js`):** Per-version headline plus highlights ship inside `docs/releases/latest.json`, render as a "What's new in vX" block in the popup banner and settings update card, and arrive as a `type: "list"` desktop notification (with a basic fallback that spells out every change).
+* **Shared padding scale (`docs/styles.css`, `extension/ui.css`):** `--pad-gutter`, `--pad-sheet`, `--pad-pop-y/x` and `--pad-section-y` drive every page gutter, sheet inset and section rhythm, with responsive overrides at 1280px, 760px and 420px. Verified in headless Chromium at 1280px and 375px with zero edge offenders.
+* **Install page screenshot (`docs/assets/screenshots/09-welcome-install-page.png`):** Captures the `/welcome` page Chrome opens on install, now featured in the setup guide.
+* **Refreshed social previews (`docs/assets/banner-social-1280x640.png`, `docs/assets/banner-social-welcome-1280x640.png`):** Real 1280x640 renders pairing product screenshots with brand copy, referenced from every page's Open Graph and Twitter cards.
+* **Reddit launch post (`REDDIT_POST.md`):** r/NotebookLM announcement written in the creator's voice, with title options, the exact images to attach, and reusable replies.
+
+### Fixed
+* **Audio Overview downloads outliving the background worker:** A 20 minute podcast produced a single unbounded `await fetch()` inside one service worker event. Chrome killed the worker and the content script reported "The message channel closed before a response was received". Downloads are now parallel, bounded and retried, and `dispatchEnsureSubtitles` in `src/content/content.js` recovers finished transcripts from the cache after a worker restart before retrying once.
+* **Stalled CDN candidates:** The body read now re-arms an abort on the remaining budget, so a trickling stream advances to the next candidate instead of hanging.
+* **Broken README screenshots:** Replaced references to the retired `02-audio-extraction-failover.png` and `04-settings-queue.png` with the current capture set.
+
+---
+
+## `v0.2.6` (2026-10-26)
+
+Docks caption controls inside Google NotebookLM's own bottom play bar so nothing blinks between cues, scales captions to the player, and unifies statistics across the website, settings page and popup.
+
+### Added
+* **Native play bar docking (`src/content/player-overlay.js`):** `findNativeControlBar` scores ancestor siblings by bottom alignment, height and button count, then injects `CC` and `Options` into NotebookLM's bar. `fineGrainedControls` unlocks speed, loop, PiP, snapshot, volume boost and skip silence.
+* **No-blink control visibility:** `_startControlVisibilitySync` and `_updateControlsVisibility` mirror NotebookLM's own bar, and a 0.28 second cue linger keeps the caption box from flickering in the gap between sentences.
+* **Dynamic caption sizing:** `_resolveCaptionFontSizePx` and `_applyCaptionMetrics` drive `--lms-caption-*` variables off the observed player size, clamped by configurable min and max font sizes.
+* **Unified statistics (`src/lib/stats-model.js`):** One `buildUnifiedStatsReport` feeds the website, the options page and the popup, including Google NotebookLM workspace metrics and a 14 day series.
+* **Six notification chime presets, PiP with live subtitles, and per-provider key walkthroughs.**
+* **SEO foundation:** `robots.txt`, `llms.txt`, `sitemap.xml`, five crawlable blog posts with structured data, and SoftwareApplication plus FAQPage JSON-LD on the landing page.
+
+---
+
 ## `v0.2.5` (2026-10-26)
 
 Adds full synchronized captioning and podcast transcript docks for Google NotebookLM Audio Overviews, launches `/welcome` automatically on Chrome extension install, opens an interactive two-way website-to-extension setup wizard on download, and configures Chrome's Extensions puzzle menu to surface `LM Subs` first under `Access requested` on `/welcome`.

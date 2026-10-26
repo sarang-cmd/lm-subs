@@ -57,6 +57,7 @@ import { createToastManager } from "./toast.js";
 const GUARD_FLAG = "__notebooklmSubtitlesContentLoaded__";
 const BLOB_EXTRACT_TIMEOUT_MS = 4000;
 const MAX_WAV_CHUNK_BYTES = 14 * 1024 * 1024;
+const KEEPALIVE_PORT_REFRESH_MS = 4 * 60 * 1000;
 
 function uint8ToBase64(bytes) {
   let s = "";
@@ -262,6 +263,8 @@ export async function initContentCoordinator({
   const localDebugBuffer = [];
   let keepalivePort = null;
   let keepaliveTimer = null;
+  let keepaliveGeneration = 0;
+  let keepaliveOpenedAt = 0;
 
   function sendRuntimeMessage(message) {
     return new Promise((resolve) => {
@@ -280,31 +283,48 @@ export async function initContentCoordinator({
     });
   }
 
-  function startKeepalive() {
-    if (keepalivePort || !runtime?.connect) return;
+  function openKeepalivePort() {
+    const generation = (keepaliveGeneration += 1);
+    keepaliveOpenedAt = Date.now();
+    let port = null;
     try {
-      keepalivePort = runtime.connect({ name: KEEPALIVE_PORT_NAME });
-      keepalivePort.onDisconnect.addListener(() => {
-        keepalivePort = null;
-        if (keepaliveTimer) {
-          clearInterval(keepaliveTimer);
-          keepaliveTimer = null;
-        }
-      });
-      keepaliveTimer = setInterval(() => {
+      port = runtime.connect({ name: KEEPALIVE_PORT_NAME });
+    } catch {
+      return;
+    }
+    keepalivePort = port;
+    port.onDisconnect.addListener(() => {
+      if (generation !== keepaliveGeneration) return;
+      keepalivePort = null;
+    });
+  }
+
+  function startKeepalive() {
+    if (keepaliveTimer || !runtime?.connect) return;
+    if (!keepalivePort) openKeepalivePort();
+    keepaliveTimer = setInterval(() => {
+      try {
+        keepalivePort?.postMessage({ ping: Date.now() });
+      } catch {
+        // Ignore
+      }
+      // Chrome holds a worker alive for roughly five minutes per open port, so
+      // reconnect before the window closes on a long Audio Overview.
+      if (Date.now() - keepaliveOpenedAt >= KEEPALIVE_PORT_REFRESH_MS) {
         try {
-          keepalivePort?.postMessage({ ping: Date.now() });
+          keepalivePort?.disconnect();
         } catch {
           // Ignore
         }
-      }, 20000);
-    } catch {
-      // Ignore
-    }
+        keepalivePort = null;
+        openKeepalivePort();
+      }
+    }, 20000);
   }
 
   function stopKeepaliveIfIdle() {
     if (inFlightKeys.size > 0) return;
+    keepaliveGeneration += 1;
     if (keepaliveTimer) {
       clearInterval(keepaliveTimer);
       keepaliveTimer = null;
@@ -810,6 +830,61 @@ export async function initContentCoordinator({
     }));
   }
 
+  const CHANNEL_LOST_REGEX =
+    /message channel closed|message port closed|extension context invalidated|no response from background/i;
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Dispatches `ENSURE_SUBTITLES` and survives a background worker restart.
+   *
+   * Chrome drops the reply channel when a Manifest V3 service worker is torn
+   * down mid transcription, which used to surface as a hard failure on long
+   * Audio Overviews even when the worker was still finishing the job (or had
+   * already cached the transcript). When that happens we poll the local cache
+   * for the finished transcript before giving up, then retry once.
+   */
+  async function dispatchEnsureSubtitles(payload) {
+    const res = await sendRuntimeMessage(payload);
+    if (res?.ok || !CHANNEL_LOST_REGEX.test(String(res?.error || ""))) {
+      return res;
+    }
+
+    recordDebug(
+      "CONTENT",
+      "ensure.channel_lost",
+      "Background worker restarted mid transcription, checking for a cached transcript…"
+    );
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await sleep(2000);
+      const cached = await sendRuntimeMessage({
+        type: RUNTIME_MESSAGE.GET_CACHED_SUBTITLES,
+        cacheKey: payload.cacheKey,
+        artifactId: payload.artifactId,
+        mediaToken: payload.mediaToken,
+      });
+      if (cached?.ok && cached.entry?.cues?.length > 0) {
+        recordDebug(
+          "CONTENT",
+          "ensure.channel_recovered",
+          `Recovered ${cached.entry.cues.length} cues after worker restart`,
+          "ok"
+        );
+        return { ok: true, cached: true, recovered: true, entry: cached.entry };
+      }
+    }
+
+    recordDebug(
+      "CONTENT",
+      "ensure.channel_retry",
+      "Transcript not cached yet, re-dispatching to the fresh background worker"
+    );
+    return sendRuntimeMessage(payload);
+  }
+
   async function ensureSubtitlesForEntry(
     entry,
     { force = false, trigger = "player_open" } = {}
@@ -1048,10 +1123,13 @@ export async function initContentCoordinator({
         )})`
       );
 
-      const res = await sendRuntimeMessage({
+      const res = await dispatchEnsureSubtitles({
         type: RUNTIME_MESSAGE.ENSURE_SUBTITLES,
         stagedJobId,
         force: Boolean(force),
+        cacheKey,
+        artifactId,
+        mediaToken,
         artifact: {
           cacheKey,
           artifactId,
@@ -1060,6 +1138,13 @@ export async function initContentCoordinator({
           title,
           language: artifact?.language || null,
           mediaUrl: primaryMediaUrl,
+          // The stream Chrome is already playing is the most reliable download
+          // candidate, so the service worker tries it before probing variants.
+          playingUrl:
+            isTrustedGoogleMediaUrl(rawSrc) &&
+            !isThumbnailOrManifestUrl(rawSrc)
+              ? rawSrc
+              : "",
           progressiveUrl:
             (artifact?.progressiveUrl &&
               !isThumbnailOrManifestUrl(artifact.progressiveUrl) &&

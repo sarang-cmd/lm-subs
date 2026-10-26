@@ -1,8 +1,18 @@
 {
-  "version": "0.2.6",
-  "buildId": "eb7408b6f6ae",
+  "version": "0.2.7",
+  "buildId": "c864e0241076",
   "zipUrl": "/releases/lm-subs-latest.zip",
-  "versionedZipUrl": "/releases/lm-subs-v0.2.6.zip",
-  "zipSha256": "0f33c7987471807c8c489106769846ea0d4255e325523c6ab7122edc076284b4",
-  "fileCount": 14
+  "versionedZipUrl": "/releases/lm-subs-v0.2.7.zip",
+  "zipSha256": "fbef106f76a1f26ac23c3ca4969cf51b3d83bc988e1bf8f2e6fc0147d852f4b9",
+  "fileCount": 14,
+  "notes": {
+    "version": "0.2.7",
+    "headline": "Long Audio Overviews finish, and updates explain themselves",
+    "highlights": [
+      "Audio Overviews download across six parallel streams, so a 20 minute podcast no longer outlives the background worker",
+      "The update alert now lists what the new version changes instead of only naming the version",
+      "Every page got roomier padding and wider content gutters, including the welcome page that opens on install",
+      "New social preview cards for the site, blog and install page"
+    ]
+  }
 }

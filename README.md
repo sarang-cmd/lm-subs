@@ -14,7 +14,7 @@
 [![Tests](docs/assets/badges/tests.svg)](#development-and-testing)
 [![License: MIT](docs/assets/badges/license.svg)](LICENSE)
 
-[**Download `lm-subs-v0.2.5.zip`**](docs/releases/lm-subs-v0.2.5.zip) | [**Interactive Two-Way Setup (`lm-subs.vercel.app/welcome`)**](https://lm-subs.vercel.app/welcome) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
+[**Download `lm-subs-v0.2.7.zip`**](docs/releases/lm-subs-v0.2.7.zip) | [**Interactive Two-Way Setup (`lm-subs.vercel.app/welcome`)**](https://lm-subs.vercel.app/welcome) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
 
 <br />
 
@@ -29,10 +29,10 @@
 You do not need terminal commands, developer tools, or a paid subscription to use LM Subs. Clicking download on [`lm-subs.vercel.app`](https://lm-subs.vercel.app) automatically opens an interactive two-way setup wizard, and installing the extension opens `/welcome` automatically in **Google Chrome**, **Brave**, **Microsoft Edge**, or **Arc**:
 
 ### Step 1: Download and unzip the extension folder
-1. Download [**`lm-subs-v0.2.5.zip`**](docs/releases/lm-subs-v0.2.5.zip) to your computer.
+1. Download [**`lm-subs-v0.2.7.zip`**](docs/releases/lm-subs-v0.2.7.zip) to your computer.
 2. **Unzip** it into a normal folder:
-   * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.5.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
-   * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.5.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
+   * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.7.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
+   * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.7.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
 
 ### Step 2: Load in Chrome and pin from `Access requested`
 1. Open a new browser tab, type `chrome://extensions` into the address bar, and press **Enter** (`brave://extensions` in Brave, `edge://extensions` in Edge).
@@ -62,11 +62,11 @@ Synchronized closed captions with 3-state progressive word highlighting, adjusta
   <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="LM Subs highlighted spoken-word captions inside the video and compact CC controls in the bottom play bar" />
 </p>
 
-### Interactive two-way welcome setup and top-of-menu Access requested pinning
+### The page that opens the moment you install the extension
 Downloading LM Subs on the website or installing the extension in Chrome opens `/welcome` automatically. Because LM Subs uses `activeTab` without pre-granting host permissions on the setup website, Chrome places **LM Subs** at the top of the puzzle-piece Extensions menu under **Access requested** (*"To give an extension access to this site, click it."*) above your other extensions, then verifies pinning, API keys, and cloud sync live across a two-way bridge.
 
 <p align="center">
-  <img src="docs/assets/screenshots/02-audio-extraction-failover.png" width="100%" alt="Interactive two-way welcome setup and top-of-menu Access requested extension pinning" />
+  <img src="docs/assets/screenshots/09-welcome-install-page.png" width="100%" alt="The LM Subs page that opens automatically when the extension is installed" />
 </p>
 
 ### Chrome toolbar popup
@@ -77,10 +77,31 @@ Configure a free Groq or Mistral key, inspect account sync state, trigger captio
 </p>
 
 ### Caption studio, word-highlight delay, and Audio Overview controls
-Adjust progressive word-highlight delay (`-500 ms` to `+1500 ms`), toggle speaker labels, customize caption backdrop opacity, and control automatic transcription across both Studio Video Overviews and two-host Audio Overviews.
+Adjust progressive word-highlight delay (`-500 ms` to `+1500 ms`), toggle speaker labels, customize caption backdrop opacity, and control automatic transcription across both Studio Video Overviews and two-host Audio Overviews. Fine grained controls (speed, loop, Picture in Picture, snapshot, volume boost, skip silence) stay behind a single switch so the play bar keeps its default two buttons.
 
 <p align="center">
-  <img src="docs/assets/screenshots/04-settings-queue.png" width="100%" alt="LM Subs settings page showing Caption studio, word highlight delay, and Audio Overview switches" />
+  <img src="docs/assets/screenshots/05-fine-grained-controls.png" width="100%" alt="LM Subs settings page showing fine grained playback controls behind one master switch" />
+</p>
+
+### Unified statistics on the website, in the settings page, and in the popup
+One report feeds all three surfaces: caption totals, bytes of video avoided, provider share, a 14 day series, and Google NotebookLM workspace metrics that go beyond captions (sources, Studio artifacts, watch and listen time, bookmarks, citations, exports).
+
+<p align="center">
+  <img src="docs/assets/screenshots/02-statistics-dashboard.png" width="100%" alt="LM Subs statistics dashboard with caption totals and NotebookLM workspace metrics" />
+</p>
+
+### Docked fine grained controls in the native play bar
+Turning on the fine controls switch docks speed, loop, Picture in Picture with captions, snapshot export, volume boost, and skip silence next to **CC** and **Options** inside NotebookLM's own bottom bar. They appear and fade with NotebookLM's controls, and captions scale with the player so the compact Studio view and fullscreen each look right.
+
+<p align="center">
+  <img src="docs/assets/screenshots/08-docked-fine-controls.png" width="100%" alt="LM Subs fine grained controls docked inside the NotebookLM bottom play bar" />
+</p>
+
+### Numbered API key walkthroughs for every provider
+All twelve providers include account requirements, a key format hint, and a numbered walkthrough that starts at signing in or creating the account.
+
+<p align="center">
+  <img src="docs/assets/screenshots/06-api-key-guide.png" width="100%" alt="LM Subs settings page with a numbered API key walkthrough for each provider" />
 </p>
 
 ---
@@ -91,7 +112,7 @@ Google NotebookLM generates narrated **Studio Video Overviews** and two-host **A
 
 Naive transcription tools upload entire 50 to 120 MB HD `.mp4` video files or inflate compressed audio into 40+ MB of uncompressed `.wav` data, hitting API upload limits and turning a 3-minute Video Overview into a multi-minute wait.
 
-| Metric | Full Video / WAV Upload | LM Subs (`v0.2.5`) |
+| Metric | Full Video / WAV Upload | LM Subs (`v0.2.7`) |
 | :--- | :--- | :--- |
 | **Media payload** | 50 to 120 MB `.mp4` + 42 MB `.wav` | **~3.4 MB `=m140` AAC** (or HTTP `206` audio byte ranges) |
 | **Audio prep overhead** | 45 to 90s full download + decode | **0 ms** direct `=m140` passthrough (`<1.2s` Range remux) |
@@ -178,7 +199,7 @@ Configure one key or stack multiple providers in priority order for automatic `H
 npm install          # Install dependencies (0 vulnerabilities)
 npm run assets       # Render SVG/PNG brand marks, favicons, badges, diagram, and 4 screenshots
 npm run build        # Bundle all 5 MV3 extension entrypoints + React web app (docs/app.js)
-npm run zip          # Rebuild bundles and package docs/releases/lm-subs-v0.2.5.zip
+npm run zip          # Rebuild bundles and package docs/releases/lm-subs-v0.2.7.zip
 npm test             # Run unit, security, speed, export, and PGlite Postgres E2E tests
 npm start            # Start unified Web App + /api/* Hono server on http://0.0.0.0:4173
 ```

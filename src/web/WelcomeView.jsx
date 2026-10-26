@@ -592,7 +592,7 @@ export function WelcomeView({
               {isExtensionConnected
                 ? "This page is connected directly to your Chrome extension. Pin LM Subs from the top of your Extensions menu, save a free transcription key, and choose your Video and Audio Overview preferences."
                 : queryFlags.downloading
-                  ? "Your lm-subs-v0.2.6.zip download has started. Unzip and load the folder in Chrome below, and this setup guide will connect to the extension automatically."
+                  ? "Your lm-subs-v0.2.7.zip download has started. Unzip and load the folder in Chrome below, and this setup guide will connect to the extension automatically."
                   : "Download and load LM Subs in Chrome. As soon as the extension loads, this page connects two-way so you can configure keys and preferences live."}
             </p>
           </div>
@@ -630,7 +630,7 @@ export function WelcomeView({
                 }}
               >
                 {isExtensionConnected
-                  ? `Connected v${extState.version || "0.2.6"}`
+                  ? `Connected v${extState.version || "0.2.7"}`
                   : "Waiting for install"}
               </span>
             </div>
@@ -667,21 +667,21 @@ export function WelcomeView({
             <h2 className="section-heading">
               {isExtensionConnected
                 ? "Extension loaded and communicating with this page"
-                : "Unzip lm-subs-v0.2.6.zip and load it in Chrome"}
+                : "Unzip lm-subs-v0.2.7.zip and load it in Chrome"}
             </h2>
             <p className="section-prose">
               {isExtensionConnected
                 ? "Chrome loaded LM Subs and established a two-way handshake with this setup tab. Continue to Step 2 to pin the toolbar icon."
-                : "Extract lm-subs-v0.2.6.zip into a permanent folder such as Documents, open chrome://extensions, turn on Developer mode, and click Load unpacked."}
+                : "Extract lm-subs-v0.2.7.zip into a permanent folder such as Documents, open chrome://extensions, turn on Developer mode, and click Load unpacked."}
             </p>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "16px" }}>
               <a
                 className="btn btn-primary"
-                href="/releases/lm-subs-v0.2.6.zip"
+                href="/releases/lm-subs-v0.2.7.zip"
                 download
               >
-                Download lm-subs-v0.2.6.zip
+                Download lm-subs-v0.2.7.zip
               </a>
               <button
                 type="button"
@@ -749,7 +749,7 @@ export function WelcomeView({
 
               <Tabs.Content value="mac" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
-                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.6.zip</code> in Finder and move the extracted folder to <strong style={{ color: "var(--ink)" }}>Documents</strong>.</li>
+                  <li>Double-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.7.zip</code> in Finder and move the extracted folder to <strong style={{ color: "var(--ink)" }}>Documents</strong>.</li>
                   <li>Paste <code style={{ fontFamily: "var(--font-mono)" }}>chrome://extensions</code> into a new tab address bar and press <strong style={{ color: "var(--ink)" }}>Return</strong>.</li>
                   <li>Switch on <strong style={{ color: "var(--ink)" }}>Developer mode</strong> (top right), click <strong style={{ color: "var(--ink)" }}>Load unpacked</strong>, and choose the extracted folder.</li>
                 </ol>
@@ -757,7 +757,7 @@ export function WelcomeView({
 
               <Tabs.Content value="windows" className="sheet" style={{ padding: "18px 20px", marginTop: "12px" }}>
                 <ol style={{ margin: 0, paddingLeft: "20px", display: "grid", gap: "8px", color: "var(--ink-secondary)", fontSize: "14px" }}>
-                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.6.zip</code> in File Explorer and choose <strong style={{ color: "var(--ink)" }}>Extract All...</strong> into <strong style={{ color: "var(--ink)" }}>Documents</strong>.</li>
+                  <li>Right-click <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.7.zip</code> in File Explorer and choose <strong style={{ color: "var(--ink)" }}>Extract All...</strong> into <strong style={{ color: "var(--ink)" }}>Documents</strong>.</li>
                   <li>Paste <code style={{ fontFamily: "var(--font-mono)" }}>chrome://extensions</code> into a new tab address bar and press <strong style={{ color: "var(--ink)" }}>Enter</strong>.</li>
                   <li>Switch on <strong style={{ color: "var(--ink)" }}>Developer mode</strong> (top right), click <strong style={{ color: "var(--ink)" }}>Load unpacked</strong>, and select that extracted folder.</li>
                 </ol>

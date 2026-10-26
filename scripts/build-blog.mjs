@@ -114,7 +114,7 @@ function renderPostPage(post, allPosts) {
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
     datePublished: post.date,
     dateModified: post.dateModified || post.date,
-    image: `${SITE}/assets/banner-social-1280x640.png`,
+    image: `${SITE}/assets/banner-social-1280x640.png?v=7`,
     author: {
       "@type": "Person",
       name: `${AUTHOR_NAME} (${AUTHOR_HANDLE})`,
@@ -171,27 +171,31 @@ function renderPostPage(post, allPosts) {
     <meta name="author" content="${AUTHOR_NAME} (${AUTHOR_HANDLE})" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <link rel="canonical" href="${canonical}" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=4" />
-    <link rel="shortcut icon" href="/favicon.ico?v=4" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
+    <link rel="shortcut icon" href="/favicon.ico?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
     <meta property="og:type" content="article" />
     <meta property="og:title" content="${escapeHtml(post.title)}" />
     <meta property="og:description" content="${escapeHtml(post.description)}" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png" />
+    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=7" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <meta property="article:author" content="${AUTHOR_URL}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(post.title)}" />
     <meta name="twitter:description" content="${escapeHtml(post.description)}" />
-    <meta name="twitter:image" content="${SITE}/assets/banner-social-1280x640.png" />
+    <meta name="twitter:image" content="${SITE}/assets/banner-social-1280x640.png?v=7" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=4" />
+    <link rel="stylesheet" href="/styles.css?v=6" />
     <script type="application/ld+json">${JSON.stringify(articleJsonLd)}</script>
     ${faqJsonLd ? `<script type="application/ld+json">${JSON.stringify(faqJsonLd)}</script>` : ""}
     <script type="application/ld+json">${JSON.stringify(breadcrumbJsonLd)}</script>
@@ -293,12 +297,15 @@ function renderIndex(posts) {
     />
     <meta name="author" content="${AUTHOR_NAME} (${AUTHOR_HANDLE})" />
     <link rel="canonical" href="${canonical}" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="LM Subs blog | Google NotebookLM captions and transcripts" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png" />
+    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=7" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -306,7 +313,7 @@ function renderIndex(posts) {
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=4" />
+    <link rel="stylesheet" href="/styles.css?v=6" />
     <script type="application/ld+json">${JSON.stringify(itemListJsonLd)}</script>
   </head>
   <body>

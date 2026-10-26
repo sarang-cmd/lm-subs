@@ -8,6 +8,7 @@
 
 import { NOTEBOOKLM_HOSTS, RUNTIME_MESSAGE } from "../config/selectors.js";
 import { resolveAvoidedVideoBytes } from "../lib/audio-extract.js";
+import { renderReleaseNotes } from "../lib/release-notes.js";
 import {
   playCompletionChimeSound,
   SOUND_PRESETS,
@@ -157,6 +158,7 @@ async function initPopup() {
   const popupUpdateBanner = document.getElementById("popup-update-banner");
   const popupUpdateTitle = document.getElementById("popup-update-title");
   const popupUpdateDetail = document.getElementById("popup-update-detail");
+  const popupUpdateNotes = document.getElementById("popup-update-notes");
   const popupApplyUpdateBtn = document.getElementById("popup-apply-update-btn");
   const popupDownloadUpdateLink = document.getElementById("popup-download-update-link");
   const lastStatusCard = document.getElementById("last-status-card");
@@ -531,7 +533,7 @@ async function initPopup() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.6";
+      "0.2.7";
 
     if (popupUpdateStatusHint) {
       const folderPart = dirInfo.linked
@@ -557,6 +559,9 @@ async function initPopup() {
         ? `Ready to update ${dirInfo.folderName} and reload automatically.`
         : "Select your unzipped lm-subs folder once for automatic in-place updates.";
     }
+    renderReleaseNotes(popupUpdateNotes, updateStatus.latestNotes, {
+      version: updateStatus.latestVersion,
+    });
     if (popupApplyUpdateBtn) {
       popupApplyUpdateBtn.textContent = dirInfo.linked
         ? "Update and reload"

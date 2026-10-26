@@ -544,8 +544,12 @@ test("Screenshots are real Chromium captures and referenced with a fresh cache k
   }
 
   const appJsx = fs.readFileSync(path.resolve("src/web/App.jsx"), "utf8");
-  assert.ok(appJsx.includes("01-player-subtitles.png?v=8"));
+  assert.ok(appJsx.includes("01-player-subtitles.png?v=9"));
   const guideJsx = fs.readFileSync(path.resolve("src/web/GuideView.jsx"), "utf8");
-  assert.ok(guideJsx.includes("03-toolbar-popup.png?v=8"));
-  assert.ok(guideJsx.includes("06-api-key-guide.png?v=8"));
+  assert.ok(guideJsx.includes("03-toolbar-popup.png?v=9"));
+  assert.ok(guideJsx.includes("06-api-key-guide.png?v=9"));
+  assert.ok(
+    guideJsx.includes("09-welcome-install-page.png?v=9"),
+    "the setup guide shows the page Chrome opens on install"
+  );
 });

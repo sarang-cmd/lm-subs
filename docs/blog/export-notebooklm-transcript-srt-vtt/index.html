@@ -9,28 +9,32 @@
     <meta name="author" content="Sarang (@sarang-cmd)" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <link rel="canonical" href="https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=4" />
-    <link rel="shortcut icon" href="/favicon.ico?v=4" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
+    <link rel="shortcut icon" href="/favicon.ico?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
     <meta property="og:type" content="article" />
     <meta property="og:title" content="Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV" />
     <meta property="og:description" content="Which subtitle format to use for video editors, web players, study notes, spreadsheets, and Anki decks, plus how timing offsets and speaker labels are preserved on export." />
     <meta property="og:url" content="https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt" />
-    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=7" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <meta property="article:author" content="https://github.com/sarang-cmd" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV" />
     <meta name="twitter:description" content="Which subtitle format to use for video editors, web players, study notes, spreadsheets, and Anki decks, plus how timing offsets and speaker labels are preserved on export." />
-    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=7" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=4" />
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV","description":"Which subtitle format to use for video editors, web players, study notes, spreadsheets, and Anki decks, plus how timing offsets and speaker labels are preserved on export.","url":"https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM transcript export, NotebookLM to SRT, NotebookLM VTT, NotebookLM transcript to Markdown","isAccessibleForFree":true}</script>
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV","description":"Which subtitle format to use for video editors, web players, study notes, spreadsheets, and Anki decks, plus how timing offsets and speaker labels are preserved on export.","url":"https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=7","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM transcript export, NotebookLM to SRT, NotebookLM VTT, NotebookLM transcript to Markdown","isAccessibleForFree":true}</script>
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Can I export captions without installing anything?","acceptedAnswer":{"@type":"Answer","text":"No. NotebookLM does not expose a transcript download for Video Overviews, so captions have to be generated from the audio track first. LM Subs generates them in the browser and then exports in six formats."}},{"@type":"Question","name":"Do exported files include the speaker names?","acceptedAnswer":{"@type":"Answer","text":"Yes, when the speech-to-text provider returns speaker or segment labels and speaker labels are enabled in settings. You can toggle them off for a clean caption track."}},{"@type":"Question","name":"Can I re-import an edited subtitle file?","acceptedAnswer":{"@type":"Answer","text":"Yes. Use the Import control in the caption options to load an edited .SRT, .VTT, or .JSON file back into the player, and it is saved to your transcript library."}}]}</script>
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV","item":"https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt"}]}</script>
   </head>

@@ -9,28 +9,32 @@
     <meta name="author" content="Sarang (@sarang-cmd)" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
     <link rel="canonical" href="https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=4" />
-    <link rel="shortcut icon" href="/favicon.ico?v=4" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
+    <link rel="shortcut icon" href="/favicon.ico?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
     <meta property="og:type" content="article" />
     <meta property="og:title" content="How to add subtitles to NotebookLM Video Overviews (step by step)" />
     <meta property="og:description" content="A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes." />
     <meta property="og:url" content="https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles" />
-    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=7" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <meta property="article:author" content="https://github.com/sarang-cmd" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="How to add subtitles to NotebookLM Video Overviews (step by step)" />
     <meta name="twitter:description" content="A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes." />
-    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png" />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=7" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=4" />
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"How to add subtitles to NotebookLM Video Overviews (step by step)","description":"A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes.","url":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM Video Overview subtitles, add captions to NotebookLM video, NotebookLM SRT export, caption NotebookLM","isAccessibleForFree":true}</script>
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"How to add subtitles to NotebookLM Video Overviews (step by step)","description":"A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as .SRT, .VTT, or Markdown notes.","url":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=7","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM Video Overview subtitles, add captions to NotebookLM video, NotebookLM SRT export, caption NotebookLM","isAccessibleForFree":true}</script>
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How long does caption generation take?","acceptedAnswer":{"@type":"Answer","text":"LM Subs uses a sub-five-second fast path on most Video Overviews by extracting NotebookLM's audio-only stream instead of the full MP4. Very long overviews are chunked and transcribed in parallel."}},{"@type":"Question","name":"Do I have to pay for a speech-to-text provider?","acceptedAnswer":{"@type":"Answer","text":"No. Groq offers roughly eight hours of transcription per day on its permanent free tier and Mistral offers a free Studio tier. Neither requires a credit card. You can also point LM Subs at a local Whisper server and pay nothing at all."}},{"@type":"Question","name":"Does LM Subs upload my NotebookLM video anywhere?","acceptedAnswer":{"@type":"Answer","text":"No video is uploaded. Audio extraction happens in your browser and only the compact audio track is sent to the provider whose key you entered. Captions stay in local browser storage unless you sign in and enable sync."}}]}</script>
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"How to add subtitles to NotebookLM Video Overviews (step by step)","item":"https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles"}]}</script>
   </head>
