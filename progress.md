@@ -4,6 +4,13 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `Unreleased`
+
+### Changed
+* **Wider toolbar popup (`extension/ui.css`):** The popup went from 392px to 480px, comfortably inside Chrome's 800px cap, which gives the update notes, provider rows, and statistics room to breathe. Its statistics strip now keeps the four column layout the settings page uses instead of collapsing to two, and `03-toolbar-popup.png` was recaptured at the new width against live seeded data.
+
+---
+
 ## `v0.2.8` (2026-10-26)
 
 Cuts image weight across the site, shows the product in a two by two gallery, grows the blog to nine guides with real navigation, and gives every app page crawlable HTML so search engines can read it without running JavaScript.
@@ -26,6 +33,7 @@ Cuts image weight across the site, shows the product in a two by two gallery, gr
 
 ### Changed
 * **README restored to the pre-v0.2.5 structure:** The expanded tour was reverted to the tighter four screenshot walkthrough, with download links kept current. The matching pre-v0.2.5 captures (`01-player-subtitles.png`, `02-audio-extraction-failover.png`, `03-toolbar-popup.png`, `04-settings-queue.png`) are back in `docs/assets/screenshots/`, each with a WebP counterpart.
+* **Social preview restored (`docs/assets/banner-social-1280x640.png`):** The pre-v0.2.5 Transformer Video Overview card is back, resized to exactly 1280x640 to match the `og:image:width` and `og:image:height` tags. The v0.2.7 two-panel card and the unused welcome variant are gone, and every reference moved to `?v=9`.
 * **Visible scrollbars removed everywhere (`docs/styles.css`, `extension/ui.css`):** The website and the extension popup and settings page no longer draw scrollbars on any element, including the main page. Everything still scrolls with the wheel, trackpad, keyboard and touch.
 
 ### Improved
