@@ -32,8 +32,8 @@ const GALLERY_SHOTS = [
     src: "/assets/screenshots/08-docked-fine-controls",
     label: "Fine-grained controls",
     caption:
-      "Speed, loop, Picture in Picture, snapshot, volume boost and skip silence, hidden behind one master switch.",
-    alt: "LM Subs fine-grained playback controls docked in the NotebookLM player bar showing speed, loop, PiP and volume boost",
+      "Loop, Picture in Picture, snapshot, volume boost and skip silence, hidden behind one master switch.",
+    alt: "LM Subs fine-grained playback controls docked in the NotebookLM player bar showing loop, PiP, snapshot and volume boost",
   },
   {
     src: "/assets/screenshots/02-statistics-dashboard",

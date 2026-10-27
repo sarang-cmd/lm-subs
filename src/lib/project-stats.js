@@ -4,9 +4,9 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 50751,
-  "nonBlankLoc": 46529,
-  "sourceFiles": 121,
+  "totalLoc": 50688,
+  "nonBlankLoc": 46490,
+  "sourceFiles": 120,
   "automatedTests": 102,
   "testSuites": 15,
   "sttProviders": 12,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 26,
   "postgresTables": 9,
-  "releaseZipKb": 232.8,
+  "releaseZipKb": 233.1,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -43,7 +43,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8427,
+      "loc": 8434,
       "sharePct": 16.6
     },
     {
@@ -74,9 +74,9 @@ export const PROJECT_STATS = Object.freeze({
       "id": "docs_schema_tooling",
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
-      "files": 27,
-      "loc": 4828,
-      "sharePct": 9.5
+      "files": 26,
+      "loc": 4758,
+      "sharePct": 9.4
     },
     {
       "id": "cloud_api",
@@ -92,7 +92,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 56,
       "loc": 34531,
-      "sharePct": 68
+      "sharePct": 68.1
     },
     {
       "label": "React JSX (.jsx)",
@@ -109,14 +109,14 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3417,
-      "sharePct": 6.7
+      "loc": 3424,
+      "sharePct": 6.8
     },
     {
       "label": "Documentation (.md)",
-      "files": 7,
-      "loc": 863,
-      "sharePct": 1.7
+      "files": 6,
+      "loc": 793,
+      "sharePct": 1.6
     },
     {
       "label": "Config & Manifest (.json)",

@@ -82,10 +82,17 @@ body {
 }
 
 body.popup-body {
-  width: 392px;
+  /* Chrome caps toolbar popups at 800px, and the wider surface gives the
+     update notes, provider rows and statistics room to breathe. */
+  width: 480px;
   max-width: 100vw;
   font-size: 13px;
   padding: 0;
+}
+
+/* The popup now has room for the four column strip the settings page uses */
+body.popup-body .stats-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 body.options-body {
