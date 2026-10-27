@@ -26,6 +26,8 @@ Cuts image weight across the site, shows the product in a two by two gallery, gr
 
 ### Changed
 * **README restored to the pre-v0.2.5 structure:** The expanded tour was reverted to the tighter four screenshot walkthrough, with download links kept current. The matching pre-v0.2.5 captures (`01-player-subtitles.png`, `02-audio-extraction-failover.png`, `03-toolbar-popup.png`, `04-settings-queue.png`) are back in `docs/assets/screenshots/`, each with a WebP counterpart.
+* **Social preview restored (`docs/assets/banner-social-1280x640.png`):** The pre-v0.2.5 card is back, the Transformer Video Overview frame with in-video highlighted captions and the bottom play bar CC control, resized to exactly 1280x640 to match the `og:image:width` and `og:image:height` tags. The v0.2.7 two-panel card and the unused welcome variant are gone, and every reference moved to `?v=9`.
+
 * **Visible scrollbars removed everywhere (`docs/styles.css`, `extension/ui.css`):** The website and the extension popup and settings page no longer draw scrollbars on any element, including the main page. Everything still scrolls with the wheel, trackpad, keyboard and touch.
 
 ### Improved

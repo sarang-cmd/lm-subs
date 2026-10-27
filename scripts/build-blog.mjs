@@ -207,7 +207,7 @@ function renderPostPage(post, allPosts) {
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
     datePublished: post.date,
     dateModified: post.dateModified || post.date,
-    image: `${SITE}/assets/banner-social-1280x640.png?v=8`,
+    image: `${SITE}/assets/banner-social-1280x640.png?v=9`,
     author: {
       "@type": "Person",
       name: `${AUTHOR_NAME} (${AUTHOR_HANDLE})`,
@@ -288,7 +288,7 @@ function renderPostPage(post, allPosts) {
     <meta property="og:title" content="${escapeHtml(post.title)}" />
     <meta property="og:description" content="${escapeHtml(post.description)}" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=8" />
+    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=9" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
@@ -300,7 +300,7 @@ ${newer ? `    <link rel="next" href="${SITE}/blog/${newer.slug}" />` : ""}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(post.title)}" />
     <meta name="twitter:description" content="${escapeHtml(post.description)}" />
-    <meta name="twitter:image" content="${SITE}/assets/banner-social-1280x640.png?v=8" />
+    <meta name="twitter:image" content="${SITE}/assets/banner-social-1280x640.png?v=9" />
     <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -475,7 +475,7 @@ function renderIndex(posts) {
     <meta property="og:type" content="website" />
     <meta property="og:title" content="LM Subs blog | Google NotebookLM captions and transcripts" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=8" />
+    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=9" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />

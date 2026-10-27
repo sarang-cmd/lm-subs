@@ -334,10 +334,8 @@ function readPngSize(relPath) {
 }
 
 test("Social previews: real rendered cards at 1280x640 with alt text", () => {
-  const cards = [
-    "docs/assets/banner-social-1280x640.png",
-    "docs/assets/banner-social-welcome-1280x640.png",
-  ];
+  // One card, restored to the pre v0.2.5 Transformer Video Overview render
+  const cards = ["docs/assets/banner-social-1280x640.png"];
   for (const card of cards) {
     const size = readPngSize(card);
     // Published at the exact size declared in the og:image width and height
@@ -348,13 +346,13 @@ test("Social previews: real rendered cards at 1280x640 with alt text", () => {
   }
 
   const index = readRepoFile("docs/index.html");
-  assert.match(index, /og:image[^>]*banner-social-1280x640\.png\?v=8/);
-  assert.match(index, /twitter:image[^>]*banner-social-1280x640\.png\?v=8/);
+  assert.match(index, /og:image[^>]*banner-social-1280x640\.png\?v=9/);
+  assert.match(index, /twitter:image[^>]*banner-social-1280x640\.png\?v=9/);
   assert.match(index, /og:image:alt/);
   assert.match(index, /twitter:image:alt/);
 
   const blogIndex = readRepoFile("docs/blog/index.html");
-  assert.match(blogIndex, /og:image[^>]*banner-social-1280x640\.png\?v=8/);
+  assert.match(blogIndex, /og:image[^>]*banner-social-1280x640\.png\?v=9/);
   assert.match(blogIndex, /og:image:alt/);
 });
 

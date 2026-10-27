@@ -5,7 +5,7 @@
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
   "totalLoc": 50751,
-  "nonBlankLoc": 46529,
+  "nonBlankLoc": 46528,
   "sourceFiles": 121,
   "automatedTests": 102,
   "testSuites": 15,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 26,
   "postgresTables": 9,
-  "releaseZipKb": 232.8,
+  "releaseZipKb": 233,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -59,7 +59,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 15,
-      "loc": 6450,
+      "loc": 6448,
       "sharePct": 12.7
     },
     {
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 27,
-      "loc": 4828,
+      "loc": 4830,
       "sharePct": 9.5
     },
     {
@@ -91,7 +91,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 56,
-      "loc": 34531,
+      "loc": 34529,
       "sharePct": 68
     },
     {
@@ -115,7 +115,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Documentation (.md)",
       "files": 7,
-      "loc": 863,
+      "loc": 865,
       "sharePct": 1.7
     },
     {

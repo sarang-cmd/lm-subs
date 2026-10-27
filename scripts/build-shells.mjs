@@ -24,7 +24,7 @@ const AUTHOR_NAME = "Sarang";
 const AUTHOR_HANDLE = "@sarang-cmd";
 const AUTHOR_URL = "https://github.com/sarang-cmd";
 const VERSION = "0.2.8";
-const BANNER = `${SITE}/assets/banner-social-1280x640.png?v=8`;
+const BANNER = `${SITE}/assets/banner-social-1280x640.png?v=9`;
 
 function nav(current) {
   const links = [
