@@ -6,6 +6,9 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ## `Unreleased`
 
+### Added
+* **Google Search Console verification (`docs/index.html`, `scripts/build-shells.mjs`, `scripts/build-blog.mjs`):** The `google-site-verification` token sits in the `<head>` of all twenty served pages, so the property verifies from any URL. It lives in the page generators rather than only in the committed HTML, which means a rebuild cannot drop it, and a test asserts every built page still carries it.
+
 ### Changed
 * **README shows the current product (`README.md`):** The four pre-v0.2.5 captures are swapped for the ones that match today's build: the player, the statistics dashboard, the toolbar popup, the settings page, and a new section for the page Chrome opens after install. The old text and structure stay as they were.
 * **Player and dock captures refreshed (`docs/assets/screenshots/01-player-subtitles.png`, `08-docked-fine-controls.png`):** Both were taken before the dock fix and still showed the playback speed button that NotebookLM already provides. They are re-rendered in Chromium against the real content script on a mocked NotebookLM Studio page, so the caption line and the seven control dock are what ships today.

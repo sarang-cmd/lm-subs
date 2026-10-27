@@ -588,3 +588,38 @@ test("Screenshots are real Chromium captures and referenced with a fresh cache k
   assert.match(shotComponent, /\.webp\?v=\$\{SHOT_VERSION\}/);
   assert.match(shotComponent, /\.png\?v=\$\{SHOT_VERSION\}/);
 });
+
+test("SEO: every served page carries the Google site verification token", () => {
+  const docsDir = path.resolve("docs");
+  const pages = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (entry.name.endsWith(".html")) pages.push(full);
+    }
+  };
+  walk(docsDir);
+  assert.ok(pages.length >= 15, `expected every built page to exist, found ${pages.length}`);
+
+  const token = "7qXtBUikHAi5IxiEi94jbzxAAUfIvy1K3-osMQS-E_M";
+  for (const file of pages) {
+    const html = fs.readFileSync(file, "utf8");
+    const rel = path.relative(docsDir, file);
+    assert.match(
+      html,
+      new RegExp(`<meta name="google-site-verification" content="${token}" />`),
+      `${rel} is missing the Google site verification tag`
+    );
+    // Search Console only reads the tag inside <head>
+    const head = html.slice(0, html.indexOf("</head>"));
+    assert.ok(
+      head.includes("google-site-verification"),
+      `${rel} must keep the verification tag inside <head>`
+    );
+  }
+});
