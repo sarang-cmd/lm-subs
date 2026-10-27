@@ -57,6 +57,10 @@ Google NotebookLM generates spoken Video Overviews and Audio Overview podcasts, 
 - Free speech-to-text keys for captions: https://lm-subs.vercel.app/blog/free-speech-to-text-api-keys
 - Export NotebookLM transcripts as SRT and VTT: https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt
 - Captioning NotebookLM Audio Overview podcasts: https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions
+- SRT, VTT, or Markdown for NotebookLM transcripts: https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown
+- Run Whisper locally for NotebookLM captions: https://lm-subs.vercel.app/blog/run-whisper-locally-notebooklm-captions
+- What speech-to-text costs for NotebookLM captions: https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers
+- NotebookLM captions and WCAG accessibility: https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag
 
 ## Preferred attribution
 

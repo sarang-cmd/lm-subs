@@ -36,8 +36,9 @@ function renderBlocks(blocks) {
     if (block.t === "p") {
       out.push(`        <p class="section-prose">${block.html}</p>`);
     } else if (block.t === "h2") {
+      const id = slugifyHeading(block.text);
       out.push(
-        `        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">${block.text}</h2>`
+        `        <h2 class="section-heading post-h2" id="${id}" style="font-size: 1.35rem; margin-top: 30px">${block.text}</h2>`
       );
     } else if (block.t === "h3") {
       out.push(
@@ -76,6 +77,32 @@ function renderBlocks(blocks) {
       out.push("            </tbody>");
       out.push("          </table>");
       out.push("        </div>");
+    } else if (block.t === "note") {
+      out.push(
+        `        <aside class="post-note"><p class="post-note-body">${block.html}</p></aside>`
+      );
+    } else if (block.t === "quote") {
+      out.push(
+        `        <blockquote class="post-quote">${block.html}</blockquote>`
+      );
+    } else if (block.t === "figure") {
+      out.push(
+        `        <figure class="product-figure"><picture><source srcset="${block.src}.webp?v=10" type="image/webp" /><img src="${block.src}.png?v=10" alt="${escapeHtml(
+          block.alt
+        )}" width="${block.width || 1280}" height="${block.height || 800}" loading="lazy" decoding="async" /></picture><figcaption>${block.caption}</figcaption></figure>`
+      );
+    } else if (block.t === "code") {
+      out.push(
+        `        <pre class="post-code"><code>${escapeHtml(block.text)}</code></pre>`
+      );
+    } else if (block.t === "steps") {
+      out.push('        <ol class="post-steps">');
+      for (const step of block.items) {
+        out.push(
+          `          <li><span class="post-step-lead">${step.lead}</span><span class="post-step-body">${step.body}</span></li>`
+        );
+      }
+      out.push("        </ol>");
     } else if (block.t === "cta") {
       out.push(
         `        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="${block.href}">${block.label}</a><a class="btn" href="/guide">Read the setup guide</a></div>`
@@ -83,6 +110,60 @@ function renderBlocks(blocks) {
     }
   }
   return out.join("\n");
+}
+
+/**
+ * Slugifies a heading so the table of contents can link to it. Matches the
+ * `id` written onto every `h2` by `renderBlocks`.
+ */
+function slugifyHeading(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Collects the `h2` headings of a post for the sidebar table of contents. */
+function collectHeadings(post) {
+  return post.blocks
+    .filter((b) => b.t === "h2")
+    .map((b) => ({ id: slugifyHeading(b.text), text: b.text }));
+}
+
+/** Rough reading time at 220 words per minute, rounded up to one minute. */
+function readingTime(post) {
+  let words = 0;
+  const count = (value) => {
+    words += String(value || "")
+      .replace(/<[^>]+>/g, " ")
+      .split(/\s+/)
+      .filter(Boolean).length;
+  };
+  for (const block of post.blocks) {
+    if (block.html) count(block.html);
+    if (block.text) count(block.text);
+    if (block.lede) count(block.lede);
+    for (const item of block.items || []) {
+      if (typeof item === "string") count(item);
+      else {
+        count(item.lead);
+        count(item.body);
+      }
+    }
+    for (const row of block.rows || []) {
+      for (const cell of row) count(cell);
+    }
+  }
+  count(post.lede);
+  for (const faq of post.faqs || []) {
+    count(faq.q);
+    count(faq.a);
+  }
+  return {
+    words,
+    minutes: Math.max(1, Math.round(words / 220)),
+  };
 }
 
 function renderFaq(faqs) {
@@ -103,7 +184,19 @@ ${items}`;
 
 function renderPostPage(post, allPosts) {
   const canonical = `${SITE}/blog/${post.slug}`;
-  const related = allPosts.filter((p) => p.slug !== post.slug).slice(0, 3);
+  const index = allPosts.findIndex((p) => p.slug === post.slug);
+  const newer = index > 0 ? allPosts[index - 1] : null;
+  const older = index >= 0 && index < allPosts.length - 1 ? allPosts[index + 1] : null;
+  const related = allPosts
+    .filter((p) => p.slug !== post.slug)
+    .sort((a, b) => {
+      const shared = (p) =>
+        p.keywords.filter((k) => post.keywords.includes(k)).length;
+      return shared(b) - shared(a);
+    })
+    .slice(0, 3);
+  const headings = collectHeadings(post);
+  const read = readingTime(post);
 
   const articleJsonLd = {
     "@context": "https://schema.org",
@@ -114,7 +207,7 @@ function renderPostPage(post, allPosts) {
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
     datePublished: post.date,
     dateModified: post.dateModified || post.date,
-    image: `${SITE}/assets/banner-social-1280x640.png?v=7`,
+    image: `${SITE}/assets/banner-social-1280x640.png?v=8`,
     author: {
       "@type": "Person",
       name: `${AUTHOR_NAME} (${AUTHOR_HANDLE})`,
@@ -132,7 +225,23 @@ function renderPostPage(post, allPosts) {
     articleSection: "Google NotebookLM captions",
     inLanguage: "en",
     keywords: post.keywords.join(", "),
+    wordCount: read.words,
+    timeRequired: `PT${read.minutes}M`,
     isAccessibleForFree: true,
+    articleBody: [
+      post.lede,
+      ...post.blocks
+        .map((b) =>
+          b.html
+            ? b.html
+            : b.text
+              ? b.text
+              : (b.items || []).map((i) => (typeof i === "string" ? i : `${i.lead} ${i.body}`)).join(" ")
+        )
+        .filter(Boolean),
+    ]
+      .join(" ")
+      .replace(/<[^>]+>/g, ""),
   };
 
   const faqJsonLd = post.faqs?.length
@@ -179,15 +288,19 @@ function renderPostPage(post, allPosts) {
     <meta property="og:title" content="${escapeHtml(post.title)}" />
     <meta property="og:description" content="${escapeHtml(post.description)}" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=7" />
+    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=8" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <meta property="article:author" content="${AUTHOR_URL}" />
+    <meta property="article:published_time" content="${post.date}" />
+    <meta property="article:modified_time" content="${post.dateModified || post.date}" />
+${older ? `    <link rel="prev" href="${SITE}/blog/${older.slug}" />` : ""}
+${newer ? `    <link rel="next" href="${SITE}/blog/${newer.slug}" />` : ""}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(post.title)}" />
     <meta name="twitter:description" content="${escapeHtml(post.description)}" />
-    <meta name="twitter:image" content="${SITE}/assets/banner-social-1280x640.png?v=7" />
+    <meta name="twitter:image" content="${SITE}/assets/banner-social-1280x640.png?v=8" />
     <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -220,31 +333,89 @@ function renderPostPage(post, allPosts) {
     </header>
 
     <main id="main-content" class="page-wrap">
-      <article class="section-block">
-        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 14px">
+      <article class="section-block post-article">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 16px">
           <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / ${escapeHtml(post.shortTitle || post.title)}
         </nav>
 
-        <h1 class="section-heading">${escapeHtml(post.title)}</h1>
-        <p class="hint" style="margin-top: 8px">
-          By <a class="link" href="${AUTHOR_URL}" target="_blank" rel="noopener noreferrer">${AUTHOR_NAME} (${AUTHOR_HANDLE})</a>, creator of LM Subs. Published ${post.date}.
-        </p>
-        <p class="section-prose" style="font-size: 17px">${post.lede}</p>
+        <p class="post-kicker">${escapeHtml(post.category || "NotebookLM captions")}<span class="post-kicker-dot" aria-hidden="true">.</span>${read.minutes} min read</p>
+        <h1 class="section-heading post-title">${escapeHtml(post.title)}</h1>
+        <p class="post-lede">${post.lede}</p>
 
+        <div class="post-byline">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <span class="post-byline-text">
+            <a class="link" href="${AUTHOR_URL}" target="_blank" rel="noopener noreferrer">${AUTHOR_NAME} (${AUTHOR_HANDLE})</a>, creator of LM Subs.
+            <span class="post-byline-meta">Published ${post.date}. ${read.words} words.</span>
+          </span>
+        </div>
+
+        <div class="post-shell">
+          <div class="post-main">
 ${renderBlocks(post.blocks)}
 ${renderFaq(post.faqs)}
+          </div>
 
-        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Related reading</h2>
-        <ul class="prose-list">
+          <aside class="post-side">
+            <nav class="post-toc" aria-label="On this page">
+              <p class="post-toc-title">On this page</p>
+              <ol class="post-toc-list">
+${headings
+  .map(
+    (h) =>
+      `                <li><a class="post-toc-link" href="#${h.id}">${escapeHtml(h.text)}</a></li>`
+  )
+  .join("\n")}
+              </ol>
+            </nav>
+            <div class="post-side-card">
+              <p class="post-side-title">Try it while you read</p>
+              <p class="post-side-body">LM Subs captions Video Overviews and Audio Overviews in the browser, then exports SRT, VTT, TXT, MD, CSV or JSON.</p>
+              <a class="btn btn-ink btn-sm" href="/welcome">Set up in two minutes</a>
+            </div>
+          </aside>
+        </div>
+
+        <nav class="post-nav" aria-label="More posts">
+${older
+  ? `          <a class="post-nav-link" href="/blog/${older.slug}" rel="prev">
+            <span class="post-nav-dir">Previous</span>
+            <span class="post-nav-title">${escapeHtml(older.shortTitle || older.title)}</span>
+          </a>`
+  : `          <span class="post-nav-link is-empty"><span class="post-nav-dir">Previous</span><span class="post-nav-title">You are at the oldest post</span></span>`}
+${newer
+  ? `          <a class="post-nav-link is-next" href="/blog/${newer.slug}" rel="next">
+            <span class="post-nav-dir">Next</span>
+            <span class="post-nav-title">${escapeHtml(newer.shortTitle || newer.title)}</span>
+          </a>`
+  : `          <span class="post-nav-link is-next is-empty"><span class="post-nav-dir">Next</span><span class="post-nav-title">You are at the newest post</span></span>`}
+        </nav>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 40px">Related reading</h2>
+        <div class="related-grid">
 ${related
   .map(
     (r) =>
-      `          <li><a class="link" href="/blog/${r.slug}">${escapeHtml(r.title)}</a></li>`
+      `          <a class="related-card" href="/blog/${r.slug}">
+            <span class="related-kicker">${escapeHtml(r.category || "NotebookLM captions")}</span>
+            <span class="related-title">${escapeHtml(r.shortTitle || r.title)}</span>
+            <span class="related-desc">${escapeHtml(r.description).slice(0, 132)}...</span>
+          </a>`
   )
   .join("\n")}
-        </ul>
+        </div>
+
+        <div class="author-box">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <div>
+            <p class="author-name">${AUTHOR_NAME} (${AUTHOR_HANDLE})</p>
+            <p class="author-bio">Computer science student and agentic engineer in Germany. Builds LM Subs, an open source captioning extension for Google NotebookLM, and writes these guides from the same code base the extension ships from.</p>
+            <p class="author-links"><a class="link" href="${AUTHOR_URL}" target="_blank" rel="noopener noreferrer">GitHub</a> <a class="link" href="/about">More about the project</a></p>
+          </div>
+        </div>
       </article>
     </main>
+
 
     <footer class="site-footer">
       <div class="site-footer-inner">
@@ -273,6 +444,8 @@ ${related
 
 function renderIndex(posts) {
   const canonical = `${SITE}/blog`;
+  const lead = posts[0];
+  const rest = posts.slice(1);
   const itemListJsonLd = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -302,7 +475,7 @@ function renderIndex(posts) {
     <meta property="og:type" content="website" />
     <meta property="og:title" content="LM Subs blog | Google NotebookLM captions and transcripts" />
     <meta property="og:url" content="${canonical}" />
-    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=7" />
+    <meta property="og:image" content="${SITE}/assets/banner-social-1280x640.png?v=8" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
@@ -341,18 +514,30 @@ function renderIndex(posts) {
         <p class="section-prose" style="font-size: 17px; max-width: 720px">
           Practical, tested guides about captions, subtitles, and transcript export for Google NotebookLM Video Overviews and Audio Overview podcasts. Written and maintained by ${AUTHOR_NAME} (${AUTHOR_HANDLE}), the creator of LM Subs.
         </p>
+        <p class="hint" style="margin-top: 10px">${posts.length} guides, updated for LM Subs v0.2.8.</p>
 
-${posts
+        <a class="blog-lead" href="/blog/${lead.slug}">
+          <span class="blog-lead-kicker">${escapeHtml(lead.category || "NotebookLM captions")}<span class="post-kicker-dot" aria-hidden="true">.</span>${readingTime(lead).minutes} min read</span>
+          <span class="blog-lead-title">${escapeHtml(lead.title)}</span>
+          <span class="blog-lead-desc">${escapeHtml(lead.description)}</span>
+          <span class="blog-lead-more">Read the guide</span>
+        </a>
+
+        <div class="blog-grid">
+${rest
   .map(
-    (p) => `        <div class="blog-card">
-          <h2 class="section-heading" style="font-size: 1.25rem; margin-bottom: 6px">
-            <a class="link" href="/blog/${p.slug}">${escapeHtml(p.title)}</a>
-          </h2>
-          <p class="hint" style="margin: 0 0 8px">Published ${p.date}</p>
-          <p class="section-prose" style="margin-bottom: 0">${escapeHtml(p.description)}</p>
-        </div>`
+    (p) => `          <a class="blog-card" href="/blog/${p.slug}">
+            <span class="blog-card-top">
+              <span class="blog-card-kicker">${escapeHtml(p.category || "NotebookLM captions")}</span>
+              <time class="blog-card-date" datetime="${p.date}">${p.date}</time>
+            </span>
+            <span class="blog-card-title">${escapeHtml(p.shortTitle || p.title)}</span>
+            <span class="blog-card-desc">${escapeHtml(p.description)}</span>
+            <span class="blog-card-meta">${readingTime(p).minutes} min read</span>
+          </a>`
   )
-  .join("\n\n")}
+  .join("\n")}
+        </div>
       </section>
     </main>
 
@@ -383,6 +568,7 @@ ${posts
 const POSTS = [
   {
     slug: "does-notebooklm-have-captions",
+    category: "Captions basics",
     title: "Does Google NotebookLM have captions or subtitles?",
     shortTitle: "Does NotebookLM have captions?",
     description:
@@ -473,6 +659,7 @@ const POSTS = [
   },
   {
     slug: "notebooklm-video-overview-subtitles",
+    category: "Setup",
     title: "How to add subtitles to NotebookLM Video Overviews (step by step)",
     shortTitle: "Add subtitles to Video Overviews",
     description:
@@ -600,6 +787,7 @@ const POSTS = [
   },
   {
     slug: "free-speech-to-text-api-keys",
+    category: "API keys",
     title: "Free speech-to-text API keys that actually work for captioning in 2026",
     shortTitle: "Free speech-to-text API keys",
     description:
@@ -736,6 +924,7 @@ const POSTS = [
   },
   {
     slug: "export-notebooklm-transcript-srt-vtt",
+    category: "Transcript export",
     title: "Export a NotebookLM transcript as SRT, VTT, Markdown, or CSV",
     shortTitle: "Export NotebookLM transcripts",
     description:
@@ -844,6 +1033,7 @@ const POSTS = [
   },
   {
     slug: "notebooklm-audio-overview-podcast-captions",
+    category: "Audio Overviews",
     title: "Captioning NotebookLM Audio Overviews (the two-host podcast format)",
     shortTitle: "Audio Overview podcast captions",
     description:
@@ -919,6 +1109,511 @@ const POSTS = [
       {
         q: "Can I turn Audio Overview captions off but keep Video Overview captions on?",
         a: "Yes. The Caption Audio Overviews automatically switch in the settings page controls podcasts independently of Video Overviews.",
+      },
+    ],
+  },
+  {
+    slug: "notebooklm-transcript-srt-vs-vtt-vs-markdown",
+    title: "SRT, VTT, or Markdown: which caption format should you export from NotebookLM?",
+    shortTitle: "SRT, VTT, or Markdown?",
+    category: "Transcript export",
+    description:
+      "Every export format LM Subs writes, what it is actually for, and which one to pick for video editors, slide decks, study notes, or spreadsheets.",
+    date: "2026-10-26",
+    keywords: [
+      "NotebookLM SRT export",
+      "WebVTT vs SRT",
+      "NotebookLM transcript markdown",
+      "caption file formats",
+    ],
+    lede:
+      "NotebookLM will not hand you a caption file, so the moment you generate captions you have to choose a format. The choice matters less than people think, but picking the wrong one costs you an afternoon of re-exporting. Here is what each format is good at.",
+    blocks: [
+      {
+        t: "h2",
+        text: "The one line answer",
+      },
+      {
+        t: "table",
+        columns: [
+          { label: "Format" },
+          { label: "Keeps timing" },
+          { label: "Best for" },
+        ],
+        rows: [
+          ["SRT", "Yes", "Video editors, subtitling tools, anything offline"],
+          ["WebVTT (VTT)", "Yes", "Publishing captions on the web"],
+          ["Plain text", "No", "Pasting into chat, email, or a document"],
+          ["Markdown", "No", "Study notes, README files, wikis"],
+          ["CSV", "Yes, as rows", "Spreadsheets and data work"],
+          ["JSON", "Yes, fully", "Scripts and anything you build on top"],
+        ],
+      },
+      {
+        t: "h2",
+        text: "SRT is the format everything reads",
+      },
+      {
+        t: "p",
+        html:
+          "SubRip files are the oldest and most widely accepted caption format in existence. A cue is a number, a line with a start and end timestamp written with a comma before the milliseconds, then the text. Every non linear editor, every hardware player, and every subtitling service accepts it. If you do not know what you need, export SRT.",
+      },
+      {
+        t: "p",
+        html:
+          "The trade-off is that SRT carries no styling. No bold, no italics, no positioning. For NotebookLM narration that is usually fine, because you want the words and the timing, not decoration.",
+      },
+      {
+        t: "h2",
+        text: "WebVTT is the format the web reads",
+      },
+      {
+        t: "p",
+        html:
+          "WebVTT is the standard behind the HTML5 track element. It looks almost identical to SRT, with a WEBVTT header line and a dot instead of a comma before the milliseconds, but it adds cue settings for position, alignment, and line count. If you are publishing the overview on a page you control, VTT is the right choice and SRT is the compatibility fallback.",
+      },
+      {
+        t: "h2",
+        text: "Plain text and Markdown are for reading, not playing",
+      },
+      {
+        t: "p",
+        html:
+          "Both strip the timestamps and give you continuous prose. Markdown keeps heading structure and is the fastest way to turn a twenty minute Video Overview into notes you can search, fold into a README, or paste into a wiki. Plain text is what you want when the destination cannot render anything.",
+      },
+      {
+        t: "note",
+        html:
+          "Export the timing formats first. You can always flatten a timed transcript into prose later, but you cannot recover timing from a Markdown file.",
+      },
+      {
+        t: "h2",
+        text: "CSV and JSON are for building on top",
+      },
+      {
+        t: "p",
+        html:
+          "CSV gives you one row per cue, which is the easiest way to pull a transcript into a spreadsheet, count how often a term appears, or build a vocabulary list. JSON keeps the full structure, including start and end times in seconds, and is the format to use if you plan to feed the transcript into another tool.",
+      },
+      {
+        t: "h2",
+        text: "Which one should you pick",
+      },
+      {
+        t: "steps",
+        items: [
+          {
+            lead: "Editing the video yourself",
+            body: "Export SRT and drop it on the timeline in your editor.",
+          },
+          {
+            lead: "Publishing on a website",
+            body: "Export WebVTT and attach it to the video element with a track tag.",
+          },
+          {
+            lead: "Studying from the overview",
+            body: "Export Markdown, then search it next to your source documents.",
+          },
+          {
+            lead: "Analysing the content",
+            body: "Export CSV for spreadsheets or JSON for scripts.",
+          },
+          {
+            lead: "Unsure",
+            body: "Export SRT. Everything can read it, and re-exporting takes one click.",
+          },
+        ],
+      },
+      {
+        t: "cta",
+        href: "/guide",
+        label: "Set up captions and exports",
+      },
+    ],
+    faqs: [
+      {
+        q: "Can I convert an SRT file into WebVTT later?",
+        a: "Yes. The two formats are close enough that most tools convert them without loss, and you can also re-export from LM Subs in one click because the transcript is stored locally.",
+      },
+      {
+        q: "Do captions keep speaker labels when exported?",
+        a: "For Audio Overviews, yes. Speaker labels are written into the cue text so a two host podcast stays readable in any player that supports the format.",
+      },
+      {
+        q: "Which format does YouTube accept?",
+        a: "YouTube accepts both SRT and WebVTT uploads, along with several others, and treats SRT as the safest common option.",
+      },
+    ],
+  },
+  {
+    slug: "run-whisper-locally-notebooklm-captions",
+    title: "Run Whisper locally for NotebookLM captions (no API key, no upload)",
+    shortTitle: "Run Whisper locally",
+    category: "Local setup",
+    description:
+      "Point LM Subs at a local Whisper server and caption NotebookLM Video Overviews and Audio Overviews entirely on your own machine, with no account and no audio leaving the computer.",
+    date: "2026-10-26",
+    keywords: [
+      "local Whisper NotebookLM",
+      "offline captions NotebookLM",
+      "whisper.cpp",
+      "self hosted speech to text",
+    ],
+    lede:
+      "Bring your own key is the default in LM Subs, but the key does not have to be somebody else's API. Any server that speaks the OpenAI audio transcription protocol can sit behind a localhost URL, and LM Subs will use it exactly like a hosted provider, with zero audio leaving your machine.",
+    blocks: [
+      {
+        t: "h2",
+        text: "Why run it locally",
+      },
+      {
+        t: "ul",
+        items: [
+          "Nothing is uploaded. The extracted audio never leaves the computer, which matters for unpublished research and internal material.",
+          "There is no rate limit and no daily quota, so a long Audio Overview costs the same as a short one.",
+          "It works offline, on a plane or behind a firewall.",
+        ],
+      },
+      {
+        t: "h2",
+        text: "What you need",
+      },
+      {
+        t: "ul",
+        items: [
+          "A machine with Docker installed, or Python if you prefer installing the server directly.",
+          "A few gigabytes of free disk space for the model weights, more if you want the large models.",
+          "Patience on the first run, because the model downloads before the first transcription.",
+        ],
+      },
+      {
+        t: "p",
+        html:
+          "A dedicated GPU makes large models feel instant. On a laptop CPU you will want a small or medium model, and you should expect a ten minute overview to take a couple of minutes rather than a few seconds. Exact times depend heavily on your hardware.",
+      },
+      {
+        t: "h2",
+        text: "Start a local transcription server",
+      },
+      {
+        t: "p",
+        html:
+          "Any OpenAI compatible server works. Speaches is the shortest path, because it ships as a single container and exposes the same endpoint shape the hosted providers use.",
+      },
+      {
+        t: "code",
+        text:
+          "docker run -p 8000:8000 ghcr.io/speaches-ai/speaches:latest-cpu\n\n# then check it answers:\ncurl http://localhost:8000/v1/models",
+      },
+      {
+        t: "p",
+        html:
+          "Faster Whisper server, whisper.cpp with its HTTP layer, and LocalAI are all valid alternatives if you already run one of them for other work.",
+      },
+      {
+        t: "h2",
+        text: "Point LM Subs at it",
+      },
+      {
+        t: "steps",
+        items: [
+          {
+            lead: "Open the settings page",
+            body: "Right click the LM Subs icon in the toolbar and choose Options.",
+          },
+          {
+            lead: "Enable the local provider",
+            body: "Find Local / Custom Whisper URL in the provider list and turn it on.",
+          },
+          {
+            lead: "Set the base URL",
+            body: "Enter http://localhost:8000/v1, exactly the address your server listens on.",
+          },
+          {
+            lead: "Leave the key blank",
+            body: "A local server normally needs no API key. Leave the field empty unless yours requires a token.",
+          },
+          {
+            lead: "Drag it to the top",
+            body: "Put the local provider first in the queue so every request stays on your machine.",
+          },
+        ],
+      },
+      {
+        t: "note",
+        html:
+          "Chrome blocks requests from an https page to http://localhost by default. Loading the local server over https, or allowing insecure localhost content for the NotebookLM origin, resolves it if you see a mixed content error.",
+      },
+      {
+        t: "h2",
+        text: "When the cloud is still the better answer",
+      },
+      {
+        t: "p",
+        html:
+          "If you want captions in a few seconds rather than a couple of minutes, hosted providers win, and the free tiers cover far more than most people use. A sensible setup keeps Groq first for speed, Mistral second as a fallback, and the local server last so a long batch finishes overnight with no cost.",
+      },
+      {
+        t: "cta",
+        href: "/guide",
+        label: "Finish the setup",
+      },
+    ],
+    faqs: [
+      {
+        q: "Does local transcription cost anything?",
+        a: "No money, only electricity and disk space. There is no quota and no account, and the audio stays on your machine.",
+      },
+      {
+        q: "Which model should I download?",
+        a: "Start with a small model, which fits comfortably in a few gigabytes of memory and is fast enough for regular use. Move to a larger model only if you need better accuracy on technical vocabulary or accented speech.",
+      },
+      {
+        q: "Will captions still highlight the current word?",
+        a: "Yes, as long as the server returns timing information. Word level highlighting depends on the timestamps coming back with the transcript, so pick a server and model that return them.",
+      },
+    ],
+  },
+  {
+    slug: "speech-to-text-cost-notebooklm-free-tiers",
+    title: "What speech to text really costs for NotebookLM captions",
+    shortTitle: "What captions actually cost",
+    category: "Costs",
+    description:
+      "A clear breakdown of what LM Subs sends to a speech to text provider, which free tiers cover it, and the point at which paying makes sense.",
+    date: "2026-10-26",
+    keywords: [
+      "NotebookLM caption cost",
+      "Groq free tier limits",
+      "Mistral free API",
+      "speech to text pricing",
+    ],
+    lede:
+      "Captioning a NotebookLM overview is cheaper than most people assume, because the thing you send is not the video. This page explains what actually crosses the network, what the free tiers allow, and when a paid key becomes worth it.",
+    blocks: [
+      {
+        t: "h2",
+        text: "You send audio, not video",
+      },
+      {
+        t: "p",
+        html:
+          "A ten minute Video Overview is roughly 50 MB as an MP4. LM Subs reads the audio track out of the stream in your browser and sends that instead, which for the same overview is around 3 MB. Smaller uploads mean faster responses, fewer rejected requests, and a much lower chance of hitting a provider's payload cap.",
+      },
+      {
+        t: "h2",
+        text: "Free tiers that cover normal use",
+      },
+      {
+        t: "table",
+        columns: [
+          { label: "Provider" },
+          { label: "Free plan" },
+          { label: "Good to know" },
+        ],
+        rows: [
+          [
+            "Groq",
+            "Permanent free plan, no card",
+            "Generous daily audio allowance, so most people never pay",
+          ],
+          [
+            "Mistral",
+            "Free Experiment plan",
+            "No card, needs a phone verification step",
+          ],
+          [
+            "Local Whisper",
+            "Unlimited",
+            "Runs on your machine, no provider involved at all",
+          ],
+        ],
+      },
+      {
+        t: "note",
+        html:
+          "Free tier limits change without notice. Check the provider's own pricing page before you plan around a number, and treat the queue in LM Subs as your safety net rather than any single free plan.",
+      },
+      {
+        t: "h2",
+        text: "When paying starts to make sense",
+      },
+      {
+        t: "ul",
+        items: [
+          "You caption more than a handful of long Audio Overviews every day.",
+          "You need word level timestamps for a language the free models handle poorly.",
+          "You are captioning for a team and do not want to share one free key.",
+          "You want a larger model than the free tier exposes.",
+        ],
+      },
+      {
+        t: "p",
+        html:
+          "Paid speech to text is billed per minute of audio, and the per minute prices are low enough that a long overview costs a fraction of a cent on most providers. The real cost driver is volume, not the individual video.",
+      },
+      {
+        t: "h2",
+        text: "How to keep the bill at zero",
+      },
+      {
+        t: "steps",
+        items: [
+          {
+            lead: "Order the queue by cost",
+            body: "Put Groq first, Mistral second, and a local server last. Failover moves down the list only when a provider refuses the request.",
+          },
+          {
+            lead: "Store one key per provider",
+            body: "Two configured providers beat one, because a rate limit on the first no longer stops your work.",
+          },
+          {
+            lead: "Reuse the transcript",
+            body: "LM Subs caches generated captions per media item, so replaying an overview does not pay for it twice.",
+          },
+          {
+            lead: "Caption what you need",
+            body: "Auto generation is a switch. Turn it off if you only need captions occasionally.",
+          },
+        ],
+      },
+      {
+        t: "cta",
+        href: "/guide",
+        label: "Set up a free key",
+      },
+    ],
+    faqs: [
+      {
+        q: "Is LM Subs itself free?",
+        a: "Yes. The extension is free and MIT licensed. You pay only if you choose a provider that charges, and the recommended starting providers both have permanent free tiers.",
+      },
+      {
+        q: "What happens when a free key runs out of quota?",
+        a: "The provider returns a rate limit response, LM Subs marks that provider as unavailable for the request, and the next provider in your queue takes over automatically.",
+      },
+      {
+        q: "Does an Audio Overview cost more than a Video Overview?",
+        a: "Billing is per minute of audio, so a twenty minute podcast costs more than a three minute video simply because it is longer. There is no separate charge for the Audio Overview format.",
+      },
+    ],
+  },
+  {
+    slug: "notebooklm-captions-accessibility-wcag",
+    title: "NotebookLM captions and accessibility: what WCAG asks for",
+    shortTitle: "Captions and WCAG",
+    category: "Accessibility",
+    description:
+      "What WCAG 2.2 requires for captions and transcripts, where NotebookLM falls short, and how to close the gap for deaf, hard of hearing, and neurodivergent users.",
+    date: "2026-10-26",
+    keywords: [
+      "NotebookLM accessibility",
+      "WCAG captions requirements",
+      "NotebookLM transcript",
+      "Video Overview captions",
+    ],
+    lede:
+      "If you publish or share a NotebookLM Video Overview, captions are not a nice extra. They are a Level A requirement under WCAG 2.2, and NotebookLM does not provide them. This page covers what the standard asks for, what you can automate, and what still needs a human.",
+    blocks: [
+      {
+        t: "h2",
+        text: "The gap",
+      },
+      {
+        t: "p",
+        html:
+          "NotebookLM renders a Video Overview with play, speed, and fullscreen controls, and it renders an Audio Overview with the same set. Neither ships a caption toggle and neither exposes a timed text track, so the narration is unavailable to anyone who cannot hear it.",
+      },
+      {
+        t: "h2",
+        text: "What WCAG 2.2 asks for",
+      },
+      {
+        t: "ul",
+        items: [
+          "SC 1.2.2 Captions (Prerecorded), Level A: synchronised captions for all prerecorded audio in video.",
+          "SC 1.2.1 Audio only and video only, Level A: a transcript for audio only content such as an Audio Overview.",
+          "SC 1.2.3 Audio Description or Media Alternative, Level A: a text alternative that conveys what the visuals show.",
+          "SC 1.2.5 Audio Description, Level AA: actual audio description for prerecorded video.",
+          "SC 1.4.3 Contrast (Minimum), Level AA: caption text needs at least 4.5 to 1 against its background.",
+          "SC 1.4.4 Resize Text, Level AA: text scales to 200 percent without loss of content.",
+        ],
+      },
+      {
+        t: "p",
+        html:
+          "Captions and transcripts cover the first two. Audio description is a different job, because it describes visual information that is not spoken, and no automatic tool does it well yet.",
+      },
+      {
+        t: "h2",
+        text: "Where automation helps and where it does not",
+      },
+      {
+        t: "p",
+        html:
+          "Generating captions from the narration closes the Level A caption and transcript gaps in minutes. The captions are machine generated, which means they inherit whatever the model misheard. For personal use that is usually good enough, and the inline editor lets you correct a cue in place. For anything published, assessment, or legally required, a human pass over the transcript is still the standard.",
+      },
+      {
+        t: "note",
+        html:
+          "Automatic captions are a starting point, not a finished deliverable. Budget one read through before you publish, and pay attention to names, numbers, and technical terms.",
+      },
+      {
+        t: "h2",
+        text: "Practical checklist for an accessible overview",
+      },
+      {
+        t: "steps",
+        items: [
+          {
+            lead: "Generate captions before you share",
+            body: "Captions for Video Overviews, and a caption dock plus transcript for Audio Overviews.",
+          },
+          {
+            lead: "Read the transcript once",
+            body: "Fix the words the model got wrong, especially proper nouns.",
+          },
+          {
+            lead: "Check contrast and size",
+            body: "Caption styling in LM Subs lets you raise size and background opacity until the text is legible on bright slides.",
+          },
+          {
+            lead: "Export a transcript alongside the video",
+            body: "A Markdown or TXT export satisfies the media alternative requirement and helps anyone who would rather read.",
+          },
+          {
+            lead: "Describe the visuals separately",
+            body: "If slides carry meaning the narration never states, write that description by hand.",
+          },
+        ],
+      },
+      {
+        t: "h2",
+        text: "Beyond captions",
+      },
+      {
+        t: "p",
+        html:
+          "Captions help far more than the deaf and hard of hearing audience they were written for. Non native speakers, people working in a quiet office, and anyone who reads faster than speech all benefit from a transcript attached to the timeline.",
+      },
+      {
+        t: "cta",
+        href: "/welcome",
+        label: "Turn on captions",
+      },
+    ],
+    faqs: [
+      {
+        q: "Are automatically generated captions WCAG compliant?",
+        a: "They satisfy the requirement that captions exist and are synchronised, which is SC 1.2.2. Accuracy is a separate quality question, so review them before publishing anything formal.",
+      },
+      {
+        q: "Does an Audio Overview need captions or a transcript?",
+        a: "A transcript satisfies SC 1.2.1 for audio only content. Captions are still useful in practice, and LM Subs provides both.",
+      },
+      {
+        q: "Can I make captions easier to read?",
+        a: "Yes. Caption styling controls cover size, background opacity, and position, so you can reach a comfortable contrast ratio on any slide deck.",
       },
     ],
   },

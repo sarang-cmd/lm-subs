@@ -1040,9 +1040,9 @@ export async function getUpdateStatus(storageArea) {
     if (!saved || typeof saved !== "object") {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.7",
+        currentVersion: "0.2.8",
         currentBuildId: "",
-        latestVersion: "0.2.7",
+        latestVersion: "0.2.8",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -1055,9 +1055,9 @@ export async function getUpdateStatus(storageArea) {
     }
     return {
       updateAvailable: Boolean(saved.updateAvailable),
-      currentVersion: String(saved.currentVersion || "0.2.7"),
+      currentVersion: String(saved.currentVersion || "0.2.8"),
       currentBuildId: String(saved.currentBuildId || ""),
-      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.7"),
+      latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.8"),
       latestBuildId: String(saved.latestBuildId || ""),
       zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
       zipSha256: String(saved.zipSha256 || ""),
@@ -1070,9 +1070,9 @@ export async function getUpdateStatus(storageArea) {
   } catch {
     return {
       updateAvailable: false,
-      currentVersion: "0.2.7",
+      currentVersion: "0.2.8",
       currentBuildId: "",
-      latestVersion: "0.2.7",
+      latestVersion: "0.2.8",
       latestBuildId: "",
       zipUrl: "/releases/lm-subs-latest.zip",
       zipSha256: "",

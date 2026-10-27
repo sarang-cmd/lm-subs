@@ -4,6 +4,36 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ---
 
+## `v0.2.8` (2026-10-26)
+
+Cuts image weight across the site, shows the product in a two by two gallery, grows the blog to nine guides with real navigation, and gives every app page crawlable HTML so search engines can read it without running JavaScript.
+
+### Added
+* **WebP first screenshots (`src/web/ProductShot.jsx`):** Every capture in `docs/assets/screenshots/` now ships a 1600px WebP plus a 1280px PNG fallback behind one `<picture>` element. The nine captures went from 2,016 KB to 595 KB of WebP, roughly a 70 percent cut, and the two social cards are published at exactly the 1280x640 their Open Graph tags declare.
+* **Two by two screenshot gallery (`src/web/App.jsx`, `docs/styles.css`):** A new home page section shows the player, the docked fine grained controls, the statistics dashboard, and the install page in a responsive grid with a uniform 16:10 crop, mono labels, and a hairline frame. Collapses to one column below 760px.
+* **Four new blog guides (`scripts/build-blog.mjs`):** SRT versus VTT versus Markdown, running Whisper locally, the real cost of speech to text, and NotebookLM captions against WCAG. The blog now holds nine posts, each with a category, a reading time, and shared-keyword related reading.
+* **Article navigation and on page index:** Every post carries a sticky table of contents built from its headings, previous and next cards, `rel="prev"` and `rel="next"` link tags, an author box, and a scroll progress bar. `BlogPosting` structured data gained `wordCount`, `timeRequired`, and `articleBody`.
+* **Crawlable app shells (`scripts/build-shells.mjs`):** The setup guide, welcome page, setup wizard, statistics, library, and about pages are generated with descriptions, canonicals, Open Graph tags, and 150 to 250 words of real server-rendered copy inside `#root`, which React replaces on mount. The setup guide carries `HowTo` markup with real steps.
+* **Generated sitemap:** `docs/sitemap.xml` is built from the page list plus the blog directory, so it can no longer drift from the pages that exist. Nineteen URLs with `lastmod`, `changefreq`, and `priority`.
+* **Editorial blog index:** One featured guide above a two column grid, replacing the stack of identical cards.
+
+### Fixed
+* **Caption controls crowding NotebookLM's play bar (`src/content/player-overlay.js`):** The dock buttons are now injected as a single `.lms-dock-group` element instead of eight separate children, which stops the host layout from interleaving them with the native buttons or wrapping them onto a second row. `findRightClusterAnchor` walks from the leftmost right-cluster control (fullscreen, PiP, settings, or captions) up to its top-level child of the bar so the group lands in front of the whole cluster rather than after a flex spacer, and `_fitDockGroupToBar` measures the result and drops the non-essential buttons, keeping CC and options, whenever the group would exceed 45 percent of the bar or make it overflow.
+
+### Removed
+* **Duplicate playback speed button (`src/content/player-overlay.js`):** NotebookLM's own play bar already ships a speed control, so the LM Subs dock no longer adds a second one. The `<` and `>` keyboard shortcuts and the settings page control are untouched.
+* **Article reading progress bar (`scripts/build-blog.mjs`):** The thin bar at the top of each guide was unrequested chrome, so it is gone along with its inline script.
+
+### Changed
+* **README restored to the pre-v0.2.5 structure:** The expanded tour was reverted to the tighter four screenshot walkthrough, with download links kept current. The matching pre-v0.2.5 captures (`01-player-subtitles.png`, `02-audio-extraction-failover.png`, `03-toolbar-popup.png`, `04-settings-queue.png`) are back in `docs/assets/screenshots/`, each with a WebP counterpart.
+* **Visible scrollbars removed everywhere (`docs/styles.css`, `extension/ui.css`):** The website and the extension popup and settings page no longer draw scrollbars on any element, including the main page. Everything still scrolls with the wheel, trackpad, keyboard and touch.
+
+### Improved
+* **Statistics labels match the extension everywhere (`src/web/StatsView.jsx`):** The website now reports Videos captioned, Caption cues, Video upload avoided, and Median speed, the same wording the settings page and popup use, with spoken minutes, cache hits, failovers and exports kept as supporting lines.
+* **`llms.txt` cites every guide**, so AI answer engines have all nine URLs.
+
+---
+
 ## `v0.2.7` (2026-10-26)
 
 Makes long Google NotebookLM Audio Overviews finish reliably, explains every update in the alert itself, and gives every page one shared padding scale.

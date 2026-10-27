@@ -9,6 +9,17 @@
  */
 
 export const RELEASE_NOTES = Object.freeze({
+  "0.2.8": Object.freeze({
+    headline: "A lighter site, a deeper blog, and pages Google can read",
+    highlights: Object.freeze([
+      "Product screenshots load as WebP with a PNG fallback, cutting image weight by roughly two thirds",
+      "The home page shows a two by two gallery of the player, the docked controls, statistics, and the install page",
+      "Four new guides join the blog, and every article carries an on page index, a reading time, and next and previous links",
+      "The setup guide, statistics, library, about, and welcome pages now ship real HTML, so search engines read them without running JavaScript",
+      "Statistics labels match the extension exactly, including caption cues and median speed",
+      "Caption buttons dock as one group in front of NotebookLM’s right-hand cluster, a narrow play bar trims the extras instead of crowding the native controls, and the duplicate playback speed button is gone",
+    ]),
+  }),
   "0.2.7": Object.freeze({
     headline: "Long Audio Overviews finish, and updates explain themselves",
     highlights: Object.freeze([
@@ -30,7 +41,7 @@ export const RELEASE_NOTES = Object.freeze({
   }),
 });
 
-export const LATEST_NOTES_VERSION = "0.2.7";
+export const LATEST_NOTES_VERSION = "0.2.8";
 
 /** Returns `{ version, headline, highlights }` for a version, or null. */
 export function getReleaseNotes(version) {

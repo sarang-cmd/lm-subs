@@ -41,6 +41,12 @@ execFileSync(process.execPath, [path.join(REPO_ROOT, "scripts", "build-blog.mjs"
   stdio: "inherit",
 });
 
+// 1c. Regenerate the crawlable static shells (docs/guide.html, /stats, /about ...)
+execFileSync(process.execPath, [path.join(REPO_ROOT, "scripts", "build-shells.mjs")], {
+  cwd: REPO_ROOT,
+  stdio: "inherit",
+});
+
 const latestMetaJson = fs.existsSync(path.join(DOCS_DIR, "releases", "latest.json"))
   ? fs.readFileSync(path.join(DOCS_DIR, "releases", "latest.json"), "utf8")
   : "";

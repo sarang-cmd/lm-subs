@@ -1179,3 +1179,28 @@ input[type="range"] {
   line-height: 1.5;
   color: var(--ink-secondary);
 }
+
+/* Scrollbars are hidden throughout the extension UI, the same as the website.
+   Every panel still scrolls with the wheel, keyboard and touch. */
+html,
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}

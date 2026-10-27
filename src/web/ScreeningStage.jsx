@@ -190,7 +190,7 @@ export function ScreeningStage() {
                           height: `${barH}px`,
                           borderRadius: "3px",
                           background: activeBar
-                            ? "#3b82f6"
+                            ? "var(--accent)"
                             : "rgba(255, 255, 255, 0.2)",
                           transition: "background-color 150ms ease",
                         }}
@@ -234,7 +234,7 @@ export function ScreeningStage() {
                   captionTheme === "minimal"
                     ? "transparent"
                     : captionTheme === "contrast"
-                      ? "#3b82f6"
+                      ? "var(--accent)"
                       : captionTheme === "amber"
                         ? "rgba(251, 191, 36, 0.35)"
                         : "rgba(255, 255, 255, 0.12)",
@@ -321,6 +321,14 @@ export function ScreeningStage() {
               max={activeSample.durationSec}
               step="0.1"
               value={currentTime}
+              aria-valuetext={`${formatClock(currentTime)} of ${formatClock(activeSample.durationSec)}`}
+              style={{
+                "--pct": `${
+                  activeSample.durationSec > 0
+                    ? Math.min(100, (currentTime / activeSample.durationSec) * 100)
+                    : 0
+                }%`,
+              }}
               onChange={(e) => setCurrentTime(Number(e.target.value))}
             />
 
@@ -340,11 +348,7 @@ export function ScreeningStage() {
                   data-active={ccEnabled ? "true" : "false"}
                   title="Toggle closed captions"
                   onClick={() => setCcEnabled((v) => !v)}
-                  style={{
-                    fontWeight: 700,
-                    letterSpacing: "0.03em",
-                    boxShadow: ccEnabled ? "inset 0 -2px 0 #3b82f6" : "none",
-                  }}
+                  style={{ fontWeight: 700, letterSpacing: "0.03em" }}
                 >
                   CC
                 </button>

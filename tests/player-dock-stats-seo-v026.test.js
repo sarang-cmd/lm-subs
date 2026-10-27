@@ -217,18 +217,23 @@ test("Caption controls dock inside NotebookLM's own play bar and never blink on 
   controller._updateControlsVisibility();
   assert.equal(controller.controlsVisible, true);
 
-  // 5. Advanced mode adds the fine-grained playback buttons to the dock
+  // 5. Advanced mode adds the fine-grained playback buttons to the dock.
+  //    Speed is deliberately absent: NotebookLM's own play bar already ships a
+  //    playback speed control.
   controller.setSettings({ fineGrainedControls: true });
   assert.deepEqual(Object.keys(controller.dockButtons), [
     "cc",
     "options",
-    "speed",
     "loop",
     "pip",
     "snapshot",
     "boost",
     "silence",
   ]);
+  assert.ok(
+    !Object.keys(controller.dockButtons).includes("speed"),
+    "no duplicate speed control, NotebookLM already has one"
+  );
 
   controller.destroy();
 });
@@ -536,20 +541,50 @@ test("Screenshots are real Chromium captures and referenced with a fresh cache k
       "PNG",
       `${file} must be a real PNG`
     );
-    // IHDR width and height
+    // IHDR width and height. Captures are downscaled for weight, so the rule
+    // is "at least 600px on the short edge and 1200px on the long edge".
     const width = buf.readUInt32BE(16);
     const height = buf.readUInt32BE(20);
-    assert.ok(width >= 760 && height >= 600, `${file} must be a full-size capture`);
+    assert.ok(width >= 600 && height >= 600, `${file} must be a full-size capture`);
+    assert.ok(
+      Math.max(width, height) >= 1200,
+      `${file} must keep a high resolution long edge`
+    );
     assert.ok(buf.byteLength > 40_000, `${file} looks like a placeholder render`);
   }
 
+  // Every capture ships a WebP that is markedly lighter than the PNG fallback
+  for (const file of files) {
+    const webp = path.join(shotDir, file.replace(/\.png$/, ".webp"));
+    assert.ok(
+      fs.existsSync(webp),
+      `${file} needs a WebP counterpart so pages stay light`
+    );
+    const pngBytes = fs.statSync(path.join(shotDir, file)).size;
+    const webpBytes = fs.statSync(webp).size;
+    assert.ok(
+      webpBytes < pngBytes,
+      `${file}: WebP (${webpBytes} B) must be smaller than PNG (${pngBytes} B)`
+    );
+  }
+
   const appJsx = fs.readFileSync(path.resolve("src/web/App.jsx"), "utf8");
-  assert.ok(appJsx.includes("01-player-subtitles.png?v=9"));
-  const guideJsx = fs.readFileSync(path.resolve("src/web/GuideView.jsx"), "utf8");
-  assert.ok(guideJsx.includes("03-toolbar-popup.png?v=9"));
-  assert.ok(guideJsx.includes("06-api-key-guide.png?v=9"));
   assert.ok(
-    guideJsx.includes("09-welcome-install-page.png?v=9"),
+    appJsx.includes("/assets/screenshots/01-player-subtitles"),
+    "the home page shows the player capture"
+  );
+  assert.ok(appJsx.includes("ProductShot"), "screenshots render through ProductShot");
+  const guideJsx = fs.readFileSync(path.resolve("src/web/GuideView.jsx"), "utf8");
+  assert.ok(guideJsx.includes("/assets/screenshots/03-toolbar-popup"));
+  assert.ok(guideJsx.includes("/assets/screenshots/06-api-key-guide"));
+  assert.ok(
+    guideJsx.includes("/assets/screenshots/09-welcome-install-page"),
     "the setup guide shows the page Chrome opens on install"
   );
+  const shotComponent = fs.readFileSync(
+    path.resolve("src/web/ProductShot.jsx"),
+    "utf8"
+  );
+  assert.match(shotComponent, /\.webp\?v=\$\{SHOT_VERSION\}/);
+  assert.match(shotComponent, /\.png\?v=\$\{SHOT_VERSION\}/);
 });

@@ -1,18 +1,20 @@
 {
-  "version": "0.2.7",
-  "buildId": "c864e0241076",
+  "version": "0.2.8",
+  "buildId": "88295353dd75",
   "zipUrl": "/releases/lm-subs-latest.zip",
-  "versionedZipUrl": "/releases/lm-subs-v0.2.7.zip",
-  "zipSha256": "fbef106f76a1f26ac23c3ca4969cf51b3d83bc988e1bf8f2e6fc0147d852f4b9",
+  "versionedZipUrl": "/releases/lm-subs-v0.2.8.zip",
+  "zipSha256": "fc416f8fc4accfcee9fd61d9ec5c90aa702d43efbf805e2d768702cd243a1e55",
   "fileCount": 14,
   "notes": {
-    "version": "0.2.7",
-    "headline": "Long Audio Overviews finish, and updates explain themselves",
+    "version": "0.2.8",
+    "headline": "A lighter site, a deeper blog, and pages Google can read",
     "highlights": [
-      "Audio Overviews download across six parallel streams, so a 20 minute podcast no longer outlives the background worker",
-      "The update alert now lists what the new version changes instead of only naming the version",
-      "Every page got roomier padding and wider content gutters, including the welcome page that opens on install",
-      "New social preview cards for the site, blog and install page"
+      "Product screenshots load as WebP with a PNG fallback, cutting image weight by roughly two thirds",
+      "The home page shows a two by two gallery of the player, the docked controls, statistics, and the install page",
+      "Four new guides join the blog, and every article carries an on page index, a reading time, and next and previous links",
+      "The setup guide, statistics, library, about, and welcome pages now ship real HTML, so search engines read them without running JavaScript",
+      "Statistics labels match the extension exactly, including caption cues and median speed",
+      "Caption buttons dock as one group in front of NotebookLM’s right-hand cluster, a narrow play bar trims the extras instead of crowding the native controls, and the duplicate playback speed button is gone"
     ]
   }
 }

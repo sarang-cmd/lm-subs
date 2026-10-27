@@ -737,7 +737,7 @@ async function initOptions() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.7";
+      "0.2.8";
 
     const avail = Boolean(updateStatus?.updateAvailable);
     optUpdateCard.dataset.available = avail ? "true" : "false";

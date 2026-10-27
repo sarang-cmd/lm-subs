@@ -4,25 +4,110 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f6f7f8" />
-    <title>Setup Wizard | LM Subs</title>
-    <meta
-      name="description"
-      content="Interactive two-way setup wizard for LM Subs: pin from Chrome Access requested, save a free Groq key, and caption NotebookLM Video and Audio Overviews."
-    />
+    <title>Interactive setup wizard for LM Subs | LM Subs</title>
+    <meta name="description" content="Two-way setup wizard that detects the LM Subs extension, verifies toolbar pinning, saves a free speech-to-text key, and turns on captions for Google NotebookLM." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/setup" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
     <link rel="shortcut icon" href="/favicon.ico?v=5" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="LM Subs" />
+    <meta property="og:title" content="Interactive setup wizard for LM Subs | LM Subs" />
+    <meta property="og:description" content="Two-way setup wizard that detects the LM Subs extension, verifies toolbar pinning, saves a free speech-to-text key, and turns on captions for Google NotebookLM." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/setup" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Interactive setup wizard for LM Subs | LM Subs" />
+    <meta name="twitter:description" content="Two-way setup wizard that detects the LM Subs extension, verifies toolbar pinning, saves a free speech-to-text key, and turns on captions for Google NotebookLM." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <link rel="stylesheet" href="/styles.css?v=6" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebPage","@id":"https://lm-subs.vercel.app/setup","url":"https://lm-subs.vercel.app/setup","name":"Interactive setup wizard for LM Subs | LM Subs","description":"Two-way setup wizard that detects the LM Subs extension, verifies toolbar pinning, saves a free speech-to-text key, and turns on captions for Google NotebookLM.","isPartOf":{"@type":"WebSite","@id":"https://lm-subs.vercel.app/","url":"https://lm-subs.vercel.app/","name":"LM Subs"},"inLanguage":"en","about":{"@type":"SoftwareApplication","name":"LM Subs","url":"https://lm-subs.vercel.app/"},"author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Interactive setup wizard","item":"https://lm-subs.vercel.app/setup"}]}]}</script>
   </head>
   <body>
-    <div id="root"></div>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link"><span class="brand-mark-text">LM Subs</span></a>
+      <nav class="nav-links" aria-label="Primary">
+        <a class="nav-tab" href="/">Overview</a>
+        <a class="nav-tab" href="/guide">Setup guide</a>
+        <a class="nav-tab" href="/blog">Blog</a>
+        <a class="nav-tab" href="/library">Library</a>
+        <a class="nav-tab" href="/stats">Statistics</a>
+        <a class="nav-tab" href="/about">About</a>
+      </nav>
+      </div>
+    </header>
+
+    <div id="root">
+      <main id="main-content" class="page-wrap">
+        <section class="section-block">
+          <p class="post-kicker">Setup</p>
+          <h1 class="section-heading">Interactive setup wizard</h1>
+          <p class="section-prose" style="font-size: 17px">
+            The wizard talks to the extension directly. It confirms LM Subs is installed, detects whether the icon is pinned, and tests your key with a short request so you know captions will work before you open NotebookLM.
+          </p>
+
+          <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Three checks, in order</h2>
+          <ol class="prose-list">
+            <li>Extension detected: the page pings the extension and reports the installed version.</li>
+            <li>Toolbar pinned: if the icon is hidden in Chrome's puzzle menu, the page shows exactly where to find it.</li>
+            <li>Key saved and tested: paste a Groq, Mistral, or local Whisper URL and run a real test transcription.</li>
+          </ol>
+
+          <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">If the extension is not detected</h2>
+          <p class="section-prose">
+            Most detection failures come from loading the wrong folder. Chrome wants the folder that holds manifest.json directly, not a parent folder that contains it. Reload the extension from <code>chrome://extensions</code> after unzipping, then refresh this page.
+          </p>
+
+          <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">After setup</h2>
+          <p class="section-prose">
+            Open Google NotebookLM, play a Video Overview, and press CC in the play bar. Captions generate in a few seconds, the transcript drawer opens with T, and you can export SRT, VTT, TXT, MD, CSV or JSON from the caption menu. Audio Overview podcasts caption the same way and keep both host labels.
+          </p>
+
+          <p class="section-prose">
+            If you would rather read than click, the <a class="link" href="/guide">setup guide</a> covers the same steps with screenshots, and the <a class="link" href="/blog/notebooklm-video-overview-subtitles">Video Overview walkthrough</a> goes deeper on the caption controls.
+          </p>
+        </section>
+      </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+    </div>
+
     <script type="module" src="/app.js?v=5"></script>
   </body>
 </html>

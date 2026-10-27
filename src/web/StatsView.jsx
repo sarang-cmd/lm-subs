@@ -185,16 +185,15 @@ export function StatsView({ token, user, onOpenSignIn }) {
               </div>
               <div className="kpi-label">Videos captioned</div>
               <div className="kpi-sub">
-                {numFmt.format(totals.totalCues || 0)} synchronized{" "}
-                {Number(totals.totalCues) === 1 ? "cue" : "cues"}
+                {numFmt.format(totals.spokenMinutes || 0)} min spoken audio indexed
               </div>
             </div>
 
             <div className="kpi-cell">
               <div className="kpi-value">
-                {numFmt.format(totals.spokenMinutes || 0)} min
+                {numFmt.format(totals.totalCues || 0)}
               </div>
-              <div className="kpi-label">Spoken audio indexed</div>
+              <div className="kpi-label">Caption cues</div>
               <div className="kpi-sub">
                 {numFmt.format(totals.cloudHitCount || 0)} cross-device cache{" "}
                 {Number(totals.cloudHitCount) === 1 ? "hit" : "hits"}
@@ -217,7 +216,7 @@ export function StatsView({ token, user, onOpenSignIn }) {
                   ? `${(totals.medianLatencyMs / 1000).toFixed(1)}s`
                   : "n/a"}
               </div>
-              <div className="kpi-label">Median caption time</div>
+              <div className="kpi-label">Median speed</div>
               <div className="kpi-sub">
                 {numFmt.format(totals.failoverCount || 0)} rate-limit{" "}
                 {Number(totals.failoverCount) === 1 ? "failover" : "failovers"},{" "}

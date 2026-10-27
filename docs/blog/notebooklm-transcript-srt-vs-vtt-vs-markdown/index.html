@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>SRT, VTT, or Markdown: which caption format should you export from NotebookLM? | LM Subs</title>
+    <meta name="description" content="Every export format LM Subs writes, what it is actually for, and which one to pick for video editors, slide decks, study notes, or spreadsheets." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
+    <link rel="shortcut icon" href="/favicon.ico?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="SRT, VTT, or Markdown: which caption format should you export from NotebookLM?" />
+    <meta property="og:description" content="Every export format LM Subs writes, what it is actually for, and which one to pick for video editors, slide decks, study notes, or spreadsheets." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <meta property="article:author" content="https://github.com/sarang-cmd" />
+    <meta property="article:published_time" content="2026-10-26" />
+    <meta property="article:modified_time" content="2026-10-26" />
+    <link rel="prev" href="https://lm-subs.vercel.app/blog/run-whisper-locally-notebooklm-captions" />
+    <link rel="next" href="https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SRT, VTT, or Markdown: which caption format should you export from NotebookLM?" />
+    <meta name="twitter:description" content="Every export format LM Subs writes, what it is actually for, and which one to pick for video editors, slide decks, study notes, or spreadsheets." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"SRT, VTT, or Markdown: which caption format should you export from NotebookLM?","description":"Every export format LM Subs writes, what it is actually for, and which one to pick for video editors, slide decks, study notes, or spreadsheets.","url":"https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM SRT export, WebVTT vs SRT, NotebookLM transcript markdown, caption file formats","wordCount":588,"timeRequired":"PT3M","isAccessibleForFree":true,"articleBody":"NotebookLM will not hand you a caption file, so the moment you generate captions you have to choose a format. The choice matters less than people think, but picking the wrong one costs you an afternoon of re-exporting. Here is what each format is good at. The one line answer SRT is the format everything reads SubRip files are the oldest and most widely accepted caption format in existence. A cue is a number, a line with a start and end timestamp written with a comma before the milliseconds, then the text. Every non linear editor, every hardware player, and every subtitling service accepts it. If you do not know what you need, export SRT. The trade-off is that SRT carries no styling. No bold, no italics, no positioning. For NotebookLM narration that is usually fine, because you want the words and the timing, not decoration. WebVTT is the format the web reads WebVTT is the standard behind the HTML5 track element. It looks almost identical to SRT, with a WEBVTT header line and a dot instead of a comma before the milliseconds, but it adds cue settings for position, alignment, and line count. If you are publishing the overview on a page you control, VTT is the right choice and SRT is the compatibility fallback. Plain text and Markdown are for reading, not playing Both strip the timestamps and give you continuous prose. Markdown keeps heading structure and is the fastest way to turn a twenty minute Video Overview into notes you can search, fold into a README, or paste into a wiki. Plain text is what you want when the destination cannot render anything. Export the timing formats first. You can always flatten a timed transcript into prose later, but you cannot recover timing from a Markdown file. CSV and JSON are for building on top CSV gives you one row per cue, which is the easiest way to pull a transcript into a spreadsheet, count how often a term appears, or build a vocabulary list. JSON keeps the full structure, including start and end times in seconds, and is the format to use if you plan to feed the transcript into another tool. Which one should you pick Editing the video yourself Export SRT and drop it on the timeline in your editor. Publishing on a website Export WebVTT and attach it to the video element with a track tag. Studying from the overview Export Markdown, then search it next to your source documents. Analysing the content Export CSV for spreadsheets or JSON for scripts. Unsure Export SRT. Everything can read it, and re-exporting takes one click."}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Can I convert an SRT file into WebVTT later?","acceptedAnswer":{"@type":"Answer","text":"Yes. The two formats are close enough that most tools convert them without loss, and you can also re-export from LM Subs in one click because the transcript is stored locally."}},{"@type":"Question","name":"Do captions keep speaker labels when exported?","acceptedAnswer":{"@type":"Answer","text":"For Audio Overviews, yes. Speaker labels are written into the cue text so a two host podcast stays readable in any player that supports the format."}},{"@type":"Question","name":"Which format does YouTube accept?","acceptedAnswer":{"@type":"Answer","text":"YouTube accepts both SRT and WebVTT uploads, along with several others, and treats SRT as the safest common option."}}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"SRT, VTT, or Markdown: which caption format should you export from NotebookLM?","item":"https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown"}]}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link">
+          <span class="brand-mark-text">LM Subs</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-tab" href="/">Overview</a>
+          <a class="nav-tab" href="/guide">Setup guide</a>
+          <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
+          <a class="nav-tab" href="/library">Library</a>
+          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/about">About</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content" class="page-wrap">
+      <article class="section-block post-article">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 16px">
+          <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / SRT, VTT, or Markdown?
+        </nav>
+
+        <p class="post-kicker">Transcript export<span class="post-kicker-dot" aria-hidden="true">.</span>3 min read</p>
+        <h1 class="section-heading post-title">SRT, VTT, or Markdown: which caption format should you export from NotebookLM?</h1>
+        <p class="post-lede">NotebookLM will not hand you a caption file, so the moment you generate captions you have to choose a format. The choice matters less than people think, but picking the wrong one costs you an afternoon of re-exporting. Here is what each format is good at.</p>
+
+        <div class="post-byline">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <span class="post-byline-text">
+            <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>, creator of LM Subs.
+            <span class="post-byline-meta">Published 2026-10-26. 588 words.</span>
+          </span>
+        </div>
+
+        <div class="post-shell">
+          <div class="post-main">
+        <h2 class="section-heading post-h2" id="the-one-line-answer" style="font-size: 1.35rem; margin-top: 30px">The one line answer</h2>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Format</th>
+              <th>Keeps timing</th>
+              <th>Best for</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td>SRT</td>
+                <td>Yes</td>
+                <td>Video editors, subtitling tools, anything offline</td>
+              </tr>
+              <tr>
+                <td>WebVTT (VTT)</td>
+                <td>Yes</td>
+                <td>Publishing captions on the web</td>
+              </tr>
+              <tr>
+                <td>Plain text</td>
+                <td>No</td>
+                <td>Pasting into chat, email, or a document</td>
+              </tr>
+              <tr>
+                <td>Markdown</td>
+                <td>No</td>
+                <td>Study notes, README files, wikis</td>
+              </tr>
+              <tr>
+                <td>CSV</td>
+                <td>Yes, as rows</td>
+                <td>Spreadsheets and data work</td>
+              </tr>
+              <tr>
+                <td>JSON</td>
+                <td>Yes, fully</td>
+                <td>Scripts and anything you build on top</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 class="section-heading post-h2" id="srt-is-the-format-everything-reads" style="font-size: 1.35rem; margin-top: 30px">SRT is the format everything reads</h2>
+        <p class="section-prose">SubRip files are the oldest and most widely accepted caption format in existence. A cue is a number, a line with a start and end timestamp written with a comma before the milliseconds, then the text. Every non linear editor, every hardware player, and every subtitling service accepts it. If you do not know what you need, export SRT.</p>
+        <p class="section-prose">The trade-off is that SRT carries no styling. No bold, no italics, no positioning. For NotebookLM narration that is usually fine, because you want the words and the timing, not decoration.</p>
+        <h2 class="section-heading post-h2" id="webvtt-is-the-format-the-web-reads" style="font-size: 1.35rem; margin-top: 30px">WebVTT is the format the web reads</h2>
+        <p class="section-prose">WebVTT is the standard behind the HTML5 track element. It looks almost identical to SRT, with a WEBVTT header line and a dot instead of a comma before the milliseconds, but it adds cue settings for position, alignment, and line count. If you are publishing the overview on a page you control, VTT is the right choice and SRT is the compatibility fallback.</p>
+        <h2 class="section-heading post-h2" id="plain-text-and-markdown-are-for-reading-not-playing" style="font-size: 1.35rem; margin-top: 30px">Plain text and Markdown are for reading, not playing</h2>
+        <p class="section-prose">Both strip the timestamps and give you continuous prose. Markdown keeps heading structure and is the fastest way to turn a twenty minute Video Overview into notes you can search, fold into a README, or paste into a wiki. Plain text is what you want when the destination cannot render anything.</p>
+        <aside class="post-note"><p class="post-note-body">Export the timing formats first. You can always flatten a timed transcript into prose later, but you cannot recover timing from a Markdown file.</p></aside>
+        <h2 class="section-heading post-h2" id="csv-and-json-are-for-building-on-top" style="font-size: 1.35rem; margin-top: 30px">CSV and JSON are for building on top</h2>
+        <p class="section-prose">CSV gives you one row per cue, which is the easiest way to pull a transcript into a spreadsheet, count how often a term appears, or build a vocabulary list. JSON keeps the full structure, including start and end times in seconds, and is the format to use if you plan to feed the transcript into another tool.</p>
+        <h2 class="section-heading post-h2" id="which-one-should-you-pick" style="font-size: 1.35rem; margin-top: 30px">Which one should you pick</h2>
+        <ol class="post-steps">
+          <li><span class="post-step-lead">Editing the video yourself</span><span class="post-step-body">Export SRT and drop it on the timeline in your editor.</span></li>
+          <li><span class="post-step-lead">Publishing on a website</span><span class="post-step-body">Export WebVTT and attach it to the video element with a track tag.</span></li>
+          <li><span class="post-step-lead">Studying from the overview</span><span class="post-step-body">Export Markdown, then search it next to your source documents.</span></li>
+          <li><span class="post-step-lead">Analysing the content</span><span class="post-step-body">Export CSV for spreadsheets or JSON for scripts.</span></li>
+          <li><span class="post-step-lead">Unsure</span><span class="post-step-body">Export SRT. Everything can read it, and re-exporting takes one click.</span></li>
+        </ol>
+        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="/guide">Set up captions and exports</a><a class="btn" href="/guide">Read the setup guide</a></div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Frequently asked questions</h2>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Can I convert an SRT file into WebVTT later?</h3>
+          <p class="section-prose">Yes. The two formats are close enough that most tools convert them without loss, and you can also re-export from LM Subs in one click because the transcript is stored locally.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Do captions keep speaker labels when exported?</h3>
+          <p class="section-prose">For Audio Overviews, yes. Speaker labels are written into the cue text so a two host podcast stays readable in any player that supports the format.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Which format does YouTube accept?</h3>
+          <p class="section-prose">YouTube accepts both SRT and WebVTT uploads, along with several others, and treats SRT as the safest common option.</p>
+        </div>
+          </div>
+
+          <aside class="post-side">
+            <nav class="post-toc" aria-label="On this page">
+              <p class="post-toc-title">On this page</p>
+              <ol class="post-toc-list">
+                <li><a class="post-toc-link" href="#the-one-line-answer">The one line answer</a></li>
+                <li><a class="post-toc-link" href="#srt-is-the-format-everything-reads">SRT is the format everything reads</a></li>
+                <li><a class="post-toc-link" href="#webvtt-is-the-format-the-web-reads">WebVTT is the format the web reads</a></li>
+                <li><a class="post-toc-link" href="#plain-text-and-markdown-are-for-reading-not-playing">Plain text and Markdown are for reading, not playing</a></li>
+                <li><a class="post-toc-link" href="#csv-and-json-are-for-building-on-top">CSV and JSON are for building on top</a></li>
+                <li><a class="post-toc-link" href="#which-one-should-you-pick">Which one should you pick</a></li>
+              </ol>
+            </nav>
+            <div class="post-side-card">
+              <p class="post-side-title">Try it while you read</p>
+              <p class="post-side-body">LM Subs captions Video Overviews and Audio Overviews in the browser, then exports SRT, VTT, TXT, MD, CSV or JSON.</p>
+              <a class="btn btn-ink btn-sm" href="/welcome">Set up in two minutes</a>
+            </div>
+          </aside>
+        </div>
+
+        <nav class="post-nav" aria-label="More posts">
+          <a class="post-nav-link" href="/blog/run-whisper-locally-notebooklm-captions" rel="prev">
+            <span class="post-nav-dir">Previous</span>
+            <span class="post-nav-title">Run Whisper locally</span>
+          </a>
+          <a class="post-nav-link is-next" href="/blog/notebooklm-audio-overview-podcast-captions" rel="next">
+            <span class="post-nav-dir">Next</span>
+            <span class="post-nav-title">Audio Overview podcast captions</span>
+          </a>
+        </nav>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 40px">Related reading</h2>
+        <div class="related-grid">
+          <a class="related-card" href="/blog/notebooklm-video-overview-subtitles">
+            <span class="related-kicker">Setup</span>
+            <span class="related-title">Add subtitles to Video Overviews</span>
+            <span class="related-desc">A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as ...</span>
+          </a>
+          <a class="related-card" href="/blog/does-notebooklm-have-captions">
+            <span class="related-kicker">Captions basics</span>
+            <span class="related-title">Does NotebookLM have captions?</span>
+            <span class="related-desc">Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does ...</span>
+          </a>
+          <a class="related-card" href="/blog/free-speech-to-text-api-keys">
+            <span class="related-kicker">API keys</span>
+            <span class="related-title">Free speech-to-text API keys</span>
+            <span class="related-desc">Twelve bring-your-own-key speech-to-text providers compared by free tier, timestamp quality, and setup friction, with the exact page...</span>
+          </a>
+        </div>
+
+        <div class="author-box">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <div>
+            <p class="author-name">Sarang (@sarang-cmd)</p>
+            <p class="author-bio">Computer science student and agentic engineer in Germany. Builds LM Subs, an open source captioning extension for Google NotebookLM, and writes these guides from the same code base the extension ships from.</p>
+            <p class="author-links"><a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">GitHub</a> <a class="link" href="/about">More about the project</a></p>
+          </div>
+        </div>
+      </article>
+    </main>
+
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

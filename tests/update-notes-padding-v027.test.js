@@ -340,19 +340,21 @@ test("Social previews: real rendered cards at 1280x640 with alt text", () => {
   ];
   for (const card of cards) {
     const size = readPngSize(card);
-    assert.equal(size.width, 2560, `${card} renders at 2x of 1280`);
-    assert.equal(size.height, 1280, `${card} renders at 2x of 640`);
+    // Published at the exact size declared in the og:image width and height
+    // tags, so scrapers download what the markup promises.
+    assert.equal(size.width, 1280, `${card} is 1280px wide`);
+    assert.equal(size.height, 640, `${card} is 640px tall`);
     assert.ok(size.bytes > 60000, `${card} carries real image data`);
   }
 
   const index = readRepoFile("docs/index.html");
-  assert.match(index, /og:image[^>]*banner-social-1280x640\.png\?v=7/);
-  assert.match(index, /twitter:image[^>]*banner-social-1280x640\.png\?v=7/);
+  assert.match(index, /og:image[^>]*banner-social-1280x640\.png\?v=8/);
+  assert.match(index, /twitter:image[^>]*banner-social-1280x640\.png\?v=8/);
   assert.match(index, /og:image:alt/);
   assert.match(index, /twitter:image:alt/);
 
   const blogIndex = readRepoFile("docs/blog/index.html");
-  assert.match(blogIndex, /og:image[^>]*banner-social-1280x640\.png\?v=7/);
+  assert.match(blogIndex, /og:image[^>]*banner-social-1280x640\.png\?v=8/);
   assert.match(blogIndex, /og:image:alt/);
 });
 
@@ -370,9 +372,15 @@ test("Screenshots: every captured page render exists as a real PNG", () => {
   ];
   for (const shot of shots) {
     const size = readPngSize(`docs/assets/screenshots/${shot}`);
-    assert.ok(size.width >= 760, `${shot} is wide enough`);
+    assert.ok(size.width >= 600, `${shot} is wide enough`);
     assert.ok(size.height >= 600, `${shot} is tall enough`);
+    assert.ok(
+      Math.max(size.width, size.height) >= 1200,
+      `${shot} keeps a high resolution long edge`
+    );
     assert.ok(size.bytes > 40000, `${shot} carries real pixels`);
+    const webp = `docs/assets/screenshots/${shot.replace(/\.png$/, ".webp")}`;
+    assert.ok(fs.existsSync(webp), `${shot} needs a WebP counterpart`);
   }
 });
 
