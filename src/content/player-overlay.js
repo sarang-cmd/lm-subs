@@ -775,7 +775,98 @@ export const DOCK_CSS = `
     border-color: #8ab4f8;
     background-color: rgba(138, 180, 248, 0.18);
   }
+
+  /* All LM Subs buttons live in one group element, so the host page's flex or
+     grid layout treats them as a single unit instead of scattering them
+     between the native buttons or wrapping them onto a second row. */
+  .lms-dock-group {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    flex: 0 0 auto;
+    max-width: 60%;
+    margin: 0 2px;
+    position: relative;
+  }
+
+  .lms-dock-group::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 1px;
+    height: 16px;
+    margin: 0 5px 0 3px;
+    background: rgba(241, 243, 244, 0.28);
+  }
+
+  .lms-dock-group[data-divider="false"]::before {
+    display: none;
+  }
+
+  .lms-dock-group[data-compact="true"] {
+    max-width: 40%;
+  }
 `;
+
+/**
+ * Places the LM Subs dock group directly in front of the host player's
+ * right-hand cluster (fullscreen, PiP, settings, captions). Walking up from the
+ * matched button to its top-level child inside the bar keeps the group out of
+ * nested wrappers, and picking the leftmost match means the group never lands
+ * after a flex spacer or pushes the native buttons off the row.
+ */
+export function findRightClusterAnchor(bar) {
+  if (!bar || typeof bar.querySelectorAll !== "function") return null;
+  const primaryRe =
+    /full ?screen|theater|picture ?-? ?in|\bpip\b|settings|more options|miniplayer/i;
+  const fallbackRe = /caption|subtitle|closed caption/i;
+
+  const collect = (re) => {
+    let best = null;
+    let nodes = [];
+    try {
+      nodes = [...(bar.querySelectorAll?.("button, [role=button], [aria-label]") || [])];
+    } catch {
+      nodes = [];
+    }
+    for (const node of nodes) {
+      if (node.closest?.(".lms-dock-group")) continue;
+      const label = `${node.getAttribute?.("aria-label") || ""} ${
+        node.getAttribute?.("title") || ""
+      } ${node.getAttribute?.("data-tooltip") || ""}`;
+      if (!re.test(label)) continue;
+      const left = Number(node.getBoundingClientRect?.()?.left) || 0;
+      if (!best || left < best.left) best = { node, left };
+    }
+    return best?.node || null;
+  };
+
+  const match = collect(primaryRe) || collect(fallbackRe);
+  if (!match) return null;
+
+  let node = match;
+  try {
+    while (node && node.parentElement && node.parentElement !== bar) {
+      node = node.parentElement;
+    }
+  } catch {
+    return null;
+  }
+  return node && node.parentElement === bar ? node : null;
+}
+
+export function insertDockGroupBeforeRightCluster(bar, group) {
+  if (!bar || !group || typeof bar.insertBefore !== "function") return false;
+  const anchor = findRightClusterAnchor(bar);
+  if (!anchor) return false;
+  try {
+    bar.insertBefore(group, anchor);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function ensureDockStyle(doc) {
   if (!doc || typeof doc.getElementById !== "function") return null;
@@ -1333,6 +1424,14 @@ export class VideoSubtitleController {
       }
     }
     this.dockButtons = {};
+    if (this.dockGroupEl) {
+      try {
+        this.dockGroupEl.remove();
+      } catch {
+        // Ignore
+      }
+      this.dockGroupEl = null;
+    }
     this.nativeControlBar = null;
   }
 
@@ -1360,6 +1459,7 @@ export class VideoSubtitleController {
       const btn = this.doc.createElement("button");
       btn.type = "button";
       btn.className = cc ? "lms-dock-btn lms-dock-cc" : "lms-dock-btn";
+      btn.dataset.lmsKey = key;
       btn.setAttribute("aria-label", label);
       btn.title = label;
       if (cc) {
@@ -1463,43 +1563,87 @@ export class VideoSubtitleController {
       );
     }
 
-    // Insert right before the native fullscreen button when we can find it
-    let anchor = null;
-    try {
-      const kids = [...(bar.children || [])];
-      for (const child of kids) {
-        const label = `${child?.getAttribute?.("aria-label") || ""} ${
-          child?.getAttribute?.("title") || ""
-        }`;
-        if (/full ?screen|theater|pip|picture/i.test(label)) {
-          anchor = child;
-          break;
-        }
+    // One wrapper holds every LM Subs button so the host bar lays them out as
+    // a single unit instead of interleaving them with the native controls.
+    const group = this.doc.createElement("div");
+    group.className = "lms-dock-group";
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "LM Subs caption controls");
+    for (const btn of built) {
+      group.appendChild(btn);
+    }
+    this.dockGroupEl = group;
+
+    const inserted = insertDockGroupBeforeRightCluster(bar, group);
+    if (!inserted) {
+      try {
+        bar.appendChild(group);
+      } catch {
+        // Ignore hostile DOM
       }
-    } catch {
-      anchor = null;
     }
 
-    for (const btn of built) {
-      try {
-        if (anchor && btn.insertBefore) {
-          bar.insertBefore(btn, anchor);
-        } else {
-          bar.appendChild(btn);
-        }
-      } catch {
-        try {
-          bar.appendChild(btn);
-        } catch {
-          // Ignore hostile DOM
-        }
-      }
-    }
+    // A narrow bar cannot hold eight extra buttons without pushing the native
+    // controls off the row, so fall back to CC plus options only.
+    this._fitDockGroupToBar(bar, group, built);
 
     this.host?.setAttribute?.("data-dock", "native");
     this._renderDockButtons();
     this._startControlVisibilitySync();
     return true;
+  }
+
+  /**
+   * Removes the extra dock buttons when the host bar is too narrow to hold
+   * them next to the native controls. CC and the options button always stay;
+   * everything else stays reachable from the caption options popover.
+   */
+  _fitDockGroupToBar(bar, group, built) {
+    if (!bar || !group) return;
+    group.dataset.divider = "true";
+    group.dataset.compact = "false";
+
+    const measure = () => {
+      try {
+        const barRect = bar.getBoundingClientRect?.() || null;
+        const groupRect = group.getBoundingClientRect?.() || null;
+        return {
+          barWidth: Number(barRect?.width) || 0,
+          groupWidth: Number(groupRect?.width) || 0,
+        };
+      } catch {
+        return { barWidth: 0, groupWidth: 0 };
+      }
+    };
+    const overflows = () => {
+      try {
+        return bar.scrollWidth > bar.clientWidth + 2;
+      } catch {
+        return false;
+      }
+    };
+
+    let { barWidth, groupWidth } = measure();
+    if (barWidth <= 0 || groupWidth <= 0) return;
+
+    const essential = new Set(["cc", "options"]);
+    const extras = built
+      .filter((btn) => btn && !essential.has(btn.dataset?.lmsKey))
+      .reverse();
+
+    let compacted = false;
+    for (const btn of extras) {
+      if (groupWidth <= barWidth * 0.45 && !overflows()) break;
+      try {
+        btn.remove();
+        compacted = true;
+      } catch {
+        // Ignore hostile DOM
+      }
+      ({ barWidth, groupWidth } = measure());
+    }
+
+    group.dataset.compact = compacted ? "true" : "false";
   }
 
   _renderDockButtons() {

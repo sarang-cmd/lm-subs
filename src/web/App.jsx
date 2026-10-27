@@ -6,6 +6,7 @@ import { AuthDialog } from "./AuthDialog.jsx";
 import { GuideView } from "./GuideView.jsx";
 import { LibraryView, SyncPreferencesSwitches } from "./LibraryView.jsx";
 import { NotificationCenter } from "./NotificationCenter.jsx";
+import { ProductShot } from "./ProductShot.jsx";
 import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
 import { StatsView } from "./StatsView.jsx";
@@ -13,6 +14,42 @@ import { WelcomeView } from "./WelcomeView.jsx";
 
 const TOKEN_STORAGE_KEY = "lmsubs_web_session_token";
 const ALL_PROVIDERS = listProviderSpecs();
+
+/**
+ * The two-by-two screenshot gallery. WebP is the primary format because it
+ * cuts these captures from roughly 200 KB to under 90 KB each; the PNG is the
+ * fallback for browsers without WebP support.
+ */
+const GALLERY_SHOTS = [
+  {
+    src: "/assets/screenshots/01-player-subtitles",
+    label: "Video Overview player",
+    caption:
+      "Spoken words highlight inside the video frame while CC and Transcript controls sit in the bottom play bar.",
+    alt: "NotebookLM Video Overview playing with LM Subs captions highlighting the current spoken word and CC controls docked in the play bar",
+  },
+  {
+    src: "/assets/screenshots/08-docked-fine-controls",
+    label: "Fine-grained controls",
+    caption:
+      "Speed, loop, Picture in Picture, snapshot, volume boost and skip silence, hidden behind one master switch.",
+    alt: "LM Subs fine-grained playback controls docked in the NotebookLM player bar showing speed, loop, PiP and volume boost",
+  },
+  {
+    src: "/assets/screenshots/02-statistics-dashboard",
+    label: "Statistics dashboard",
+    caption:
+      "Watch time, listening time, exports and per-provider usage, identical to the numbers in the extension settings.",
+    alt: "LM Subs statistics dashboard showing watch time, listening time, export counts and per-provider usage charts",
+  },
+  {
+    src: "/assets/screenshots/09-welcome-install-page",
+    label: "Page that opens on install",
+    caption:
+      "Setup finishes itself: pin the extension, paste one free API key, then press CC on any overview.",
+    alt: "LM Subs install page that opens in a new tab after loading the extension, showing the pin, API key and caption steps",
+  },
+];
 
 function resolveInitialView() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -423,7 +460,7 @@ export function App() {
             )}
             <a
               className="btn btn-sm btn-primary"
-              href="/releases/lm-subs-v0.2.7.zip"
+              href="/releases/lm-subs-v0.2.8.zip"
               download
               onClick={handleStartDownloadSetup}
             >
@@ -448,7 +485,7 @@ export function App() {
                 <div className="hero-cta-row">
                   <a
                     className="btn btn-primary"
-                    href="/releases/lm-subs-v0.2.7.zip"
+                    href="/releases/lm-subs-v0.2.8.zip"
                     download
                     onClick={handleStartDownloadSetup}
                   >
@@ -472,7 +509,7 @@ export function App() {
                   </button>
                 </div>
                 <div className="hero-footnote">
-                  Open-source MIT Chrome extension (v0.2.7). Bring your own free-tier Groq, Mistral, or Gemini key.
+                  Open-source MIT Chrome extension (v0.2.8). Bring your own free-tier Groq, Mistral, or Gemini key.
                 </div>
               </div>
 
@@ -499,7 +536,7 @@ export function App() {
                     </button>
                     <a
                       className="btn"
-                      href="/releases/lm-subs-v0.2.7.zip"
+                      href="/releases/lm-subs-v0.2.8.zip"
                       download
                       onClick={handleStartDownloadSetup}
                     >
@@ -521,7 +558,7 @@ export function App() {
                   >
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Download and unzip:</strong>{" "}
-                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.7.zip</code> and extract it into a regular folder in your Documents folder.
+                      Save <code style={{ fontFamily: "var(--font-mono)" }}>lm-subs-v0.2.8.zip</code> and extract it into a regular folder in your Documents folder.
                     </li>
                     <li>
                       <strong style={{ color: "var(--ink)" }}>Load and pin from top of menu:</strong>{" "}
@@ -601,18 +638,41 @@ export function App() {
                   </div>
 
                   <figure className="product-figure">
-                    <img
-                      src="/assets/screenshots/01-player-subtitles.png?v=9"
+                    <ProductShot
+                      src="/assets/screenshots/01-player-subtitles"
                       alt="LM Subs highlighted spoken-word captions and bottom play-bar CC controls inside a Google NotebookLM Video Overview player"
-                      width="1280"
-                      height="800"
-                      loading="lazy"
                     />
                     <figcaption>
                       Highlighted spoken-word captions inside the video frame with compact CC and Transcript controls docked in the bottom play bar.
                     </figcaption>
                   </figure>
                 </div>
+              </div>
+            </section>
+
+            {/* 3b. Real screenshots, two by two */}
+            <section className="section-block">
+              <h2 className="section-heading">
+                Four surfaces, captured in a real browser
+              </h2>
+              <p className="section-prose" style={{ marginBottom: "6px" }}>
+                Every image on this site is a screenshot of the extension
+                running in Chromium, not a mockup. Captions sit inside the
+                player, controls dock in NotebookLM’s own play bar, and the
+                numbers below are the same ones the extension reports in its
+                settings page.
+              </p>
+
+              <div className="shot-grid">
+                {GALLERY_SHOTS.map((shot) => (
+                  <figure className="shot-cell" key={shot.src}>
+                    <ProductShot src={shot.src} alt={shot.alt} />
+                    <figcaption>
+                      <span className="shot-label">{shot.label}</span>
+                      <span className="shot-caption">{shot.caption}</span>
+                    </figcaption>
+                  </figure>
+                ))}
               </div>
             </section>
 
@@ -809,7 +869,7 @@ export function App() {
       <footer className="site-footer">
         <div className="site-footer-inner">
           <div>
-            <strong>LM Subs</strong> (v0.2.7, MIT License) by{" "}
+            <strong>LM Subs</strong> (v0.2.8, MIT License) by{" "}
             <a
               className="link"
               href="/about"

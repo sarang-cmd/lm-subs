@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>What speech to text really costs for NotebookLM captions | LM Subs</title>
+    <meta name="description" content="A clear breakdown of what LM Subs sends to a speech to text provider, which free tiers cover it, and the point at which paying makes sense." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
+    <link rel="shortcut icon" href="/favicon.ico?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="What speech to text really costs for NotebookLM captions" />
+    <meta property="og:description" content="A clear breakdown of what LM Subs sends to a speech to text provider, which free tiers cover it, and the point at which paying makes sense." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <meta property="article:author" content="https://github.com/sarang-cmd" />
+    <meta property="article:published_time" content="2026-10-26" />
+    <meta property="article:modified_time" content="2026-10-26" />
+    <link rel="prev" href="https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag" />
+    <link rel="next" href="https://lm-subs.vercel.app/blog/run-whisper-locally-notebooklm-captions" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="What speech to text really costs for NotebookLM captions" />
+    <meta name="twitter:description" content="A clear breakdown of what LM Subs sends to a speech to text provider, which free tiers cover it, and the point at which paying makes sense." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"What speech to text really costs for NotebookLM captions","description":"A clear breakdown of what LM Subs sends to a speech to text provider, which free tiers cover it, and the point at which paying makes sense.","url":"https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM caption cost, Groq free tier limits, Mistral free API, speech to text pricing","wordCount":486,"timeRequired":"PT2M","isAccessibleForFree":true,"articleBody":"Captioning a NotebookLM overview is cheaper than most people assume, because the thing you send is not the video. This page explains what actually crosses the network, what the free tiers allow, and when a paid key becomes worth it. You send audio, not video A ten minute Video Overview is roughly 50 MB as an MP4. LM Subs reads the audio track out of the stream in your browser and sends that instead, which for the same overview is around 3 MB. Smaller uploads mean faster responses, fewer rejected requests, and a much lower chance of hitting a provider's payload cap. Free tiers that cover normal use Free tier limits change without notice. Check the provider's own pricing page before you plan around a number, and treat the queue in LM Subs as your safety net rather than any single free plan. When paying starts to make sense You caption more than a handful of long Audio Overviews every day. You need word level timestamps for a language the free models handle poorly. You are captioning for a team and do not want to share one free key. You want a larger model than the free tier exposes. Paid speech to text is billed per minute of audio, and the per minute prices are low enough that a long overview costs a fraction of a cent on most providers. The real cost driver is volume, not the individual video. How to keep the bill at zero Order the queue by cost Put Groq first, Mistral second, and a local server last. Failover moves down the list only when a provider refuses the request. Store one key per provider Two configured providers beat one, because a rate limit on the first no longer stops your work. Reuse the transcript LM Subs caches generated captions per media item, so replaying an overview does not pay for it twice. Caption what you need Auto generation is a switch. Turn it off if you only need captions occasionally."}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is LM Subs itself free?","acceptedAnswer":{"@type":"Answer","text":"Yes. The extension is free and MIT licensed. You pay only if you choose a provider that charges, and the recommended starting providers both have permanent free tiers."}},{"@type":"Question","name":"What happens when a free key runs out of quota?","acceptedAnswer":{"@type":"Answer","text":"The provider returns a rate limit response, LM Subs marks that provider as unavailable for the request, and the next provider in your queue takes over automatically."}},{"@type":"Question","name":"Does an Audio Overview cost more than a Video Overview?","acceptedAnswer":{"@type":"Answer","text":"Billing is per minute of audio, so a twenty minute podcast costs more than a three minute video simply because it is longer. There is no separate charge for the Audio Overview format."}}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"What speech to text really costs for NotebookLM captions","item":"https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers"}]}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link">
+          <span class="brand-mark-text">LM Subs</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-tab" href="/">Overview</a>
+          <a class="nav-tab" href="/guide">Setup guide</a>
+          <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
+          <a class="nav-tab" href="/library">Library</a>
+          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/about">About</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="read-progress" aria-hidden="true"><span class="read-progress-bar" id="read-progress"></span></div>
+
+    <main id="main-content" class="page-wrap">
+      <article class="section-block post-article">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 16px">
+          <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / What captions actually cost
+        </nav>
+
+        <p class="post-kicker">Costs<span class="post-kicker-dot" aria-hidden="true">.</span>2 min read</p>
+        <h1 class="section-heading post-title">What speech to text really costs for NotebookLM captions</h1>
+        <p class="post-lede">Captioning a NotebookLM overview is cheaper than most people assume, because the thing you send is not the video. This page explains what actually crosses the network, what the free tiers allow, and when a paid key becomes worth it.</p>
+
+        <div class="post-byline">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <span class="post-byline-text">
+            <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>, creator of LM Subs.
+            <span class="post-byline-meta">Published 2026-10-26. 486 words.</span>
+          </span>
+        </div>
+
+        <div class="post-shell">
+          <div class="post-main">
+        <h2 class="section-heading post-h2" id="you-send-audio-not-video" style="font-size: 1.35rem; margin-top: 30px">You send audio, not video</h2>
+        <p class="section-prose">A ten minute Video Overview is roughly 50 MB as an MP4. LM Subs reads the audio track out of the stream in your browser and sends that instead, which for the same overview is around 3 MB. Smaller uploads mean faster responses, fewer rejected requests, and a much lower chance of hitting a provider's payload cap.</p>
+        <h2 class="section-heading post-h2" id="free-tiers-that-cover-normal-use" style="font-size: 1.35rem; margin-top: 30px">Free tiers that cover normal use</h2>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>Provider</th>
+              <th>Free plan</th>
+              <th>Good to know</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td>Groq</td>
+                <td>Permanent free plan, no card</td>
+                <td>Generous daily audio allowance, so most people never pay</td>
+              </tr>
+              <tr>
+                <td>Mistral</td>
+                <td>Free Experiment plan</td>
+                <td>No card, needs a phone verification step</td>
+              </tr>
+              <tr>
+                <td>Local Whisper</td>
+                <td>Unlimited</td>
+                <td>Runs on your machine, no provider involved at all</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <aside class="post-note"><p class="post-note-body">Free tier limits change without notice. Check the provider's own pricing page before you plan around a number, and treat the queue in LM Subs as your safety net rather than any single free plan.</p></aside>
+        <h2 class="section-heading post-h2" id="when-paying-starts-to-make-sense" style="font-size: 1.35rem; margin-top: 30px">When paying starts to make sense</h2>
+        <ul class="prose-list">
+          <li>You caption more than a handful of long Audio Overviews every day.</li>
+          <li>You need word level timestamps for a language the free models handle poorly.</li>
+          <li>You are captioning for a team and do not want to share one free key.</li>
+          <li>You want a larger model than the free tier exposes.</li>
+        </ul>
+        <p class="section-prose">Paid speech to text is billed per minute of audio, and the per minute prices are low enough that a long overview costs a fraction of a cent on most providers. The real cost driver is volume, not the individual video.</p>
+        <h2 class="section-heading post-h2" id="how-to-keep-the-bill-at-zero" style="font-size: 1.35rem; margin-top: 30px">How to keep the bill at zero</h2>
+        <ol class="post-steps">
+          <li><span class="post-step-lead">Order the queue by cost</span><span class="post-step-body">Put Groq first, Mistral second, and a local server last. Failover moves down the list only when a provider refuses the request.</span></li>
+          <li><span class="post-step-lead">Store one key per provider</span><span class="post-step-body">Two configured providers beat one, because a rate limit on the first no longer stops your work.</span></li>
+          <li><span class="post-step-lead">Reuse the transcript</span><span class="post-step-body">LM Subs caches generated captions per media item, so replaying an overview does not pay for it twice.</span></li>
+          <li><span class="post-step-lead">Caption what you need</span><span class="post-step-body">Auto generation is a switch. Turn it off if you only need captions occasionally.</span></li>
+        </ol>
+        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="/guide">Set up a free key</a><a class="btn" href="/guide">Read the setup guide</a></div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Frequently asked questions</h2>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Is LM Subs itself free?</h3>
+          <p class="section-prose">Yes. The extension is free and MIT licensed. You pay only if you choose a provider that charges, and the recommended starting providers both have permanent free tiers.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">What happens when a free key runs out of quota?</h3>
+          <p class="section-prose">The provider returns a rate limit response, LM Subs marks that provider as unavailable for the request, and the next provider in your queue takes over automatically.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Does an Audio Overview cost more than a Video Overview?</h3>
+          <p class="section-prose">Billing is per minute of audio, so a twenty minute podcast costs more than a three minute video simply because it is longer. There is no separate charge for the Audio Overview format.</p>
+        </div>
+          </div>
+
+          <aside class="post-side">
+            <nav class="post-toc" aria-label="On this page">
+              <p class="post-toc-title">On this page</p>
+              <ol class="post-toc-list">
+                <li><a class="post-toc-link" href="#you-send-audio-not-video">You send audio, not video</a></li>
+                <li><a class="post-toc-link" href="#free-tiers-that-cover-normal-use">Free tiers that cover normal use</a></li>
+                <li><a class="post-toc-link" href="#when-paying-starts-to-make-sense">When paying starts to make sense</a></li>
+                <li><a class="post-toc-link" href="#how-to-keep-the-bill-at-zero">How to keep the bill at zero</a></li>
+              </ol>
+            </nav>
+            <div class="post-side-card">
+              <p class="post-side-title">Try it while you read</p>
+              <p class="post-side-body">LM Subs captions Video Overviews and Audio Overviews in the browser, then exports SRT, VTT, TXT, MD, CSV or JSON.</p>
+              <a class="btn btn-ink btn-sm" href="/welcome">Set up in two minutes</a>
+            </div>
+          </aside>
+        </div>
+
+        <nav class="post-nav" aria-label="More posts">
+          <a class="post-nav-link" href="/blog/notebooklm-captions-accessibility-wcag" rel="prev">
+            <span class="post-nav-dir">Previous</span>
+            <span class="post-nav-title">Captions and WCAG</span>
+          </a>
+          <a class="post-nav-link is-next" href="/blog/run-whisper-locally-notebooklm-captions" rel="next">
+            <span class="post-nav-dir">Next</span>
+            <span class="post-nav-title">Run Whisper locally</span>
+          </a>
+        </nav>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 40px">Related reading</h2>
+        <div class="related-grid">
+          <a class="related-card" href="/blog/does-notebooklm-have-captions">
+            <span class="related-kicker">Captions basics</span>
+            <span class="related-title">Does NotebookLM have captions?</span>
+            <span class="related-desc">Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does ...</span>
+          </a>
+          <a class="related-card" href="/blog/notebooklm-video-overview-subtitles">
+            <span class="related-kicker">Setup</span>
+            <span class="related-title">Add subtitles to Video Overviews</span>
+            <span class="related-desc">A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as ...</span>
+          </a>
+          <a class="related-card" href="/blog/free-speech-to-text-api-keys">
+            <span class="related-kicker">API keys</span>
+            <span class="related-title">Free speech-to-text API keys</span>
+            <span class="related-desc">Twelve bring-your-own-key speech-to-text providers compared by free tier, timestamp quality, and setup friction, with the exact page...</span>
+          </a>
+        </div>
+
+        <div class="author-box">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <div>
+            <p class="author-name">Sarang (@sarang-cmd)</p>
+            <p class="author-bio">Computer science student and agentic engineer in Germany. Builds LM Subs, an open source captioning extension for Google NotebookLM, and writes these guides from the same code base the extension ships from.</p>
+            <p class="author-links"><a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">GitHub</a> <a class="link" href="/about">More about the project</a></p>
+          </div>
+        </div>
+      </article>
+    </main>
+
+    <script>
+      (function () {
+        var bar = document.getElementById("read-progress");
+        if (!bar) return;
+        var frame = 0;
+        function paint() {
+          frame = 0;
+          var doc = document.documentElement;
+          var max = doc.scrollHeight - window.innerHeight;
+          var pct = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+          bar.style.transform = "scaleX(" + pct + ")";
+        }
+        window.addEventListener(
+          "scroll",
+          function () {
+            if (frame) return;
+            frame = requestAnimationFrame(paint);
+          },
+          { passive: true }
+        );
+        paint();
+      })();
+    </script>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

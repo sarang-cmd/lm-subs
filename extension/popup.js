@@ -227,6 +227,17 @@
 
   // src/lib/release-notes.js
   var RELEASE_NOTES = Object.freeze({
+    "0.2.8": Object.freeze({
+      headline: "A lighter site, a deeper blog, and pages Google can read",
+      highlights: Object.freeze([
+        "Product screenshots load as WebP with a PNG fallback, cutting image weight by roughly two thirds",
+        "The home page shows a two by two gallery of the player, the docked controls, statistics, and the install page",
+        "Four new guides join the blog, and every article carries an on page index, a reading time, and next and previous links",
+        "The setup guide, statistics, library, about, and welcome pages now ship real HTML, so search engines read them without running JavaScript",
+        "Statistics labels match the extension exactly, including caption cues and median speed",
+        "Caption buttons dock as one group in front of NotebookLM\u2019s right-hand cluster, and a narrow play bar trims the extras instead of crowding the native controls"
+      ])
+    }),
     "0.2.7": Object.freeze({
       headline: "Long Audio Overviews finish, and updates explain themselves",
       highlights: Object.freeze([
@@ -1596,9 +1607,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.7",
+          currentVersion: "0.2.8",
           currentBuildId: "",
-          latestVersion: "0.2.7",
+          latestVersion: "0.2.8",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -1611,9 +1622,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.7"),
+        currentVersion: String(saved.currentVersion || "0.2.8"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.7"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.8"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -1626,9 +1637,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.7",
+        currentVersion: "0.2.8",
         currentBuildId: "",
-        latestVersion: "0.2.7",
+        latestVersion: "0.2.8",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -2569,7 +2580,7 @@ ${rows.join("\n")}
     async function renderUpdateBanner() {
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.7";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.8";
       if (popupUpdateStatusHint) {
         const folderPart = dirInfo.linked ? `Folder linked (${dirInfo.folderName})` : "Auto-check active";
         popupUpdateStatusHint.textContent = updateStatus?.updateAvailable ? `Update v${updateStatus.latestVersion} available \xB7 ${folderPart}` : `Installed v${curVer} \xB7 ${folderPart}`;

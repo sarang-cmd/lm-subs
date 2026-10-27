@@ -1,7 +1,7 @@
 /**
  * Bounded, progress-aware media download helpers (`src/lib/media-download.js`).
  *
- * Why this module exists (`LM Subs v0.2.7`):
+ * Why this module exists (`LM Subs v0.2.8`):
  * Downloading a long Google NotebookLM Audio Overview (a 20+ minute podcast can
  * be a 10 MB to 25 MB `=m140` stream) used to happen in one unbounded
  * `await fetch()` inside a single Manifest V3 service worker event. A slow CDN

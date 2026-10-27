@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f8" />
+    <title>NotebookLM captions and accessibility: what WCAG asks for | LM Subs</title>
+    <meta name="description" content="What WCAG 2.2 requires for captions and transcripts, where NotebookLM falls short, and how to close the gap for deaf, hard of hearing, and neurodivergent users." />
+    <meta name="author" content="Sarang (@sarang-cmd)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=5" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=5" />
+    <link rel="shortcut icon" href="/favicon.ico?v=5" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5" />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content="NotebookLM captions and accessibility: what WCAG asks for" />
+    <meta property="og:description" content="What WCAG 2.2 requires for captions and transcripts, where NotebookLM falls short, and how to close the gap for deaf, hard of hearing, and neurodivergent users." />
+    <meta property="og:url" content="https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag" />
+    <meta property="og:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <meta property="article:author" content="https://github.com/sarang-cmd" />
+    <meta property="article:published_time" content="2026-10-26" />
+    <meta property="article:modified_time" content="2026-10-26" />
+
+    <link rel="next" href="https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="NotebookLM captions and accessibility: what WCAG asks for" />
+    <meta name="twitter:description" content="What WCAG 2.2 requires for captions and transcripts, where NotebookLM falls short, and how to close the gap for deaf, hard of hearing, and neurodivergent users." />
+    <meta name="twitter:image" content="https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8" />
+    <meta name="twitter:image:alt" content="LM Subs: Captions for Google NotebookLM Video Overviews and Audio Overviews" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css?v=6" />
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","headline":"NotebookLM captions and accessibility: what WCAG asks for","description":"What WCAG 2.2 requires for captions and transcripts, where NotebookLM falls short, and how to close the gap for deaf, hard of hearing, and neurodivergent users.","url":"https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag","mainEntityOfPage":{"@type":"WebPage","@id":"https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag"},"datePublished":"2026-10-26","dateModified":"2026-10-26","image":"https://lm-subs.vercel.app/assets/banner-social-1280x640.png?v=8","author":{"@type":"Person","name":"Sarang (@sarang-cmd)","url":"https://github.com/sarang-cmd"},"publisher":{"@type":"Organization","name":"LM Subs","url":"https://lm-subs.vercel.app","logo":{"@type":"ImageObject","url":"https://lm-subs.vercel.app/assets/icon-512.png"}},"articleSection":"Google NotebookLM captions","inLanguage":"en","keywords":"NotebookLM accessibility, WCAG captions requirements, NotebookLM transcript, Video Overview captions","wordCount":559,"timeRequired":"PT3M","isAccessibleForFree":true,"articleBody":"If you publish or share a NotebookLM Video Overview, captions are not a nice extra. They are a Level A requirement under WCAG 2.2, and NotebookLM does not provide them. This page covers what the standard asks for, what you can automate, and what still needs a human. The gap NotebookLM renders a Video Overview with play, speed, and fullscreen controls, and it renders an Audio Overview with the same set. Neither ships a caption toggle and neither exposes a timed text track, so the narration is unavailable to anyone who cannot hear it. What WCAG 2.2 asks for SC 1.2.2 Captions (Prerecorded), Level A: synchronised captions for all prerecorded audio in video. SC 1.2.1 Audio only and video only, Level A: a transcript for audio only content such as an Audio Overview. SC 1.2.3 Audio Description or Media Alternative, Level A: a text alternative that conveys what the visuals show. SC 1.2.5 Audio Description, Level AA: actual audio description for prerecorded video. SC 1.4.3 Contrast (Minimum), Level AA: caption text needs at least 4.5 to 1 against its background. SC 1.4.4 Resize Text, Level AA: text scales to 200 percent without loss of content. Captions and transcripts cover the first two. Audio description is a different job, because it describes visual information that is not spoken, and no automatic tool does it well yet. Where automation helps and where it does not Generating captions from the narration closes the Level A caption and transcript gaps in minutes. The captions are machine generated, which means they inherit whatever the model misheard. For personal use that is usually good enough, and the inline editor lets you correct a cue in place. For anything published, assessment, or legally required, a human pass over the transcript is still the standard. Automatic captions are a starting point, not a finished deliverable. Budget one read through before you publish, and pay attention to names, numbers, and technical terms. Practical checklist for an accessible overview Generate captions before you share Captions for Video Overviews, and a caption dock plus transcript for Audio Overviews. Read the transcript once Fix the words the model got wrong, especially proper nouns. Check contrast and size Caption styling in LM Subs lets you raise size and background opacity until the text is legible on bright slides. Export a transcript alongside the video A Markdown or TXT export satisfies the media alternative requirement and helps anyone who would rather read. Describe the visuals separately If slides carry meaning the narration never states, write that description by hand. Beyond captions Captions help far more than the deaf and hard of hearing audience they were written for. Non native speakers, people working in a quiet office, and anyone who reads faster than speech all benefit from a transcript attached to the timeline."}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Are automatically generated captions WCAG compliant?","acceptedAnswer":{"@type":"Answer","text":"They satisfy the requirement that captions exist and are synchronised, which is SC 1.2.2. Accuracy is a separate quality question, so review them before publishing anything formal."}},{"@type":"Question","name":"Does an Audio Overview need captions or a transcript?","acceptedAnswer":{"@type":"Answer","text":"A transcript satisfies SC 1.2.1 for audio only content. Captions are still useful in practice, and LM Subs provides both."}},{"@type":"Question","name":"Can I make captions easier to read?","acceptedAnswer":{"@type":"Answer","text":"Yes. Caption styling controls cover size, background opacity, and position, so you can reach a comfortable contrast ratio on any slide deck."}}]}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"LM Subs","item":"https://lm-subs.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog","item":"https://lm-subs.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"NotebookLM captions and accessibility: what WCAG asks for","item":"https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag"}]}</script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a href="/" class="brand-link">
+          <span class="brand-mark-text">LM Subs</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-tab" href="/">Overview</a>
+          <a class="nav-tab" href="/guide">Setup guide</a>
+          <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
+          <a class="nav-tab" href="/library">Library</a>
+          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/about">About</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="read-progress" aria-hidden="true"><span class="read-progress-bar" id="read-progress"></span></div>
+
+    <main id="main-content" class="page-wrap">
+      <article class="section-block post-article">
+        <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 16px">
+          <a class="link" href="/">LM Subs</a> / <a class="link" href="/blog">Blog</a> / Captions and WCAG
+        </nav>
+
+        <p class="post-kicker">Accessibility<span class="post-kicker-dot" aria-hidden="true">.</span>3 min read</p>
+        <h1 class="section-heading post-title">NotebookLM captions and accessibility: what WCAG asks for</h1>
+        <p class="post-lede">If you publish or share a NotebookLM Video Overview, captions are not a nice extra. They are a Level A requirement under WCAG 2.2, and NotebookLM does not provide them. This page covers what the standard asks for, what you can automate, and what still needs a human.</p>
+
+        <div class="post-byline">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <span class="post-byline-text">
+            <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>, creator of LM Subs.
+            <span class="post-byline-meta">Published 2026-10-26. 559 words.</span>
+          </span>
+        </div>
+
+        <div class="post-shell">
+          <div class="post-main">
+        <h2 class="section-heading post-h2" id="the-gap" style="font-size: 1.35rem; margin-top: 30px">The gap</h2>
+        <p class="section-prose">NotebookLM renders a Video Overview with play, speed, and fullscreen controls, and it renders an Audio Overview with the same set. Neither ships a caption toggle and neither exposes a timed text track, so the narration is unavailable to anyone who cannot hear it.</p>
+        <h2 class="section-heading post-h2" id="what-wcag-2-2-asks-for" style="font-size: 1.35rem; margin-top: 30px">What WCAG 2.2 asks for</h2>
+        <ul class="prose-list">
+          <li>SC 1.2.2 Captions (Prerecorded), Level A: synchronised captions for all prerecorded audio in video.</li>
+          <li>SC 1.2.1 Audio only and video only, Level A: a transcript for audio only content such as an Audio Overview.</li>
+          <li>SC 1.2.3 Audio Description or Media Alternative, Level A: a text alternative that conveys what the visuals show.</li>
+          <li>SC 1.2.5 Audio Description, Level AA: actual audio description for prerecorded video.</li>
+          <li>SC 1.4.3 Contrast (Minimum), Level AA: caption text needs at least 4.5 to 1 against its background.</li>
+          <li>SC 1.4.4 Resize Text, Level AA: text scales to 200 percent without loss of content.</li>
+        </ul>
+        <p class="section-prose">Captions and transcripts cover the first two. Audio description is a different job, because it describes visual information that is not spoken, and no automatic tool does it well yet.</p>
+        <h2 class="section-heading post-h2" id="where-automation-helps-and-where-it-does-not" style="font-size: 1.35rem; margin-top: 30px">Where automation helps and where it does not</h2>
+        <p class="section-prose">Generating captions from the narration closes the Level A caption and transcript gaps in minutes. The captions are machine generated, which means they inherit whatever the model misheard. For personal use that is usually good enough, and the inline editor lets you correct a cue in place. For anything published, assessment, or legally required, a human pass over the transcript is still the standard.</p>
+        <aside class="post-note"><p class="post-note-body">Automatic captions are a starting point, not a finished deliverable. Budget one read through before you publish, and pay attention to names, numbers, and technical terms.</p></aside>
+        <h2 class="section-heading post-h2" id="practical-checklist-for-an-accessible-overview" style="font-size: 1.35rem; margin-top: 30px">Practical checklist for an accessible overview</h2>
+        <ol class="post-steps">
+          <li><span class="post-step-lead">Generate captions before you share</span><span class="post-step-body">Captions for Video Overviews, and a caption dock plus transcript for Audio Overviews.</span></li>
+          <li><span class="post-step-lead">Read the transcript once</span><span class="post-step-body">Fix the words the model got wrong, especially proper nouns.</span></li>
+          <li><span class="post-step-lead">Check contrast and size</span><span class="post-step-body">Caption styling in LM Subs lets you raise size and background opacity until the text is legible on bright slides.</span></li>
+          <li><span class="post-step-lead">Export a transcript alongside the video</span><span class="post-step-body">A Markdown or TXT export satisfies the media alternative requirement and helps anyone who would rather read.</span></li>
+          <li><span class="post-step-lead">Describe the visuals separately</span><span class="post-step-body">If slides carry meaning the narration never states, write that description by hand.</span></li>
+        </ol>
+        <h2 class="section-heading post-h2" id="beyond-captions" style="font-size: 1.35rem; margin-top: 30px">Beyond captions</h2>
+        <p class="section-prose">Captions help far more than the deaf and hard of hearing audience they were written for. Non native speakers, people working in a quiet office, and anyone who reads faster than speech all benefit from a transcript attached to the timeline.</p>
+        <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px"><a class="btn btn-ink" href="/welcome">Turn on captions</a><a class="btn" href="/guide">Read the setup guide</a></div>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 34px">Frequently asked questions</h2>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Are automatically generated captions WCAG compliant?</h3>
+          <p class="section-prose">They satisfy the requirement that captions exist and are synchronised, which is SC 1.2.2. Accuracy is a separate quality question, so review them before publishing anything formal.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Does an Audio Overview need captions or a transcript?</h3>
+          <p class="section-prose">A transcript satisfies SC 1.2.1 for audio only content. Captions are still useful in practice, and LM Subs provides both.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-q">Can I make captions easier to read?</h3>
+          <p class="section-prose">Yes. Caption styling controls cover size, background opacity, and position, so you can reach a comfortable contrast ratio on any slide deck.</p>
+        </div>
+          </div>
+
+          <aside class="post-side">
+            <nav class="post-toc" aria-label="On this page">
+              <p class="post-toc-title">On this page</p>
+              <ol class="post-toc-list">
+                <li><a class="post-toc-link" href="#the-gap">The gap</a></li>
+                <li><a class="post-toc-link" href="#what-wcag-2-2-asks-for">What WCAG 2.2 asks for</a></li>
+                <li><a class="post-toc-link" href="#where-automation-helps-and-where-it-does-not">Where automation helps and where it does not</a></li>
+                <li><a class="post-toc-link" href="#practical-checklist-for-an-accessible-overview">Practical checklist for an accessible overview</a></li>
+                <li><a class="post-toc-link" href="#beyond-captions">Beyond captions</a></li>
+              </ol>
+            </nav>
+            <div class="post-side-card">
+              <p class="post-side-title">Try it while you read</p>
+              <p class="post-side-body">LM Subs captions Video Overviews and Audio Overviews in the browser, then exports SRT, VTT, TXT, MD, CSV or JSON.</p>
+              <a class="btn btn-ink btn-sm" href="/welcome">Set up in two minutes</a>
+            </div>
+          </aside>
+        </div>
+
+        <nav class="post-nav" aria-label="More posts">
+          <span class="post-nav-link is-empty"><span class="post-nav-dir">Previous</span><span class="post-nav-title">You are at the oldest post</span></span>
+          <a class="post-nav-link is-next" href="/blog/speech-to-text-cost-notebooklm-free-tiers" rel="next">
+            <span class="post-nav-dir">Next</span>
+            <span class="post-nav-title">What captions actually cost</span>
+          </a>
+        </nav>
+
+        <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 40px">Related reading</h2>
+        <div class="related-grid">
+          <a class="related-card" href="/blog/does-notebooklm-have-captions">
+            <span class="related-kicker">Captions basics</span>
+            <span class="related-title">Does NotebookLM have captions?</span>
+            <span class="related-desc">Straight answer: NotebookLM Video Overviews and Audio Overviews ship without closed captions. Here is what the built-in player does ...</span>
+          </a>
+          <a class="related-card" href="/blog/notebooklm-video-overview-subtitles">
+            <span class="related-kicker">Setup</span>
+            <span class="related-title">Add subtitles to Video Overviews</span>
+            <span class="related-desc">A complete walkthrough: install the extension, add one free speech-to-text key, play a Video Overview, and export timed captions as ...</span>
+          </a>
+          <a class="related-card" href="/blog/free-speech-to-text-api-keys">
+            <span class="related-kicker">API keys</span>
+            <span class="related-title">Free speech-to-text API keys</span>
+            <span class="related-desc">Twelve bring-your-own-key speech-to-text providers compared by free tier, timestamp quality, and setup friction, with the exact page...</span>
+          </a>
+        </div>
+
+        <div class="author-box">
+          <span class="post-avatar" aria-hidden="true">SA</span>
+          <div>
+            <p class="author-name">Sarang (@sarang-cmd)</p>
+            <p class="author-bio">Computer science student and agentic engineer in Germany. Builds LM Subs, an open source captioning extension for Google NotebookLM, and writes these guides from the same code base the extension ships from.</p>
+            <p class="author-links"><a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">GitHub</a> <a class="link" href="/about">More about the project</a></p>
+          </div>
+        </div>
+      </article>
+    </main>
+
+    <script>
+      (function () {
+        var bar = document.getElementById("read-progress");
+        if (!bar) return;
+        var frame = 0;
+        function paint() {
+          frame = 0;
+          var doc = document.documentElement;
+          var max = doc.scrollHeight - window.innerHeight;
+          var pct = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+          bar.style.transform = "scaleX(" + pct + ")";
+        }
+        window.addEventListener(
+          "scroll",
+          function () {
+            if (frame) return;
+            frame = requestAnimationFrame(paint);
+          },
+          { passive: true }
+        );
+        paint();
+      })();
+    </script>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div>
+          <strong>LM Subs</strong> (MIT License) by
+          <a class="link" href="https://github.com/sarang-cmd" target="_blank" rel="noopener noreferrer">Sarang (@sarang-cmd)</a>.
+          Independent open-source tool, unaffiliated with Google LLC.
+        </div>
+        <div class="footer-links">
+          <a href="/welcome">Interactive setup</a>
+          <a href="/guide">Setup guide</a>
+          <a href="/blog">Blog</a>
+          <a href="/library">Cloud library</a>
+          <a href="/stats">Statistics</a>
+          <a href="/about">About</a>
+          <a href="/privacy.html">Privacy policy</a>
+          <a href="/terms.html">Terms of service</a>
+          <a href="https://github.com/sarang-cmd/lm-subs" target="_blank" rel="noopener noreferrer">GitHub source</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 {
   "name": "lm-subs",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -33,15 +33,16 @@
     "url": "https://github.com/sarang-cmd/lm-subs/issues"
   },
   "scripts": {
-    "build": "node build.mjs && node scripts/build-blog.mjs",
+    "build": "node build.mjs && node scripts/build-blog.mjs && node scripts/build-shells.mjs",
     "build:vercel": "node scripts/vercel-build.mjs",
     "start": "node serve-docs.mjs",
     "site": "node serve-docs.mjs",
     "db:migrate": "node scripts/migrate-db.mjs",
     "test": "node --test tests/*.test.js",
     "assets": "node scripts/generate-assets.mjs",
-    "zip": "node build.mjs && node scripts/build-blog.mjs && node scripts/package-zip.mjs",
-    "blog": "node scripts/build-blog.mjs"
+    "zip": "node build.mjs && node scripts/build-blog.mjs && node scripts/build-shells.mjs && node scripts/package-zip.mjs",
+    "blog": "node scripts/build-blog.mjs",
+    "shells": "node scripts/build-shells.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.11",
