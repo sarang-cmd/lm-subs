@@ -2182,18 +2182,27 @@ textarea:focus-visible,
   }
 }
 
-/* Scrollable panels keep their scrolling but drop the visible scrollbar, so
-   charts, wide tables and code blocks stay quiet inside the page. */
-.chart-scroll,
-.data-table-wrap,
-.post-code {
+/* Scrollbars are hidden site wide at the author's request, including the main
+   page scrollbar. Scrolling still works with the wheel, trackpad, keyboard,
+   touch, and the space bar; only the visible chrome is removed. */
+html,
+body {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-.chart-scroll::-webkit-scrollbar,
-.data-table-wrap::-webkit-scrollbar,
-.post-code::-webkit-scrollbar {
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;

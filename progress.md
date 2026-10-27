@@ -26,7 +26,7 @@ Cuts image weight across the site, shows the product in a two by two gallery, gr
 
 ### Changed
 * **README restored to the pre-v0.2.5 structure:** The expanded tour was reverted to the tighter four screenshot walkthrough, with download links kept current. The matching pre-v0.2.5 captures (`01-player-subtitles.png`, `02-audio-extraction-failover.png`, `03-toolbar-popup.png`, `04-settings-queue.png`) are back in `docs/assets/screenshots/`, each with a WebP counterpart.
-* **Visible scrollbars inside scrollable panels (`docs/styles.css`):** The 14-day chart, wide data tables, and code blocks keep scrolling but no longer draw a scrollbar.
+* **Visible scrollbars removed everywhere (`docs/styles.css`, `extension/ui.css`):** The website and the extension popup and settings page no longer draw scrollbars on any element, including the main page. Everything still scrolls with the wheel, trackpad, keyboard and touch.
 
 ### Improved
 * **Statistics labels match the extension everywhere (`src/web/StatsView.jsx`):** The website now reports Videos captioned, Caption cues, Video upload avoided, and Median speed, the same wording the settings page and popup use, with spoken minutes, cache hits, failovers and exports kept as supporting lines.

@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 50717,
-  "nonBlankLoc": 46501,
+  "totalLoc": 50751,
+  "nonBlankLoc": 46529,
   "sourceFiles": 121,
   "automatedTests": 102,
   "testSuites": 15,
@@ -20,9 +20,9 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 26,
   "postgresTables": 9,
-  "releaseZipKb": 232.9,
+  "releaseZipKb": 232.8,
   "mv3RuntimeDependencies": 0,
-  "commitsShipped": 52,
+  "commitsShipped": 42,
   "mergedPullRequests": 17,
   "releasesPublished": 5,
   "firstCommitDate": "Oct 24, 2026",
@@ -43,8 +43,8 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8393,
-      "sharePct": 16.5
+      "loc": 8427,
+      "sharePct": 16.6
     },
     {
       "id": "core_engine",
@@ -92,7 +92,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 56,
       "loc": 34531,
-      "sharePct": 68.1
+      "sharePct": 68
     },
     {
       "label": "React JSX (.jsx)",
@@ -109,7 +109,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3383,
+      "loc": 3417,
       "sharePct": 6.7
     },
     {
