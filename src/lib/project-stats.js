@@ -4,10 +4,10 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 50688,
-  "nonBlankLoc": 46490,
+  "totalLoc": 50749,
+  "nonBlankLoc": 46548,
   "sourceFiles": 120,
-  "automatedTests": 102,
+  "automatedTests": 103,
   "testSuites": 15,
   "sttProviders": 12,
   "exportFormats": 6,
@@ -43,8 +43,8 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8434,
-      "sharePct": 16.6
+      "loc": 8454,
+      "sharePct": 16.7
     },
     {
       "id": "core_engine",
@@ -59,8 +59,8 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 15,
-      "loc": 6450,
-      "sharePct": 12.7
+      "loc": 6485,
+      "sharePct": 12.8
     },
     {
       "id": "web_app",
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 4758,
+      "loc": 4764,
       "sharePct": 9.4
     },
     {
@@ -91,7 +91,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 56,
-      "loc": 34531,
+      "loc": 34569,
       "sharePct": 68.1
     },
     {
@@ -103,19 +103,19 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
-      "loc": 4902,
+      "loc": 4922,
       "sharePct": 9.7
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
       "loc": 3424,
-      "sharePct": 6.8
+      "sharePct": 6.7
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 793,
+      "loc": 796,
       "sharePct": 1.6
     },
     {

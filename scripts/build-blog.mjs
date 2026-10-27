@@ -274,6 +274,7 @@ function renderPostPage(post, allPosts) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="google-site-verification" content="7qXtBUikHAi5IxiEi94jbzxAAUfIvy1K3-osMQS-E_M" />
     <meta name="theme-color" content="#f6f7f8" />
     <title>${escapeHtml(post.title)} | LM Subs</title>
     <meta name="description" content="${escapeHtml(post.description)}" />
@@ -462,6 +463,7 @@ function renderIndex(posts) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="google-site-verification" content="7qXtBUikHAi5IxiEi94jbzxAAUfIvy1K3-osMQS-E_M" />
     <meta name="theme-color" content="#f6f7f8" />
     <title>LM Subs blog | Google NotebookLM captions, subtitles, and transcript export</title>
     <meta
