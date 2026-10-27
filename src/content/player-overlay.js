@@ -1508,10 +1508,9 @@ export class VideoSubtitleController {
     const built = [ccBtn, optionsBtn];
 
     if (this.fineGrainedControls) {
+      // No speed button: NotebookLM's own play bar already ships one, so a
+      // second control crowded the row without adding anything.
       built.push(
-        makeDockButton("speed", "Playback speed", null, () =>
-          this.cyclePlaybackSpeed()
-        ),
         makeDockButton(
           "loop",
           "Loop active caption sentence (L)",
@@ -1663,12 +1662,6 @@ export class VideoSubtitleController {
     const options = this.dockButtons.options;
     if (options) {
       options.dataset.active = this.toolsOpen ? "true" : "false";
-    }
-    const speed = this.dockButtons.speed;
-    if (speed) {
-      speed.textContent = `${this.playbackSpeed}x`;
-      speed.dataset.active = this.playbackSpeed !== 1 ? "true" : "false";
-      speed.title = `Playback speed: ${this.playbackSpeed}x (< / >)`;
     }
     const loop = this.dockButtons.loop;
     if (loop) {

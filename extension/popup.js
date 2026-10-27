@@ -235,7 +235,7 @@
         "Four new guides join the blog, and every article carries an on page index, a reading time, and next and previous links",
         "The setup guide, statistics, library, about, and welcome pages now ship real HTML, so search engines read them without running JavaScript",
         "Statistics labels match the extension exactly, including caption cues and median speed",
-        "Caption buttons dock as one group in front of NotebookLM\u2019s right-hand cluster, and a narrow play bar trims the extras instead of crowding the native controls"
+        "Caption buttons dock as one group in front of NotebookLM\u2019s right-hand cluster, a narrow play bar trims the extras instead of crowding the native controls, and the duplicate playback speed button is gone"
       ])
     }),
     "0.2.7": Object.freeze({

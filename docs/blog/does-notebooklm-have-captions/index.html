@@ -61,8 +61,6 @@
       </div>
     </header>
 
-    <div class="read-progress" aria-hidden="true"><span class="read-progress-bar" id="read-progress"></span></div>
-
     <main id="main-content" class="page-wrap">
       <article class="section-block post-article">
         <nav class="hint" aria-label="Breadcrumb" style="margin-bottom: 16px">
@@ -174,29 +172,6 @@
       </article>
     </main>
 
-    <script>
-      (function () {
-        var bar = document.getElementById("read-progress");
-        if (!bar) return;
-        var frame = 0;
-        function paint() {
-          frame = 0;
-          var doc = document.documentElement;
-          var max = doc.scrollHeight - window.innerHeight;
-          var pct = max > 0 ? Math.min(1, window.scrollY / max) : 0;
-          bar.style.transform = "scaleX(" + pct + ")";
-        }
-        window.addEventListener(
-          "scroll",
-          function () {
-            if (frame) return;
-            frame = requestAnimationFrame(paint);
-          },
-          { passive: true }
-        );
-        paint();
-      })();
-    </script>
 
     <footer class="site-footer">
       <div class="site-footer-inner">

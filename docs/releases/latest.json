@@ -1,9 +1,9 @@
 {
   "version": "0.2.8",
-  "buildId": "e6d61872e9fb",
+  "buildId": "0a1f0fb4c913",
   "zipUrl": "/releases/lm-subs-latest.zip",
   "versionedZipUrl": "/releases/lm-subs-v0.2.8.zip",
-  "zipSha256": "4fca0267a6a26f47029e02302a6ed58dda8e10f928c93b04892f551d538aa6bd",
+  "zipSha256": "49738afb3b49598eb40975e881e8705e301a5eda101a80e31a4022a3ecac7add",
   "fileCount": 14,
   "notes": {
     "version": "0.2.8",
@@ -14,7 +14,7 @@
       "Four new guides join the blog, and every article carries an on page index, a reading time, and next and previous links",
       "The setup guide, statistics, library, about, and welcome pages now ship real HTML, so search engines read them without running JavaScript",
       "Statistics labels match the extension exactly, including caption cues and median speed",
-      "Caption buttons dock as one group in front of NotebookLM’s right-hand cluster, and a narrow play bar trims the extras instead of crowding the native controls"
+      "Caption buttons dock as one group in front of NotebookLM’s right-hand cluster, a narrow play bar trims the extras instead of crowding the native controls, and the duplicate playback speed button is gone"
     ]
   }
 }

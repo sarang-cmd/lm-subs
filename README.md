@@ -4,7 +4,7 @@
 
 # LM Subs
 
-**Synchronized closed captions, 6-format transcript export, and opt-in encrypted cloud sync for Google NotebookLM Video and Audio Overviews.**
+**Synchronized closed captions, SRT/WebVTT/TXT/JSON export, and opt-in encrypted cloud sync for Google NotebookLM Video Overviews.**
 
 [![Manifest V3](docs/assets/badges/manifest-v3.svg)](#security-and-privacy-architecture)
 [![Audio Fast-Path](docs/assets/badges/audio-extract.svg)](#how-lm-subs-delivers-captions-in-seconds)
@@ -14,7 +14,7 @@
 [![Tests](docs/assets/badges/tests.svg)](#development-and-testing)
 [![License: MIT](docs/assets/badges/license.svg)](LICENSE)
 
-[**Download `lm-subs-v0.2.8.zip`**](docs/releases/lm-subs-v0.2.8.zip) | [**Interactive Two-Way Setup (`lm-subs.vercel.app/welcome`)**](https://lm-subs.vercel.app/welcome) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
+[**Download `lm-subs-v0.2.8.zip`**](docs/releases/lm-subs-v0.2.8.zip) | [**Beginner Setup Guide**](#install-guide-no-coding-or-credit-card-needed) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
 
 <br />
 
@@ -26,7 +26,7 @@
 
 ## Install guide (no coding or credit card needed)
 
-You do not need terminal commands, developer tools, or a paid subscription to use LM Subs. Clicking download on [`lm-subs.vercel.app`](https://lm-subs.vercel.app) automatically opens an interactive two-way setup wizard, and installing the extension opens `/welcome` automatically in **Google Chrome**, **Brave**, **Microsoft Edge**, or **Arc**:
+You do not need terminal commands, developer tools, or a paid subscription to use LM Subs. Follow these four steps in **Google Chrome**, **Brave**, **Microsoft Edge**, or **Arc**:
 
 ### Step 1: Download and unzip the extension folder
 1. Download [**`lm-subs-v0.2.8.zip`**](docs/releases/lm-subs-v0.2.8.zip) to your computer.
@@ -34,22 +34,22 @@ You do not need terminal commands, developer tools, or a paid subscription to us
    * **macOS:** Open **Downloads** in Finder and double-click `lm-subs-v0.2.8.zip`. Move the unzipped folder into **Documents** so it stays in a permanent spot.
    * **Windows:** Open **Downloads** in File Explorer, right-click `lm-subs-v0.2.8.zip`, click **Extract All...**, and click **Extract**. Keep the unzipped folder somewhere permanent such as **Documents**.
 
-### Step 2: Load in Chrome and pin from `Access requested`
+### Step 2: Load the folder in Chrome
 1. Open a new browser tab, type `chrome://extensions` into the address bar, and press **Enter** (`brave://extensions` in Brave, `edge://extensions` in Edge).
 2. Turn **ON** the **Developer mode** switch in the top-right corner of the page.
 3. Click the **Load unpacked** button in the top-left corner and select the unzipped `lm-subs` folder from Step 1.
-4. Chrome automatically opens the **LM Subs Welcome** page (`/welcome`). Click the puzzle-piece Extensions icon in the top-right Chrome toolbar: **LM Subs** appears at the top under **Access requested** (*"To give an extension access to this site, click it."*) so you can pin and verify it right away without scrolling through other extensions.
+4. Click the puzzle-piece icon in the top-right Chrome toolbar and click the pin icon beside **LM Subs**.
 
-### Step 3: Save one free Groq transcription key (60 seconds)
+### Step 3: Paste one free Groq transcription key (60 seconds)
 LM Subs connects directly from your browser to a speech-to-text provider so nobody charges you a subscription fee. **Groq** offers a free developer account with no credit card that transcribes up to 8 hours of audio per day:
 1. Open [console.groq.com/keys](https://console.groq.com/keys) and sign in with Google or GitHub.
 2. Click **Create API Key**, enter `LM Subs` as the name, and copy the key starting with `gsk_`.
-3. Paste that `gsk_...` key directly on the `/welcome` setup page (or inside the **LM Subs** toolbar popup) and click **Save**.
+3. Click the **LM Subs** icon in your Chrome toolbar, paste that `gsk_...` code into the **API key** box, and click **Save**.
 
-### Step 4: Play any NotebookLM Video or Audio Overview
-1. Open [notebooklm.google.com](https://notebooklm.google.com), open any notebook, and play either a **Video Overview** or a two-host **Audio Overview** podcast.
-2. Within about three seconds, synchronized captions with active-word highlighting appear inside the video frame (or in the compact bottom podcast dock for Audio Overviews), accompanied by an optional completion chime.
-3. Use the compact **CC**, **Transcript**, and **Options** controls docked inside the bottom bar to toggle captions (`C`), open the click-to-seek **Transcript** drawer (`T`), adjust word-for-word highlight delay (`{` / `}` or the Style slider), switch caption backdrop (`B`), resize text (**A-** / **A+**), shift cue timing (`[` / `]`), view keyboard shortcuts (`?`), or export **`.srt`**, **`.vtt`**, **`.txt`**, **`.md`**, **`.csv`**, or **`.json`** files.
+### Step 4: Watch any NotebookLM Video Overview
+1. Open [notebooklm.google.com](https://notebooklm.google.com), open any notebook, and play a **Video Overview**.
+2. Within about three seconds, synchronized captions with active-word highlighting appear inside the lower frame of the video player (accompanied by an optional completion chime).
+3. Use the compact **CC**, **Transcript**, and **•••** controls docked inside the bottom play bar to toggle captions (`C`), open the click-to-seek **Transcript** drawer (`T`), adjust word-for-word highlight delay (`{` / `}` or the Style slider), switch caption backdrop (`B`), resize text (**A-** / **A+**), shift cue timing (`[` / `]`), view keyboard shortcuts (`?`), or export **`.srt`**, **`.vtt`**, **`.txt`**, **`.md`**, **`.csv`**, or **`.json`** files.
 
 ---
 
@@ -62,75 +62,32 @@ Synchronized closed captions with 3-state progressive word highlighting, adjusta
   <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="LM Subs highlighted spoken-word captions inside the video and compact CC controls in the bottom play bar" />
 </p>
 
-### The page that opens the moment you install the extension
-Downloading LM Subs on the website or installing the extension in Chrome opens `/welcome` automatically. Because LM Subs uses `activeTab` without pre-granting host permissions on the setup website, Chrome places **LM Subs** at the top of the puzzle-piece Extensions menu under **Access requested** (*"To give an extension access to this site, click it."*) above your other extensions, then verifies pinning, API keys, and cloud sync live across a two-way bridge.
+### Audio-only stream extraction, 12-provider failover, and opt-in sync
+Extracts NotebookLM's ~3.4 MB `=m140` audio stream instead of uploading 50+ MB MP4 video files, advances automatically across your configured provider queue on `HTTP 429` rate limits, and syncs only the categories you enable.
 
 <p align="center">
-  <img src="docs/assets/screenshots/09-welcome-install-page.png" width="100%" alt="The LM Subs page that opens automatically when the extension is installed" />
+  <img src="docs/assets/screenshots/02-audio-extraction-failover.png" width="100%" alt="Audio-only stream extraction, automatic provider failover, and opt-in cloud sync" />
 </p>
 
 ### Chrome toolbar popup
-Configure a free Groq or Mistral key, inspect account sync state, trigger captions on active NotebookLM Video Overviews and Audio Overviews, or export `.srt`, `.vtt`, `.txt`, `.md`, `.csv`, and `.json` files from the toolbar.
+Configure a free Groq or Mistral key, inspect account sync state, trigger captions on the active NotebookLM tab, or export `.srt`, `.vtt`, `.txt`, and `.json` files in two clicks. Includes an inline first-time setup guide when no key is saved yet.
 
 <p align="center">
   <img src="docs/assets/screenshots/03-toolbar-popup.png" width="100%" alt="LM Subs Chrome toolbar popup" />
 </p>
 
-### Caption studio, word-highlight delay, and Audio Overview controls
-Adjust progressive word-highlight delay (`-500 ms` to `+1500 ms`), toggle speaker labels, customize caption backdrop opacity, and control automatic transcription across both Studio Video Overviews and two-host Audio Overviews. Fine grained controls (speed, loop, Picture in Picture, snapshot, volume boost, skip silence) stay behind a single switch so the play bar keeps its default two buttons.
+### Settings, opt-in privacy switches, statistics, and priority queue
+Sign in with Google, GitHub, or a 6-digit email code, toggle granular cloud sync switches (`Sync API keys`, `Sync transcriptions`, `Sync preferences`), inspect real transcription metrics, and order all 12 speech-to-text providers.
 
 <p align="center">
-  <img src="docs/assets/screenshots/05-fine-grained-controls.png" width="100%" alt="LM Subs settings page showing fine grained playback controls behind one master switch" />
+  <img src="docs/assets/screenshots/04-settings-queue.png" width="100%" alt="LM Subs settings page showing opt-in sync switches, statistics, and provider queue" />
 </p>
-
-### Unified statistics on the website, in the settings page, and in the popup
-One report feeds all three surfaces: caption totals, bytes of video avoided, provider share, a 14 day series, and Google NotebookLM workspace metrics that go beyond captions (sources, Studio artifacts, watch and listen time, bookmarks, citations, exports).
-
-<p align="center">
-  <img src="docs/assets/screenshots/02-statistics-dashboard.png" width="100%" alt="LM Subs statistics dashboard with caption totals and NotebookLM workspace metrics" />
-</p>
-
-### Docked fine grained controls in the native play bar
-Turning on the fine controls switch docks speed, loop, Picture in Picture with captions, snapshot export, volume boost, and skip silence next to **CC** and **Options** inside NotebookLM's own bottom bar. They appear and fade with NotebookLM's controls, and captions scale with the player so the compact Studio view and fullscreen each look right.
-
-<p align="center">
-  <img src="docs/assets/screenshots/08-docked-fine-controls.png" width="100%" alt="LM Subs fine grained controls docked inside the NotebookLM bottom play bar" />
-</p>
-
-### Numbered API key walkthroughs for every provider
-All twelve providers include account requirements, a key format hint, and a numbered walkthrough that starts at signing in or creating the account.
-
-<p align="center">
-  <img src="docs/assets/screenshots/06-api-key-guide.png" width="100%" alt="LM Subs settings page with a numbered API key walkthrough for each provider" />
-</p>
-
----
-
-## Guides on the blog
-
-Nine crawlable guides live at [lm-subs.vercel.app/blog](https://lm-subs.vercel.app/blog). Each one is plain HTML with an on page index, a reading time, next and previous links, and Article, FAQ, and breadcrumb structured data.
-
-<p align="center">
-  <img src="docs/assets/screenshots/10-blog-index.png" width="100%" alt="LM Subs blog index with one featured guide and a grid of the remaining eight" />
-</p>
-
-| Guide | What it answers |
-| :--- | :--- |
-| [Does NotebookLM have captions?](https://lm-subs.vercel.app/blog/does-notebooklm-have-captions) | What the built-in player does and does not offer |
-| [Add subtitles to Video Overviews](https://lm-subs.vercel.app/blog/notebooklm-video-overview-subtitles) | Install, add a key, and export step by step |
-| [Free speech-to-text API keys](https://lm-subs.vercel.app/blog/free-speech-to-text-api-keys) | Where to get a key for each of the twelve providers |
-| [Export transcripts as SRT and VTT](https://lm-subs.vercel.app/blog/export-notebooklm-transcript-srt-vtt) | Every export format and when to use it |
-| [Caption Audio Overview podcasts](https://lm-subs.vercel.app/blog/notebooklm-audio-overview-podcast-captions) | Two host podcasts with speaker labels |
-| [SRT, VTT, or Markdown?](https://lm-subs.vercel.app/blog/notebooklm-transcript-srt-vs-vtt-vs-markdown) | Picking the right caption format |
-| [Run Whisper locally](https://lm-subs.vercel.app/blog/run-whisper-locally-notebooklm-captions) | Caption offline with no key and no upload |
-| [What captions really cost](https://lm-subs.vercel.app/blog/speech-to-text-cost-notebooklm-free-tiers) | Free tier math and when paying makes sense |
-| [Captions and WCAG](https://lm-subs.vercel.app/blog/notebooklm-captions-accessibility-wcag) | What the accessibility standard requires |
 
 ---
 
 ## Why LM Subs?
 
-Google NotebookLM generates narrated **Studio Video Overviews** and two-host **Audio Overviews**, yet its built-in players ship without synchronized word-level closed captions, downloadable multi-format subtitle files, or cross-browser transcript sync.
+Google NotebookLM generates narrated **Studio Video Overviews**, yet its built-in player ships without closed captions, downloadable subtitle files, or cross-browser transcript sync.
 
 Naive transcription tools upload entire 50 to 120 MB HD `.mp4` video files or inflate compressed audio into 40+ MB of uncompressed `.wav` data, hitting API upload limits and turning a 3-minute Video Overview into a multi-minute wait.
 

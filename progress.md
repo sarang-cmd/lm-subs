@@ -20,6 +20,14 @@ Cuts image weight across the site, shows the product in a two by two gallery, gr
 ### Fixed
 * **Caption controls crowding NotebookLM's play bar (`src/content/player-overlay.js`):** The dock buttons are now injected as a single `.lms-dock-group` element instead of eight separate children, which stops the host layout from interleaving them with the native buttons or wrapping them onto a second row. `findRightClusterAnchor` walks from the leftmost right-cluster control (fullscreen, PiP, settings, or captions) up to its top-level child of the bar so the group lands in front of the whole cluster rather than after a flex spacer, and `_fitDockGroupToBar` measures the result and drops the non-essential buttons, keeping CC and options, whenever the group would exceed 45 percent of the bar or make it overflow.
 
+### Removed
+* **Duplicate playback speed button (`src/content/player-overlay.js`):** NotebookLM's own play bar already ships a speed control, so the LM Subs dock no longer adds a second one. The `<` and `>` keyboard shortcuts and the settings page control are untouched.
+* **Article reading progress bar (`scripts/build-blog.mjs`):** The thin bar at the top of each guide was unrequested chrome, so it is gone along with its inline script.
+
+### Changed
+* **README restored to the pre-v0.2.5 structure:** The expanded tour was reverted to the tighter four screenshot walkthrough, with download links kept current. The matching pre-v0.2.5 captures (`01-player-subtitles.png`, `02-audio-extraction-failover.png`, `03-toolbar-popup.png`, `04-settings-queue.png`) are back in `docs/assets/screenshots/`, each with a WebP counterpart.
+* **Visible scrollbars inside scrollable panels (`docs/styles.css`):** The 14-day chart, wide data tables, and code blocks keep scrolling but no longer draw a scrollbar.
+
 ### Improved
 * **Statistics labels match the extension everywhere (`src/web/StatsView.jsx`):** The website now reports Videos captioned, Caption cues, Video upload avoided, and Median speed, the same wording the settings page and popup use, with spoken minutes, cache hits, failovers and exports kept as supporting lines.
 * **`llms.txt` cites every guide**, so AI answer engines have all nine URLs.

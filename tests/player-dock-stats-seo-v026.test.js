@@ -217,18 +217,23 @@ test("Caption controls dock inside NotebookLM's own play bar and never blink on 
   controller._updateControlsVisibility();
   assert.equal(controller.controlsVisible, true);
 
-  // 5. Advanced mode adds the fine-grained playback buttons to the dock
+  // 5. Advanced mode adds the fine-grained playback buttons to the dock.
+  //    Speed is deliberately absent: NotebookLM's own play bar already ships a
+  //    playback speed control.
   controller.setSettings({ fineGrainedControls: true });
   assert.deepEqual(Object.keys(controller.dockButtons), [
     "cc",
     "options",
-    "speed",
     "loop",
     "pip",
     "snapshot",
     "boost",
     "silence",
   ]);
+  assert.ok(
+    !Object.keys(controller.dockButtons).includes("speed"),
+    "no duplicate speed control, NotebookLM already has one"
+  );
 
   controller.destroy();
 });

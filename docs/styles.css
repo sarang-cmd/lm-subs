@@ -435,10 +435,68 @@ textarea:focus-visible,
   border-top: 1px solid var(--border-theater);
 }
 
+/* Seekbar: a thin rail with the played portion in optical cobalt. The filled
+   width comes from the --pct custom property the component sets. */
 .stage-scrubber {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  accent-color: #3b82f6;
+  height: 16px;
+  margin: 0;
+  background: transparent;
   cursor: pointer;
+}
+
+.stage-scrubber::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--pct, 0%),
+    #343944 var(--pct, 0%) 100%
+  );
+}
+
+.stage-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  border: 2px solid var(--accent);
+}
+
+.stage-scrubber::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #343944;
+}
+
+.stage-scrubber::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.stage-scrubber::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: #f3f4f6;
+}
+
+.stage-scrubber:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.stage-btn[data-active="true"] {
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .stage-control-row {
@@ -1618,24 +1676,6 @@ textarea:focus-visible,
    index, and hairline rules instead of nested card wrappers.
    --------------------------------------------------------------------------- */
 
-.read-progress {
-  position: fixed;
-  inset: 0 0 auto 0;
-  height: 2px;
-  z-index: 60;
-  background: transparent;
-  pointer-events: none;
-}
-
-.read-progress-bar {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: 0 50%;
-  will-change: transform;
-}
-
 .post-kicker {
   margin: 0 0 10px;
   font-family: var(--font-mono);
@@ -2140,4 +2180,21 @@ textarea:focus-visible,
   .post-nav-link.is-next {
     text-align: left;
   }
+}
+
+/* Scrollable panels keep their scrolling but drop the visible scrollbar, so
+   charts, wide tables and code blocks stay quiet inside the page. */
+.chart-scroll,
+.data-table-wrap,
+.post-code {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.chart-scroll::-webkit-scrollbar,
+.data-table-wrap::-webkit-scrollbar,
+.post-code::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }

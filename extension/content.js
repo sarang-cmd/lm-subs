@@ -3538,12 +3538,6 @@ ${rows.join("\n")}
       if (this.fineGrainedControls) {
         built.push(
           makeDockButton(
-            "speed",
-            "Playback speed",
-            null,
-            () => this.cyclePlaybackSpeed()
-          ),
-          makeDockButton(
             "loop",
             "Loop active caption sentence (L)",
             [
@@ -3671,12 +3665,6 @@ ${rows.join("\n")}
       const options = this.dockButtons.options;
       if (options) {
         options.dataset.active = this.toolsOpen ? "true" : "false";
-      }
-      const speed = this.dockButtons.speed;
-      if (speed) {
-        speed.textContent = `${this.playbackSpeed}x`;
-        speed.dataset.active = this.playbackSpeed !== 1 ? "true" : "false";
-        speed.title = `Playback speed: ${this.playbackSpeed}x (< / >)`;
       }
       const loop = this.dockButtons.loop;
       if (loop) {

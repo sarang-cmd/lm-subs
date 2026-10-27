@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 50943,
-  "nonBlankLoc": 46715,
+  "totalLoc": 50717,
+  "nonBlankLoc": 46501,
   "sourceFiles": 121,
   "automatedTests": 102,
   "testSuites": 15,
@@ -20,9 +20,9 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 26,
   "postgresTables": 9,
-  "releaseZipKb": 232.6,
+  "releaseZipKb": 232.9,
   "mv3RuntimeDependencies": 0,
-  "commitsShipped": 42,
+  "commitsShipped": 52,
   "mergedPullRequests": 17,
   "releasesPublished": 5,
   "firstCommitDate": "Oct 24, 2026",
@@ -35,16 +35,16 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Chrome MV3 Extension & Player Overlay",
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
-      "loc": 14629,
-      "sharePct": 28.7
+      "loc": 14622,
+      "sharePct": 28.8
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8561,
-      "sharePct": 16.8
+      "loc": 8393,
+      "sharePct": 16.5
     },
     {
       "id": "core_engine",
@@ -59,7 +59,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 15,
-      "loc": 6445,
+      "loc": 6450,
       "sharePct": 12.7
     },
     {
@@ -67,7 +67,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
       "files": 13,
-      "loc": 6351,
+      "loc": 6355,
       "sharePct": 12.5
     },
     {
@@ -75,8 +75,8 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 27,
-      "loc": 4888,
-      "sharePct": 9.6
+      "loc": 4828,
+      "sharePct": 9.5
     },
     {
       "id": "cloud_api",
@@ -91,32 +91,32 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 56,
-      "loc": 34558,
-      "sharePct": 67.8
+      "loc": 34531,
+      "sharePct": 68.1
     },
     {
       "label": "React JSX (.jsx)",
       "files": 13,
-      "loc": 6351,
+      "loc": 6355,
       "sharePct": 12.5
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
-      "loc": 5127,
-      "sharePct": 10.1
+      "loc": 4902,
+      "sharePct": 9.7
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3326,
-      "sharePct": 6.5
+      "loc": 3383,
+      "sharePct": 6.7
     },
     {
       "label": "Documentation (.md)",
       "files": 7,
-      "loc": 898,
-      "sharePct": 1.8
+      "loc": 863,
+      "sharePct": 1.7
     },
     {
       "label": "Config & Manifest (.json)",
