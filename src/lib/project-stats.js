@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 50671,
-  "nonBlankLoc": 46478,
+  "totalLoc": 50686,
+  "nonBlankLoc": 46488,
   "sourceFiles": 120,
   "automatedTests": 102,
   "testSuites": 15,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 26,
   "postgresTables": 9,
-  "releaseZipKb": 233,
+  "releaseZipKb": 233.1,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -36,7 +36,7 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14622,
-      "sharePct": 28.9
+      "sharePct": 28.8
     },
     {
       "id": "ui_markup_styles",
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 4741,
+      "loc": 4756,
       "sharePct": 9.4
     },
     {
@@ -115,8 +115,8 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 776,
-      "sharePct": 1.5
+      "loc": 791,
+      "sharePct": 1.6
     },
     {
       "label": "Config & Manifest (.json)",

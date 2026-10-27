@@ -62,11 +62,11 @@ Synchronized closed captions with 3-state progressive word highlighting, adjusta
   <img src="docs/assets/screenshots/01-player-subtitles.png" width="100%" alt="LM Subs highlighted spoken-word captions inside the video and compact CC controls in the bottom play bar" />
 </p>
 
-### Audio-only stream extraction, 12-provider failover, and opt-in sync
-Extracts NotebookLM's ~3.4 MB `=m140` audio stream instead of uploading 50+ MB MP4 video files, advances automatically across your configured provider queue on `HTTP 429` rate limits, and syncs only the categories you enable.
+### Statistics that match the extension
+Every number on the website is the same number the extension reports, computed on your device and merged with your account when you sign in: watch time, listening time, exports, and per provider usage.
 
 <p align="center">
-  <img src="docs/assets/screenshots/02-audio-extraction-failover.png" width="100%" alt="Audio-only stream extraction, automatic provider failover, and opt-in cloud sync" />
+  <img src="docs/assets/screenshots/02-statistics-dashboard.png" width="100%" alt="LM Subs statistics dashboard showing watch time, listening time, export counts, and per provider usage" />
 </p>
 
 ### Chrome toolbar popup
@@ -80,7 +80,14 @@ Configure a free Groq or Mistral key, inspect account sync state, trigger captio
 Sign in with Google, GitHub, or a 6-digit email code, toggle granular cloud sync switches (`Sync API keys`, `Sync transcriptions`, `Sync preferences`), inspect real transcription metrics, and order all 12 speech-to-text providers.
 
 <p align="center">
-  <img src="docs/assets/screenshots/04-settings-queue.png" width="100%" alt="LM Subs settings page showing opt-in sync switches, statistics, and provider queue" />
+  <img src="docs/assets/screenshots/04-settings-statistics.png" width="100%" alt="LM Subs settings page showing opt-in sync switches, statistics, and the provider queue" />
+</p>
+
+### Page that opens after install
+Setup finishes itself: pin the extension, paste one free API key, then press CC on any overview.
+
+<p align="center">
+  <img src="docs/assets/screenshots/09-welcome-install-page.png" width="100%" alt="LM Subs install page that opens after loading the extension, showing the pin, API key, and caption steps" />
 </p>
 
 ---

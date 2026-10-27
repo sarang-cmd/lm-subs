@@ -7,6 +7,8 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 ## `Unreleased`
 
 ### Changed
+* **README shows the current product (`README.md`):** The four pre-v0.2.5 captures are swapped for the ones that match today's build: the player, the statistics dashboard, the toolbar popup, the settings page, and a new section for the page Chrome opens after install. The old text and structure stay as they were.
+* **Player and dock captures refreshed (`docs/assets/screenshots/01-player-subtitles.png`, `08-docked-fine-controls.png`):** Both were taken before the dock fix and still showed the playback speed button that NotebookLM already provides. They are re-rendered in Chromium against the real content script on a mocked NotebookLM Studio page, so the caption line and the seven control dock are what ships today.
 * **Wider toolbar popup (`extension/ui.css`):** The popup went from 392px to 480px, comfortably inside Chrome's 800px cap, which gives the update notes, provider rows, and statistics room to breathe. Its statistics strip now keeps the four column layout the settings page uses instead of collapsing to two, and `03-toolbar-popup.png` was recaptured at the new width against live seeded data.
 
 ---
