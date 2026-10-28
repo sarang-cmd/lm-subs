@@ -1613,6 +1613,164 @@ body.app-mounted .site-header-shell {
   color: var(--ink-secondary);
 }
 
+/* Account chip and avatar picker
+ * ---------------------------------------------------------------
+ * The top bar carries the chosen face instead of the signed-in address. The
+ * chip is a plain round button so it costs the header far less width than an
+ * address did, and the picker is a three by three grid of drawings rather than
+ * an upload, so nothing has to be stored as a file. */
+.account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 2px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: var(--bg-sheet);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.account-btn:hover {
+  border-color: var(--border-control);
+  background: var(--bg-subtle);
+}
+
+.account-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.account-btn[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.account-btn .avatar-face {
+  display: block;
+}
+
+.account-caret {
+  display: block;
+  margin-right: 2px;
+}
+
+.account-popover {
+  z-index: 95;
+  width: min(316px, calc(100vw - 24px));
+  padding: 16px;
+  background: var(--bg-sheet);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 48px rgba(17, 19, 21, 0.18);
+}
+
+.account-popover-arrow {
+  fill: var(--bg-sheet);
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-ident {
+  min-width: 0;
+}
+
+.account-email {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-primary);
+  overflow-wrap: anywhere;
+}
+
+.account-provider {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-tertiary);
+}
+
+.account-section-label {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.avatar-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px 7px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.avatar-option:hover {
+  border-color: var(--border-control);
+  background: var(--bg-subtle);
+}
+
+.avatar-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.avatar-option[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.avatar-option-label {
+  font-size: 11.5px;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--ink-secondary);
+}
+
+.avatar-option[data-selected="true"] .avatar-option-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.account-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-tertiary);
+}
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.account-actions .btn {
+  flex: 1;
+}
+
+@media (max-width: 400px) {
+  .avatar-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .cue-editor-list {
   display: grid;
   gap: 8px;

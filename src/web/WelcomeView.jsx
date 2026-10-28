@@ -3,6 +3,7 @@ import { Collapsible, Switch, Tabs } from "radix-ui";
 import { EXTERNAL_MESSAGE } from "../config/selectors.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import { BrandMark } from "./App.jsx";
+import { maskEmail } from "../lib/avatars.js";
 import { trackDownload } from "../lib/downloads.js";
 
 const EXT_ID_STORAGE_KEY = "lmsubs_connected_ext_id";
@@ -495,7 +496,7 @@ export function WelcomeView({
       setExtState(extRes);
       setCloudStatus({
         kind: "ok",
-        text: `Connected extension to ${extRes.cloudEmail || user?.email || "your cloud account"}.`,
+        text: `Connected extension to ${maskEmail(extRes.cloudEmail || user?.email) || "your cloud account"}.`,
       });
     } catch (err) {
       setCloudStatus({
@@ -526,7 +527,7 @@ export function WelcomeView({
         setLocalCodeInput("");
         setCloudStatus({
           kind: "ok",
-          text: `Connected extension to ${extRes.cloudEmail || "cloud sync"}.`,
+          text: `Connected extension to ${maskEmail(extRes.cloudEmail) || "cloud sync"}.`,
         });
         return;
       }
@@ -542,7 +543,7 @@ export function WelcomeView({
         setLocalCodeInput("");
         setCloudStatus({
           kind: "ok",
-          text: `Signed in as ${meJson.user.email}.`,
+          text: `Signed in as ${maskEmail(meJson.user.email) || "your account"}.`,
         });
       } else {
         setCloudStatus({
@@ -1117,9 +1118,9 @@ export function WelcomeView({
                   </div>
                   <div style={{ fontSize: "12px", color: "var(--ink-secondary)" }}>
                     {extState?.cloudLinked
-                      ? `Linked in extension as ${extState.cloudEmail}`
+                      ? `Linked in extension as ${maskEmail(extState.cloudEmail) || "your account"}`
                       : user
-                        ? `Signed in on web as ${user.email}`
+                        ? `Signed in on web as ${maskEmail(user.email) || "your account"}`
                         : "Sync transcripts and AES-256-GCM encrypted keys across browsers"}
                   </div>
                 </div>

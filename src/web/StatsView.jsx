@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Switch, Tooltip } from "radix-ui";
+import { maskEmail } from "../lib/avatars.js";
 import { buildSampleStatsDataset } from "./demo-data.jsx";
 import {
   buildUnifiedStatsReport,
@@ -108,7 +109,7 @@ export function StatsView({ token, user, onOpenSignIn }) {
               </h1>
               <p className="section-prose" style={{ marginBottom: 0 }}>
                 {user
-                  ? `Real transcription telemetry for ${user.email}, aggregated from your synced NotebookLM Video Overviews.`
+                  ? `Real transcription telemetry for ${maskEmail(user.email) || "your account"}, aggregated from your synced NotebookLM Video Overviews.`
                   : "Sign in to view your real transcription volume, provider latency, and bandwidth savings across devices."}
               </p>
             </div>

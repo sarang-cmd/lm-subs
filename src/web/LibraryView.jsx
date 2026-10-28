@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Collapsible, Dialog, DropdownMenu, Switch } from "radix-ui";
+import { maskEmail } from "../lib/avatars.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import {
   buildAutoChapters,
@@ -511,7 +512,7 @@ export function LibraryView({
               Cloud library
             </h1>
             <p className="section-prose" style={{ marginBottom: 0 }}>
-              Signed in as <strong>{user.email}</strong> ({user.authProvider || "email"}). Hosted on encrypted Neon Postgres.
+              Signed in as <strong>{maskEmail(user.email) || "your account"}</strong> ({user.authProvider || "email"}). Hosted on encrypted Neon Postgres.
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>

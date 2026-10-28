@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { maskEmail } from "../lib/avatars.js";
 
 /**
  * Admin download dashboard (`src/web/AdminView.jsx`).
@@ -445,7 +446,7 @@ export function AdminView({ token, user, onOpenSignIn }) {
               marginTop: "26px",
             }}
           >
-            Signed in as {user?.email || "the admin account"}. Refresh the page
+            Signed in as {maskEmail(user?.email) || "the admin account"}. Refresh the page
             after changing the admin list in Vercel.
           </p>
         </>

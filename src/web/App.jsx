@@ -6,6 +6,13 @@ import React, {
   useState,
 } from "react";
 import { Tabs } from "radix-ui";
+import {
+  clearLocalAvatarChoice,
+  maskEmail,
+  readLocalAvatarChoice,
+  resolveAvatarChoice,
+  writeLocalAvatarChoice,
+} from "../lib/avatars.js";
 import { trackDownload } from "../lib/downloads.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import { AboutView } from "./AboutView.jsx";
@@ -15,6 +22,7 @@ import { GuideView } from "./GuideView.jsx";
 import { LibraryView, SyncPreferencesSwitches } from "./LibraryView.jsx";
 import { NotificationCenter } from "./NotificationCenter.jsx";
 import { ProductShot } from "./ProductShot.jsx";
+import { ProfileMenu } from "./ProfileMenu.jsx";
 import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
 import { StatsView } from "./StatsView.jsx";
@@ -283,6 +291,63 @@ export function App() {
     [token]
   );
 
+
+  const [avatarChoice, setAvatarChoice] = useState(() => {
+    const resolved = resolveAvatarChoice({ local: readLocalAvatarChoice() });
+    return resolved;
+  });
+  const [avatarSyncing, setAvatarSyncing] = useState(false);
+
+  // The cloud copy arrives with the first sync pull, so it can land after the
+  // local copy has already painted. Newest timestamp wins.
+  const cloudAvatar = cloudState?.settings?.avatarId
+    ? {
+        id: cloudState.settings.avatarId,
+        at: Number(cloudState.settings.avatarAt || 0),
+      }
+    : null;
+  useEffect(() => {
+    if (!cloudAvatar) return;
+    setAvatarChoice((prev) => resolveAvatarChoice({ cloud: cloudAvatar, local: prev }));
+  }, [cloudState?.settings?.avatarId, cloudState?.settings?.avatarAt]);
+
+  const avatarId = avatarChoice.id;
+  const syncsToAccount = Boolean(
+    cloudState?.syncPreferences?.syncSettings !== false
+  );
+
+  const handleSelectAvatar = useCallback(
+    async (id) => {
+      const next = writeLocalAvatarChoice({ id, at: Date.now() });
+      if (!next) return;
+      setAvatarChoice(next);
+      if (!token) return;
+      setAvatarSyncing(true);
+      try {
+        await fetch("/api/sync/push", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            settings: {
+              ...(cloudState?.settings || {}),
+              avatarId: next.id,
+              avatarAt: next.at,
+            },
+          }),
+        });
+        await refreshCloud(token);
+      } catch {
+        // The local pick still applies; it syncs on the next successful pull.
+      } finally {
+        setAvatarSyncing(false);
+      }
+    },
+    [token, cloudState?.settings, refreshCloud]
+  );
+
   useEffect(() => {
     if (token) {
       refreshCloud(token);
@@ -301,6 +366,7 @@ export function App() {
   }
 
   async function handleSignOut() {
+    clearLocalAvatarChoice();
     if (token) {
       await fetch("/api/auth/signout", {
         method: "POST",
@@ -476,13 +542,15 @@ export function App() {
               onOpenSignIn={() => setAuthDialogOpen(true)}
             />
             {user ? (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => navigate("library")}
-              >
-                {user.email}
-              </button>
+              <ProfileMenu
+                user={user}
+                avatarId={avatarId}
+                onSelectAvatar={handleSelectAvatar}
+                onSignOut={handleSignOut}
+                onOpenLibrary={() => navigate("library")}
+                syncsToAccount={syncsToAccount}
+                syncing={avatarSyncing}
+              />
             ) : (
               <button
                 type="button"
@@ -762,7 +830,7 @@ export function App() {
                     }}
                   >
                     {user
-                      ? `Connected as ${user.email}. Changes save immediately to your account.`
+                      ? `Connected as ${maskEmail(user.email) || "your account"}. Changes save immediately to your account.`
                       : "Toggle any switch above to sign in and save your sync preferences."}
                   </p>
                 </div>
