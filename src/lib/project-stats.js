@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 172932,
-  "nonBlankLoc": 167943,
+  "totalLoc": 172948,
+  "nonBlankLoc": 167957,
   "sourceFiles": 1146,
   "automatedTests": 118,
   "testSuites": 17,
@@ -35,7 +35,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 1048,
-      "loc": 125598,
+      "loc": 125614,
       "sharePct": 72.6
     },
     {
@@ -91,7 +91,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Config & Manifest (.json)",
       "files": 1032,
-      "loc": 121303,
+      "loc": 121314,
       "sharePct": 70.1
     },
     {
@@ -121,7 +121,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 855,
+      "loc": 860,
       "sharePct": 0.5
     },
     {
