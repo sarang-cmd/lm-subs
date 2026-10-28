@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Tabs } from "radix-ui";
 import { ChromePuzzlePinDiagram } from "./WelcomeView.jsx";
 import { ProductShot } from "./ProductShot.jsx";
+import { trackDownload } from "../lib/downloads.js";
 
 export function GuideView({
   onNavigate,
@@ -43,7 +44,7 @@ export function GuideView({
               className="btn btn-primary"
               href="/releases/lm-subs-v0.2.8.zip"
               download
-              onClick={onStartDownloadSetup}
+              onClick={() => onStartDownloadSetup?.("guide")}
             >
               Download Chrome extension (.zip)
             </a>

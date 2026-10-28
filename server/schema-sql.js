@@ -139,4 +139,24 @@ CREATE TABLE IF NOT EXISTS lmsubs_notifications (
 
 CREATE INDEX IF NOT EXISTS idx_lmsubs_notifications_user_created
   ON lmsubs_notifications (user_id, created_at DESC);
+
+-- Anonymous extension download counters. No IP address, no user agent string and
+-- no account identifier is ever stored: only the version, the channel, the page
+-- that offered the file, the coarse browser family, and the country Vercel
+-- already resolves from the edge request.
+CREATE TABLE IF NOT EXISTS lmsubs_downloads (
+  id BIGSERIAL PRIMARY KEY,
+  version TEXT NOT NULL DEFAULT '',
+  channel TEXT NOT NULL DEFAULT 'site',
+  source TEXT NOT NULL DEFAULT '',
+  browser TEXT NOT NULL DEFAULT 'other',
+  country TEXT NOT NULL DEFAULT '',
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lmsubs_downloads_occurred
+  ON lmsubs_downloads (occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_lmsubs_downloads_version
+  ON lmsubs_downloads (version, occurred_at DESC);
 `;

@@ -43,6 +43,7 @@ const SPA_ROUTES = new Set([
   "/library",
   "/workspace",
   "/stats",
+  "/admin",
   "/privacy",
   "/terms",
 ]);

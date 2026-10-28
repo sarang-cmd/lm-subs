@@ -6,8 +6,10 @@ import React, {
   useState,
 } from "react";
 import { Tabs } from "radix-ui";
+import { trackDownload } from "../lib/downloads.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import { AboutView } from "./AboutView.jsx";
+import { AdminView } from "./AdminView.jsx";
 import { AuthDialog } from "./AuthDialog.jsx";
 import { GuideView } from "./GuideView.jsx";
 import { LibraryView, SyncPreferencesSwitches } from "./LibraryView.jsx";
@@ -73,6 +75,7 @@ function resolveInitialView() {
   if (path === "/about" || path === "/about.html") return "about";
   if (path === "/library" || path === "/workspace") return "library";
   if (path === "/stats" || path === "/stats.html") return "stats";
+  if (path === "/admin" || path === "/admin.html") return "admin";
   if (
     path === "/privacy" ||
     path === "/privacy.html" ||
@@ -89,6 +92,7 @@ function resolveInitialView() {
   if (v === "about") return "about";
   if (v === "library" || v === "workspace") return "library";
   if (v === "stats") return "stats";
+  if (v === "admin") return "admin";
   if (v === "privacy") return "privacy";
   if (v === "terms") return "terms";
   return "overview";
@@ -127,6 +131,7 @@ const VIEW_URL_MAP = {
   guide: "/guide",
   library: "/library",
   stats: "/stats",
+  admin: "/admin",
   about: "/about",
   privacy: "/privacy",
   terms: "/terms",
@@ -184,7 +189,9 @@ export function App() {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
-  const handleStartDownloadSetup = useCallback(() => {
+  const handleStartDownloadSetup = useCallback((source = "home") => {
+    // Anonymous counter so the admin dashboard can see how a release spreads.
+    trackDownload({ source, channel: "site" });
     setView("welcome");
     window.history.pushState({ view: "welcome" }, "", "/welcome?downloading=1");
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -437,6 +444,19 @@ export function App() {
             >
               About
             </a>
+            {user?.isAdmin ? (
+              <a
+                href="/admin"
+                className="nav-tab"
+                aria-current={view === "admin" ? "page" : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate("admin");
+                }}
+              >
+                Admin
+              </a>
+            ) : null}
           </nav>
 
           <div className="nav-actions">
@@ -501,7 +521,7 @@ export function App() {
                     className="btn btn-primary"
                     href="/releases/lm-subs-v0.2.8.zip"
                     download
-                    onClick={handleStartDownloadSetup}
+                    onClick={() => handleStartDownloadSetup("hero")}
                   >
                     Download Chrome extension (.zip)
                   </a>
@@ -552,7 +572,7 @@ export function App() {
                       className="btn"
                       href="/releases/lm-subs-v0.2.8.zip"
                       download
-                      onClick={handleStartDownloadSetup}
+                      onClick={() => handleStartDownloadSetup("install-walkthrough")}
                     >
                       Download .zip package
                     </a>
@@ -869,6 +889,14 @@ export function App() {
 
         {view === "stats" ? (
           <StatsView
+            token={token}
+            user={user}
+            onOpenSignIn={() => setAuthDialogOpen(true)}
+          />
+        ) : null}
+
+        {view === "admin" ? (
+          <AdminView
             token={token}
             user={user}
             onOpenSignIn={() => setAuthDialogOpen(true)}

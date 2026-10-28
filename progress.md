@@ -6,6 +6,11 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ## `Unreleased`
 
+### Added
+* **Anonymous download counters (`server/app.js`, `db/schema.sql`, `server/schema-sql.js`, `src/lib/downloads.js`):** `POST /api/downloads` records one row per extension download with the version, the channel, the page that offered the file, the browser family, and the country Vercel resolves at the edge. No IP address, no account identifier and no user agent string is stored, the endpoint needs no session so the marketing pages can report, and identical events inside a ten second window collapse into one so refresh loops cannot inflate the numbers. The home page, the setup guide and the install page each report their own source.
+* **Admin download dashboard (`src/web/AdminView.jsx`, `server/app.js`):** A private `/admin` route shows downloads all time, today, and over the last 7 and 30 days, a per day chart with a 7, 30 or 90 day range, breakdowns by version, page, country and browser, the account and transcript counts, and the 15 most recent events. It is disallowed in `robots.txt`, absent from `sitemap.xml`, and gated server side on `LM_SUBS_ADMIN_EMAILS`, a comma separated list read from the environment on every request so no operator address ever reaches the repository. The **Admin** tab appears for those accounts only.
+
+
 ### Fixed
 * **Top bar wrapping below 640px (`docs/styles.css`):** The six tabs used to drop onto a second row, which grew the header from 54px to 67px and cost it the single hairline that makes it read as one bar. The header keeps its fixed height at every width and the tab strip shrinks and scrolls sideways instead, so the brand and the actions stay put. Verified from 1280px down to 390px: one bar, one line, no page overflow.
 * **Duplicate header on the crawlable shells (`scripts/build-shells.mjs`, `src/web/main.jsx`, `docs/styles.css`):** The shell pages ship a static header outside `#root` so crawlers and no-JS visitors still get navigation, but the app also renders its own header inside `#root`, so those pages showed two stacked bars. The static copy is now tagged `site-header-shell` and hides once React mounts, while staying in the HTML for crawlers.

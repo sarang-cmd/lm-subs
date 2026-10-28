@@ -125,6 +125,55 @@ export function createSyncApp({
   fetchImpl = globalThis.fetch,
 } = {}) {
   const resolveDb = () => dbPromise || getSharedDatabase();
+
+  // Admin access lives entirely in the environment so no operator address is
+  // ever committed to the repository. Set LM_SUBS_ADMIN_EMAILS in Vercel as a
+  // comma separated list.
+  function adminEmailSet() {
+    const raw = process.env.LM_SUBS_ADMIN_EMAILS || process.env.ADMIN_EMAILS || "";
+    return new Set(
+      String(raw)
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    );
+  }
+
+  function isAdminUser(user) {
+    const email = String(user?.email || "").trim().toLowerCase();
+    if (!email) return false;
+    return adminEmailSet().has(email);
+  }
+
+  // Download counters stay anonymous: the browser family and the country Vercel
+  // already resolves at the edge are as far as this goes. No IP, no full user
+  // agent string, no account identifier.
+  function classifyBrowser(userAgent) {
+    const value = String(userAgent || "").toLowerCase();
+    if (value.includes("edg/")) return "edge";
+    if (value.includes("chrome") || value.includes("crios")) return "chrome";
+    if (value.includes("firefox") || value.includes("fxios")) return "firefox";
+    if (value.includes("safari")) return "safari";
+    return "other";
+  }
+
+  function cleanCountry(raw) {
+    const value = String(raw || "").trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(value) ? value : "";
+  }
+
+  function cleanSlug(raw, max = 40) {
+    return String(raw || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9._ -]/g, "")
+      .slice(0, max)
+      .trim();
+  }
+
+  function cleanVersion(raw) {
+    const value = String(raw || "").trim();
+    return /^\d+\.\d+\.\d+$/.test(value) ? value : "";
+  }
   let cachedRemoteJwks = null;
   let cachedJwksUrl = "";
 
@@ -609,6 +658,7 @@ export function createSyncApp({
         name: account.name || "",
         avatarUrl: account.avatar_url || "",
         authProvider: account.auth_provider || "email",
+        isAdmin: isAdminUser({ email: account.email }),
       },
       summary,
     });
@@ -849,6 +899,7 @@ export function createSyncApp({
           id: userId,
           email,
           name: name || email.split("@")[0],
+          isAdmin: isAdminUser({ email }),
         },
         summary,
       },
@@ -906,6 +957,7 @@ export function createSyncApp({
         name: userRow.name || "",
         avatarUrl: userRow.avatar_url || "",
         authProvider: userRow.auth_provider || "email",
+        isAdmin: isAdminUser({ email: userRow.email }),
       },
       summary,
     });
@@ -937,6 +989,7 @@ export function createSyncApp({
         name: user.name,
         avatarUrl: user.avatarUrl || "",
         authProvider: user.authProvider || "email",
+        isAdmin: isAdminUser(user),
       },
       summary,
     });
@@ -1121,6 +1174,7 @@ export function createSyncApp({
         name: user.name,
         avatarUrl: user.avatarUrl || "",
         authProvider: user.authProvider || "email",
+        isAdmin: isAdminUser(user),
       },
       syncPreferences,
       settings: effectiveSettings,
@@ -2036,6 +2090,190 @@ export function createSyncApp({
         bookmarksCount: 0,
         citationsCount: 0,
       },
+    });
+  });
+
+  /**
+   * Anonymous extension download counter.
+   *
+   * Open by design so the marketing site, the setup guide and the extension's
+   * own update check can all report without a session. Identical events within
+   * ten seconds collapse into one, which keeps refresh loops and prefetch from
+   * inflating the numbers.
+   */
+  app.post("/api/downloads", async (c) => {
+    const db = await resolveDb();
+    let body = {};
+    try {
+      body = (await c.req.json()) || {};
+    } catch {
+      body = {};
+    }
+
+    const version = cleanVersion(body.version);
+    const channelRaw = cleanSlug(body.channel, 16);
+    const channel = ["site", "github", "update"].includes(channelRaw)
+      ? channelRaw
+      : "site";
+    const source = cleanSlug(body.source, 40);
+    const browser = classifyBrowser(c.req.header("user-agent"));
+    const country = cleanCountry(
+      c.req.header("x-vercel-ip-country") || c.req.header("cf-ipcountry")
+    );
+
+    const res = await db.query(
+      `INSERT INTO lmsubs_downloads (version, channel, source, browser, country)
+       SELECT $1, $2, $3, $4, $5
+       WHERE NOT EXISTS (
+         SELECT 1 FROM lmsubs_downloads
+         WHERE version = $1 AND channel = $2 AND source = $3
+           AND browser = $4 AND country = $5
+           AND occurred_at > NOW() - INTERVAL '10 seconds'
+       )
+       RETURNING id`,
+      [version, channel, source, browser, country]
+    );
+
+    return c.json({ ok: true, recorded: res.rows.length > 0 });
+  });
+
+  /**
+   * Admin dashboard counters.
+   *
+   * Download totals over time plus the account and transcript counts worth
+   * watching. Gated on LM_SUBS_ADMIN_EMAILS, and it never returns another
+   * person's email address or content, only aggregate counts.
+   */
+  app.get("/api/admin/downloads", async (c) => {
+    const db = await resolveDb();
+    const user = await authenticateRequest(c, db);
+    if (!user) {
+      return c.json({ ok: false, error: "Unauthorized" }, 401);
+    }
+    if (!isAdminUser(user)) {
+      return c.json({ ok: false, error: "Forbidden" }, 403);
+    }
+
+    const requestedDays = Number(c.req.query("days"));
+    const days = Math.min(
+      90,
+      Math.max(1, Number.isFinite(requestedDays) && requestedDays > 0 ? Math.trunc(requestedDays) : 30)
+    );
+
+    const [totalsRes, dailyRes, versionRes, channelRes, sourceRes, countryRes, browserRes, accountsRes, recentRes] =
+      await Promise.all([
+        db.query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE occurred_at >= date_trunc('day', NOW()))::int AS today,
+                  COUNT(*) FILTER (WHERE occurred_at >= NOW() - INTERVAL '7 days')::int AS last7,
+                  COUNT(*) FILTER (WHERE occurred_at >= NOW() - INTERVAL '30 days')::int AS last30,
+                  MIN(occurred_at) AS first_at
+           FROM lmsubs_downloads`
+        ),
+        db.query(
+          `SELECT to_char(d.day, 'YYYY-MM-DD') AS date,
+                  COUNT(dl.id)::int AS count
+           FROM generate_series(
+                  date_trunc('day', NOW()) - (($1::int - 1) * INTERVAL '1 day'),
+                  date_trunc('day', NOW()),
+                  INTERVAL '1 day'
+                ) AS d(day)
+           LEFT JOIN lmsubs_downloads dl
+             ON dl.occurred_at >= d.day
+            AND dl.occurred_at < d.day + INTERVAL '1 day'
+           GROUP BY d.day
+           ORDER BY d.day`,
+          [days]
+        ),
+        db.query(
+          `SELECT COALESCE(NULLIF(version, ''), 'unknown') AS label,
+                  COUNT(*)::int AS count
+           FROM lmsubs_downloads
+           GROUP BY 1
+           ORDER BY count DESC, label ASC
+           LIMIT 12`
+        ),
+        db.query(
+          `SELECT channel AS label, COUNT(*)::int AS count
+           FROM lmsubs_downloads
+           GROUP BY 1
+           ORDER BY count DESC, label ASC
+           LIMIT 12`
+        ),
+        db.query(
+          `SELECT COALESCE(NULLIF(source, ''), 'direct') AS label,
+                  COUNT(*)::int AS count
+           FROM lmsubs_downloads
+           GROUP BY 1
+           ORDER BY count DESC, label ASC
+           LIMIT 12`
+        ),
+        db.query(
+          `SELECT country AS label, COUNT(*)::int AS count
+           FROM lmsubs_downloads
+           WHERE country <> ''
+           GROUP BY 1
+           ORDER BY count DESC, label ASC
+           LIMIT 10`
+        ),
+        db.query(
+          `SELECT browser AS label, COUNT(*)::int AS count
+           FROM lmsubs_downloads
+           GROUP BY 1
+           ORDER BY count DESC, label ASC
+           LIMIT 10`
+        ),
+        db.query(
+          `SELECT (SELECT COUNT(*)::int FROM lmsubs_users) AS accounts,
+                  (SELECT COUNT(*)::int FROM lmsubs_users
+                    WHERE created_at >= NOW() - INTERVAL '30 days') AS new_accounts,
+                  (SELECT COUNT(*)::int FROM lmsubs_subtitles) AS transcripts,
+                  (SELECT COUNT(DISTINCT user_id)::int FROM lmsubs_subtitles) AS active_accounts`
+        ),
+        db.query(
+          `SELECT version, channel, source, browser, country, occurred_at
+           FROM lmsubs_downloads
+           ORDER BY occurred_at DESC
+           LIMIT 15`
+        ),
+      ]);
+
+    const totals = totalsRes.rows[0] || {};
+    const accounts = accountsRes.rows[0] || {};
+
+    return c.json({
+      ok: true,
+      range: { days },
+      totals: {
+        total: Number(totals.total) || 0,
+        today: Number(totals.today) || 0,
+        last7: Number(totals.last7) || 0,
+        last30: Number(totals.last30) || 0,
+        firstAt: totals.first_at || null,
+      },
+      daily: dailyRes.rows.map((r) => ({
+        date: r.date,
+        count: Number(r.count) || 0,
+      })),
+      byVersion: versionRes.rows,
+      byChannel: channelRes.rows,
+      bySource: sourceRes.rows,
+      byCountry: countryRes.rows,
+      byBrowser: browserRes.rows,
+      accounts: {
+        total: Number(accounts.accounts) || 0,
+        new30: Number(accounts.new_accounts) || 0,
+        transcripts: Number(accounts.transcripts) || 0,
+        active: Number(accounts.active_accounts) || 0,
+      },
+      recent: recentRes.rows.map((r) => ({
+        version: r.version || "",
+        channel: r.channel || "site",
+        source: r.source || "",
+        browser: r.browser || "other",
+        country: r.country || "",
+        at: r.occurred_at,
+      })),
     });
   });
 
