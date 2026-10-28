@@ -4,11 +4,11 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 50749,
-  "nonBlankLoc": 46548,
-  "sourceFiles": 120,
-  "automatedTests": 103,
-  "testSuites": 15,
+  "totalLoc": 50956,
+  "nonBlankLoc": 46733,
+  "sourceFiles": 121,
+  "automatedTests": 108,
+  "testSuites": 16,
   "sttProviders": 12,
   "exportFormats": 6,
   "captionThemes": 6,
@@ -36,14 +36,14 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14622,
-      "sharePct": 28.8
+      "sharePct": 28.7
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8454,
+      "loc": 8525,
       "sharePct": 16.7
     },
     {
@@ -58,16 +58,16 @@ export const PROJECT_STATS = Object.freeze({
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
-      "files": 15,
-      "loc": 6485,
-      "sharePct": 12.8
+      "files": 16,
+      "loc": 6596,
+      "sharePct": 12.9
     },
     {
       "id": "web_app",
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
       "files": 13,
-      "loc": 6355,
+      "loc": 6373,
       "sharePct": 12.5
     },
     {
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 4764,
+      "loc": 4771,
       "sharePct": 9.4
     },
     {
@@ -90,14 +90,14 @@ export const PROJECT_STATS = Object.freeze({
   "languages": [
     {
       "label": "JavaScript / ESM (.js, .mjs)",
-      "files": 56,
-      "loc": 34569,
+      "files": 57,
+      "loc": 34680,
       "sharePct": 68.1
     },
     {
       "label": "React JSX (.jsx)",
       "files": 13,
-      "loc": 6355,
+      "loc": 6373,
       "sharePct": 12.5
     },
     {
@@ -109,13 +109,13 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3424,
-      "sharePct": 6.7
+      "loc": 3495,
+      "sharePct": 6.9
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 796,
+      "loc": 803,
       "sharePct": 1.6
     },
     {

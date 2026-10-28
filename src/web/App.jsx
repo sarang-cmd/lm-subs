@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Tabs } from "radix-ui";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import { AboutView } from "./AboutView.jsx";
@@ -192,6 +198,14 @@ export function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // The tab strip scrolls sideways instead of wrapping, so bring the current
+  // tab into view on load and on navigation.
+  const navRef = useRef(null);
+  useEffect(() => {
+    const active = navRef.current?.querySelector('[aria-current="page"]');
+    active?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [view]);
+
   useEffect(() => {
     const hash = window.location.hash || "";
     if (hash.startsWith("#auth_token=")) {
@@ -361,10 +375,10 @@ export function App() {
             }}
           >
             <BrandMark />
-            <span>LM Subs</span>
+            <span className="brand-text">LM Subs</span>
           </a>
 
-          <nav className="nav-links" aria-label="Primary">
+          <nav className="nav-links" aria-label="Primary" ref={navRef}>
             <a
               href="/"
               className="nav-tab"
@@ -464,7 +478,7 @@ export function App() {
               download
               onClick={handleStartDownloadSetup}
             >
-              Download extension
+              Download<span className="nav-hide-sm">&nbsp;extension</span>
             </a>
           </div>
         </div>

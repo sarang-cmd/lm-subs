@@ -194,6 +194,12 @@ textarea:focus-visible,
   gap: 8px;
 }
 
+/* The shell pages ship a static header for crawlers. Once the app mounts and
+   renders its own header inside #root, the static copy steps aside. */
+body.app-mounted .site-header-shell {
+  display: none;
+}
+
 /* Buttons */
 .btn {
   appearance: none;
@@ -1291,7 +1297,58 @@ textarea:focus-visible,
   }
 }
 
+/* Phone widths: the brand mark carries the identity, the CTA drops its tail
+   word, and the controls tighten so the row still fits without scrolling the
+   page sideways. */
+@media (max-width: 560px) {
+  .brand-link .brand-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  .nav-hide-sm {
+    display: none;
+  }
+  .nav-tab {
+    padding: 6px 9px;
+  }
+  .nav-actions {
+    gap: 6px;
+  }
+  .nav-actions .btn {
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+}
+
 /* Responsive Breakpoints (Desktop -> Tablet -> Mobile 375px) */
+/* Below this width the brand, six tabs and the actions no longer fit on one
+   row, so the tab strip scrolls sideways instead of wrapping or pushing the
+   actions off screen. */
+@media (max-width: 1024px) {
+  .brand-link,
+  .nav-actions {
+    flex: 0 0 auto;
+  }
+  .nav-links {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 900px) {
   .stage-body {
     grid-template-columns: 1fr;
@@ -1316,20 +1373,34 @@ textarea:focus-visible,
 }
 
 @media (max-width: 640px) {
+  /* The bar stays one line: the tabs scroll sideways instead of dropping
+     onto a second row, so the header keeps its height and its hairline. */
   .site-header {
-    height: auto;
-    padding: 10px 0;
+    height: var(--nav-h);
+    padding: 0;
   }
   .site-header-inner {
-    padding: 0 16px;
-    flex-wrap: wrap;
-    gap: 10px;
+    padding: 0 14px;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .brand-link,
+  .nav-actions {
+    flex: 0 0 auto;
   }
   .nav-links {
-    order: 3;
-    width: 100%;
+    order: 0;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
     overflow-x: auto;
-    padding-bottom: 2px;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0;
+  }
+  .nav-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
   .page-wrap {
     padding: 0 var(--pad-gutter);

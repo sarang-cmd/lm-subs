@@ -6,6 +6,13 @@ This file tracks every release of **LM Subs** ([`sarang-cmd/lm-subs`](https://gi
 
 ## `Unreleased`
 
+### Fixed
+* **Top bar wrapping below 640px (`docs/styles.css`):** The six tabs used to drop onto a second row, which grew the header from 54px to 67px and cost it the single hairline that makes it read as one bar. The header keeps its fixed height at every width and the tab strip shrinks and scrolls sideways instead, so the brand and the actions stay put. Verified from 1280px down to 390px: one bar, one line, no page overflow.
+* **Duplicate header on the crawlable shells (`scripts/build-shells.mjs`, `src/web/main.jsx`, `docs/styles.css`):** The shell pages ship a static header outside `#root` so crawlers and no-JS visitors still get navigation, but the app also renders its own header inside `#root`, so those pages showed two stacked bars. The static copy is now tagged `site-header-shell` and hides once React mounts, while staying in the HTML for crawlers.
+
+### Changed
+* **Phone width header (`docs/styles.css`, `src/web/App.jsx`, `src/web/NotificationCenter.jsx`):** Below 560px the brand keeps only its mark, the alerts button keeps only its bell, and the download CTA drops its tail word, which roughly doubles the room the tabs get on a 390px screen. The wordmark and the alerts label are hidden visually rather than removed, so screen readers still read them.
+
 ### Added
 * **Google Search Console verification (`docs/index.html`, `scripts/build-shells.mjs`, `scripts/build-blog.mjs`):** The `google-site-verification` token sits in the `<head>` of all twenty served pages, so the property verifies from any URL. It lives in the page generators rather than only in the committed HTML, which means a rebuild cannot drop it, and a test asserts every built page still carries it.
 
