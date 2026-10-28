@@ -176,9 +176,61 @@ Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for ex
 | `GITHUB_CLIENT_SECRET` | For GitHub login | From Step 3B |
 | `RESEND_API_KEY` | For Email OTP | From Step 3C (`re_...`) |
 | `AUTH_EMAIL_FROM` | For Email OTP | e.g. `LM Subs <login@yourdomain.com>` |
+| `LM_SUBS_ADMIN_EMAILS` | For `/admin` | Comma separated list of account addresses that may open the download dashboard |
 
 3. Go to **Deployments** in Vercel and click **Redeploy** on the latest deployment so the new environment variables take effect.
-4. *(If your production URL differs from `https://lm-subs.vercel.app`)* Update `HOSTED_CLOUD_URL` in `src/config/selectors.js` and run `npm run zip` before publishing the Chrome extension so the extension automatically points at your domain.
+4. *(Optional)* Set `LM_SUBS_ADMIN_EMAILS` to the account addresses that should reach the private download dashboard, for example `you@example.com,second@example.com`. Keep this in Vercel only. The address is deliberately never written to the repository, so the app reads it from the environment on every request and `LM_SUBS_ADMIN_EMAILS=""` in `.env.example` stays empty as the placeholder.
+
+5. *(If your production URL differs from `https://lm-subs.vercel.app`)* Update `HOSTED_CLOUD_URL` in `src/config/selectors.js` and run `npm run zip` before publishing the Chrome extension so the extension automatically points at your domain.
+
+---
+
+### Step 4b: Turn on the download dashboard (2 minutes)
+
+The site counts every extension download and shows the totals on `/admin`, a
+private route that is disallowed in `robots.txt`, left out of `sitemap.xml`, and
+gated server side on `LM_SUBS_ADMIN_EMAILS`.
+
+1. Add `LM_SUBS_ADMIN_EMAILS` in Vercel with the addresses that should have
+   access, separated by commas.
+2. Redeploy so the function picks up the new value.
+3. Sign in on the site with one of those addresses, then open
+   `https://<your-vercel-domain>/admin`. An **Admin** tab appears in the top bar
+   for those accounts only.
+
+What is recorded per download:
+
+| Field | Example | Notes |
+| :--- | :--- | :--- |
+| Version | `0.2.8` | Taken from the release the visitor clicked |
+| Channel | `site` | `site`, `github` or `update` |
+| Source | `hero` | Which page offered the file |
+| Browser | `chrome` | Family only, never the full user agent string |
+| Country | `DE` | From the `x-vercel-ip-country` edge header |
+
+No IP address, no account identifier and no user agent string is stored. The
+endpoint is open so the marketing pages can report without a session, and it
+collapses repeated identical events inside a ten second window so refresh loops
+and prefetch cannot inflate the numbers.
+
+Bash check once deployed:
+
+```bash
+# Anonymous beacon, no session required
+curl -sS -X POST https://<your-vercel-domain>/api/downloads \
+  -H 'Content-Type: application/json' \
+  -d '{"version":"0.2.8","channel":"site","source":"curl-test"}'
+# -> {"ok":true,"recorded":true}
+```
+
+Reading the totals requires a session token from an admin account:
+
+```bash
+curl -sS 'https://<your-vercel-domain>/api/admin/downloads?days=30' \
+  -H "Authorization: Bearer <admin-session-token>"
+```
+
+Non-admin accounts get `403`, and anonymous callers get `401`.
 
 ---
 

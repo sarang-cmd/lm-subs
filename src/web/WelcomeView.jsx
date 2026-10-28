@@ -3,6 +3,7 @@ import { Collapsible, Switch, Tabs } from "radix-ui";
 import { EXTERNAL_MESSAGE } from "../config/selectors.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
 import { BrandMark } from "./App.jsx";
+import { trackDownload } from "../lib/downloads.js";
 
 const EXT_ID_STORAGE_KEY = "lmsubs_connected_ext_id";
 const SETUP_CHANNEL_NAME = "lmsubs_setup_sync";
@@ -680,6 +681,7 @@ export function WelcomeView({
                 className="btn btn-primary"
                 href="/releases/lm-subs-v0.2.8.zip"
                 download
+                onClick={() => trackDownload({ source: "welcome" })}
               >
                 Download lm-subs-v0.2.8.zip
               </a>

@@ -206,7 +206,7 @@ export function NotificationCenter({
               strokeLinecap="round"
             />
           </svg>
-          <span>Alerts</span>
+          <span className="nav-hide-sm">Alerts</span>
           {unreadCount > 0 ? (
             <span className="notif-count-pill">
               {unreadCount > 99 ? "99+" : unreadCount}

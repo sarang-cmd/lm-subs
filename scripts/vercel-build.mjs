@@ -162,7 +162,7 @@ fs.writeFileSync(
           handle: "filesystem",
         },
         {
-          src: "^/(welcome|setup|guide|install|about|library|workspace|stats)/?$",
+          src: "^/(welcome|setup|guide|install|about|library|workspace|stats|admin)/?$",
           dest: "/index.html",
         },
       ],

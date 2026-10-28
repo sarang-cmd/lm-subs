@@ -48,7 +48,7 @@ ${links
 }
 
 function header(current) {
-  return `    <header class="site-header">
+  return `    <header class="site-header site-header-shell">
       <div class="site-header-inner">
         <a href="/" class="brand-link"><span class="brand-mark-text">LM Subs</span></a>
 ${nav(current)}
