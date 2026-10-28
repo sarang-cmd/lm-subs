@@ -160,7 +160,7 @@ Let `<YOUR_VERCEL_URL>` be your live Vercel URL without a trailing slash (for ex
 ### Step 4: Add Environment Variables in Vercel and Redeploy
 
 1. Open your project on [vercel.com/dashboard](https://vercel.com/dashboard) -> **Settings** -> **Build and Deployment**:
-   * **Root Directory:** Leave empty (`.` repository root). Do **not** set Root Directory to `docs`, because `api/index.js`, `server/`, `package.json`, and `vercel.json` live at the repository root while `vercel.json` already sets `"outputDirectory": "docs"` for static files.
+   * **Root Directory:** Your live project is set to `docs` with **Include source files outside of the Root Directory** switched on, which is why `vercel.json` ships a build command that handles both cases (`if [ -f package.json ]; then node scripts/vercel-build.mjs; else node ../scripts/vercel-build.mjs; fi`). It is deployed and working that way, so leave it alone unless a build breaks.
    * **Build Command:** `npm run build`
    * **Output Directory:** `docs`
 2. Open **Settings** -> **Environment Variables** and add the variables below for **Production** (and **Preview** if desired):
@@ -247,19 +247,193 @@ Expected response:
 ```json
 {
   "ok": true,
-  "service": "lm-subs-sync",
-  "version": "0.2.1",
-  "database": "neon-postgresql",
-  "authProviders": {
-    "emailCode": true,
-    "google": true,
-    "github": true,
-    "neonManaged": false
-  }
+  "service": "lm-subs-neon-sync",
+  "version": "0.2.4",
+  "neonProjectId": "falling-cherry-16443194",
+  "databaseMode": "neon-postgresql",
+  "neonManagedAuth": false,
+  "oauthProviders": { "google": true, "github": true, "email": true },
+  "serverTime": "2026-10-28T06:35:00.000Z"
 }
 ```
+
+Two fields tell you most of what can go wrong. `databaseMode` must read
+`neon-postgresql`; if it reads `pglite-postgres`, the function is running on the
+embedded fallback because `DATABASE_URL` did not arrive. `oauthProviders.google`
+and `.github` turn true only when the matching client IDs are non-empty, so they
+confirm the OAuth variables are filled in rather than merely present.
 
 Then open `https://<your-vercel-domain>` in your browser:
 1. Click **Sign in** and test **Continue with Google**, **Continue with GitHub**, or **6-digit email verification**.
 2. Toggle the opt-in switches (`Sync API keys`, `Sync transcriptions`, `Sync preferences`) under `/library`.
 3. Open `/stats` to verify live SQL aggregations from Neon Postgres.
+
+
+---
+
+## Part 3: What's Left to Do
+
+Checked against the live Vercel project on 2026-10-28. Where a step says *not
+started*, it is genuinely outstanding on your account right now.
+
+| Piece | Status |
+| :--- | :--- |
+| Project | `lm-subs`, team `sarang-dev`, production branch `main` |
+| Live URL | `https://lm-subs.vercel.app` |
+| Latest production deploy | `cb4fa34` (PR #26), 2026-10-28 06:35 UTC, state `READY` |
+| Database | Neon `falling-cherry-16443194`, connected |
+| Environment variables | 9 set, all on the Production target only |
+| Still missing | `LM_SUBS_ADMIN_EMAILS` |
+| Analytics | Web Analytics and Speed Insights both enabled and receiving |
+
+Quick checklist, in the order that pays off fastest:
+
+- [ ] Add `LM_SUBS_ADMIN_EMAILS` in Vercel and redeploy
+- [ ] Run `npm run db:migrate` and confirm 10 tables
+- [ ] Submit the sitemap in Search Console, then request indexing on the five main pages
+- [ ] Submit the extension to the Chrome Web Store, then update the install copy
+- [ ] Refresh `docs/CHROME_WEB_STORE_GUIDE.md`, which still describes v0.2.1
+- [ ] Bump to 0.2.9, run `npm run zip`, merge, and tag the release
+
+### 1. Turn the download dashboard on (5 minutes, not started)
+
+`LM_SUBS_ADMIN_EMAILS` is the one variable that has not been created yet, and
+until it exists no account is an admin, so `/admin` refuses everyone.
+
+1. Vercel, then Settings, then Environment Variables. Add
+   `LM_SUBS_ADMIN_EMAILS` with the addresses that should have access, separated
+   by commas. Tick **Production**, and **Preview** too if you want to test the
+   dashboard on pull request builds.
+2. Deployments, then Redeploy the latest production deployment. Env changes
+   only reach functions on a new build.
+3. Sign in with one of those addresses and open
+   `https://lm-subs.vercel.app/admin`. An **Admin** tab appears in the top bar.
+
+Verify the gate from outside, which is the part worth doing before you trust it:
+
+```bash
+# No session at all, expect 401
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  'https://lm-subs.vercel.app/api/admin/downloads?days=7'
+
+# Signed in as a normal account, expect 403
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  'https://lm-subs.vercel.app/api/admin/downloads?days=7' \
+  -H "Authorization: Bearer <a-non-admin-session-token>"
+```
+
+If you get 200 while signed out, the variable is missing rather than empty, or
+the deployment predates the change.
+
+### 2. Confirm the downloads table reached Neon (2 minutes)
+
+You do not have to run a migration. `server/db.js` applies the bundled DDL with
+`CREATE TABLE IF NOT EXISTS` on every cold start, so `lmsubs_downloads` appears
+with the first request after the deploy. This step just proves it happened.
+
+```bash
+# Needs a .env.local in the repo root with DATABASE_URL_UNPOOLED,
+# which you can generate with `npx neonctl env get` or copy from the Neon console.
+npm run db:migrate
+```
+
+Expect `Verified 10 LM Subs tables:` with `lmsubs_downloads` in the list. Nine
+means the function has not served traffic since the deploy, so open
+`/api/health` once and run it again.
+
+### 3. Prove the counters work end to end (5 minutes)
+
+```bash
+# Fire a test event, no session needed
+curl -sS -X POST https://lm-subs.vercel.app/api/downloads \
+  -H 'Content-Type: application/json' \
+  -d '{"version":"0.2.8","channel":"site","source":"manual-check"}'
+# -> {"ok":true,"recorded":true}
+```
+
+Then load `/admin` and confirm the version breakdown and the recent list show
+it. Country reads `Unknown` for requests that carry no `x-vercel-ip-country`
+header, which is normal when you call the API from a terminal. Browser clicks
+from real visitors get a two letter country code.
+
+### 4. Get the site into Google (30 minutes, then waiting)
+
+Your `google-site-verification` token is committed and sits in the `<head>` of
+every page the site serves, so the property should verify without touching DNS.
+
+1. Search Console, then Add property, then URL prefix, then
+   `https://lm-subs.vercel.app`. The HTML tag method should pass immediately.
+2. Sitemaps, then submit `https://lm-subs.vercel.app/sitemap.xml`. It lists 19
+   URLs and is served from `docs/sitemap.xml`, so it updates on every deploy.
+3. URL Inspection on the five pages that matter most
+   (`/`, `/guide`, `/install`, `/welcome`, `/about`), then Request indexing.
+   Indexing a handful of URLs at a time is more effective than bulk submitting.
+4. Check `https://lm-subs.vercel.app/robots.txt` is reachable and readable. It
+   allows every crawler including the AI answer engines, and disallows only
+   `/api/` and `/admin`.
+5. Give it one to two weeks. `vercel.app` is a shared hostname used by a very
+   large number of projects, which is the usual reason these take longer than a
+   domain of your own. A custom domain on Vercel takes about five minutes and is
+   the durable fix if you want faster, more predictable indexing.
+
+### 5. Publish on the Chrome Web Store (about an hour, plus review time)
+
+The extension is still install by hand only, which is the single biggest limit
+on downloads today, and every page on the site tells people to load it unpacked.
+
+1. Pay the one time five dollar developer registration fee and open the Chrome
+   Developer Dashboard.
+2. `npm run zip`, then upload `docs/releases/lm-subs-latest.zip`.
+3. Copy the listing fields from `docs/CHROME_WEB_STORE_GUIDE.md`, including the
+   permission justifications, which is the part reviewers most often reject.
+4. Point the privacy policy field at `https://lm-subs.vercel.app/privacy`. That
+   page is generated from `docs/PRIVACY_POLICY.md` and is already live.
+5. Upload the screenshots from `store-assets/`.
+6. Submit for review, then expect a few days for the first review.
+
+Once it is live, update the install copy so it no longer leads with developer
+mode. These are the places that mention unpacking:
+
+```bash
+grep -rIn "unpacked" src scripts
+# src/web/App.jsx, src/web/GuideView.jsx, src/web/WelcomeView.jsx,
+# scripts/build-shells.mjs, scripts/build-blog.mjs
+```
+
+### 6. Refresh the store guide for the current release (10 minutes)
+
+`docs/CHROME_WEB_STORE_GUIDE.md` still says `v0.2.1` and points at
+`docs/releases/lm-subs-v0.2.1.zip`, which no longer exists. The current build is
+`0.2.8`. Two of the four screenshots it recommends (`02-audio-extraction-failover.png`
+and `04-settings-queue.png`) no longer match the UI, so capture fresh ones or
+drop them from the list.
+
+### 7. Cut v0.2.9 (20 minutes)
+
+`progress.md` has a batch of work sitting under `Unreleased`: the top bar that
+now stays on one line, the download counters, and the admin dashboard. Shipping
+them means:
+
+1. Bump the version in three places that must agree: `package.json`,
+   `extension/manifest.json`, and `LATEST_NOTES_VERSION` in
+   `src/lib/release-notes.js` alongside a new notes entry.
+2. `npm run zip`, which rebuilds the extension bundles, repackages
+   `docs/releases/lm-subs-v0.2.9.zip` and `lm-subs-latest.zip`, and rewrites
+   `docs/releases/latest.json` with the new sha256 the extension checks for
+   updates.
+3. `npm test`, then push, open a PR, and merge.
+4. Create the GitHub release and attach the zip by dragging it onto the release
+   page. Command line asset upload is unreliable, so the release page on GitHub
+   is the dependable path.
+
+### 8. Optional, when you have time
+
+- **Add the environment variables to the Preview target.** Today all nine are
+  Production only, so pull request previews boot the embedded PGlite database.
+  They work, but every sign-in there is throwaway, which makes previews hard to
+  use for testing sync.
+- **Add a custom domain.** Faster indexing, a shorter link to put in the Reddit
+  post, and it survives any change to the Vercel project name.
+- **Set `AUTH_EMAIL_FROM` to a verified Resend domain.** Email codes work from
+  the default sender, but deliverability improves once the sending domain is
+  verified.
