@@ -82,17 +82,49 @@ body {
 }
 
 body.popup-body {
-  /* Chrome caps toolbar popups at 800px, and the wider surface gives the
-     update notes, provider rows and statistics room to breathe. */
-  width: 480px;
+  /* Chrome caps toolbar popups at 800px. 720px is the widest surface that
+     still leaves headroom for it, and it lets the two things you reach for
+     most, captioning the current tab and the account it syncs to, sit side by
+     side instead of stacked. */
+  width: 720px;
   max-width: 100vw;
   font-size: 13px;
   padding: 0;
 }
 
+/* The wide popup puts the current-tab action and the account it syncs to on
+   one row, so the collapsed popup fits without scrolling. Everything below
+   still runs the full width. */
+.popup-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.popup-columns > .popup-section {
+  border-bottom: 0;
+}
+
+.popup-columns > .popup-section + .popup-section {
+  border-left: 1px solid var(--border-hairline);
+}
+
+/* A column is roughly 350px, so hint copy stays inside a comfortable measure
+   instead of running the full 720px. */
+body.popup-body .hint {
+  max-width: 62ch;
+}
+
 /* The popup now has room for the four column strip the settings page uses */
 body.popup-body .stats-strip {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Pinned so the popup keeps its own typography. The viewport media queries
+   above exist for the options page, and the popup viewport is just the popup,
+   so without this the numbers would change size as the popup is resized. */
+body.popup-body .stats-num {
+  font-size: 24px;
 }
 
 body.options-body {

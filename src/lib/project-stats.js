@@ -4,11 +4,11 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 53324,
-  "nonBlankLoc": 48871,
-  "sourceFiles": 128,
-  "automatedTests": 128,
-  "testSuites": 18,
+  "totalLoc": 53439,
+  "nonBlankLoc": 48968,
+  "sourceFiles": 129,
+  "automatedTests": 132,
+  "testSuites": 19,
   "sttProviders": 12,
   "exportFormats": 6,
   "captionThemes": 6,
@@ -43,7 +43,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8683,
+      "loc": 8718,
       "sharePct": 16.3
     },
     {
@@ -66,16 +66,16 @@ export const PROJECT_STATS = Object.freeze({
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
-      "files": 18,
-      "loc": 7143,
-      "sharePct": 13.4
+      "files": 19,
+      "loc": 7217,
+      "sharePct": 13.5
     },
     {
       "id": "docs_schema_tooling",
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5028,
+      "loc": 5034,
       "sharePct": 9.4
     },
     {
@@ -90,8 +90,8 @@ export const PROJECT_STATS = Object.freeze({
   "languages": [
     {
       "label": "JavaScript / ESM (.js, .mjs)",
-      "files": 61,
-      "loc": 35737,
+      "files": 62,
+      "loc": 35811,
       "sharePct": 67
     },
     {
@@ -103,19 +103,19 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
-      "loc": 4922,
+      "loc": 4925,
       "sharePct": 9.2
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3653,
+      "loc": 3685,
       "sharePct": 6.9
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 1034,
+      "loc": 1040,
       "sharePct": 1.9
     },
     {
