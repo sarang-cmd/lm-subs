@@ -26,6 +26,8 @@
  </picture>
 </a>
 
+
+<br />
 <br />
 
 <img src="docs/assets/banner-social-1280x640.png" width="100%" alt="LM Subs: Highlighted captions inside the video and bottom play-bar CC controls for Google NotebookLM" />
