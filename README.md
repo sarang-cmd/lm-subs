@@ -206,7 +206,7 @@ npm start            # Start unified Web App + /api/* Hono server on http://0.0.
 
 ## About the creator
 
-Created by **Sarang** ([`@sarang-cmd`](https://github.com/sarang-cmd)), a computer science student and agentic engineer based in Germany.
+Created by **Sarang** ([`@sarang-cmd`](https://github.com/sarang-cmd)), an aspiring computer science student and agentic engineer based in Germany.
 
 ---
 
