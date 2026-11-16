@@ -4,10 +4,10 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 53691,
-  "nonBlankLoc": 49185,
+  "totalLoc": 53704,
+  "nonBlankLoc": 49196,
   "sourceFiles": 130,
-  "automatedTests": 140,
+  "automatedTests": 141,
   "testSuites": 20,
   "sttProviders": 12,
   "exportFormats": 6,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 28,
   "postgresTables": 10,
-  "releaseZipKb": 233.5,
+  "releaseZipKb": 234.5,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -43,7 +43,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8858,
+      "loc": 8865,
       "sharePct": 16.5
     },
     {
@@ -59,7 +59,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 20,
-      "loc": 7307,
+      "loc": 7313,
       "sharePct": 13.6
     },
     {
@@ -91,7 +91,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
-      "loc": 35920,
+      "loc": 35926,
       "sharePct": 66.9
     },
     {
@@ -109,7 +109,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3831,
+      "loc": 3838,
       "sharePct": 7.1
     },
     {

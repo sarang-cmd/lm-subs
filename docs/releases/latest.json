@@ -1,9 +1,9 @@
 {
   "version": "0.2.8",
-  "buildId": "3f86f23e20b2",
+  "buildId": "64edf3c86000",
   "zipUrl": "/releases/lm-subs-latest.zip",
   "versionedZipUrl": "/releases/lm-subs-v0.2.8.zip",
-  "zipSha256": "613808e7dc6f06e9b03505d72f13220afabe1a4adbdcaf5f5a324054ef25ab51",
+  "zipSha256": "bbab0fc92c05347a3f8a751dbb85232f17d987b4ee68fb5163b8db28d0e1a6fb",
   "fileCount": 14,
   "notes": {
     "version": "0.2.8",

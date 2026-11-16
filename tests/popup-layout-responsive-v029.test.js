@@ -82,6 +82,12 @@ test("Export buttons keep three equal columns with Copy on its own row", () => {
   assert.match(rule(".export-strip .btn-ink"), /grid-column:\s*1 \/ -1/);
 });
 
+test("Disclosure rows can shrink so a long summary cannot push the chevron out", () => {
+  // The row is the flex item of the summary, so its own min-width is what
+  // decides whether a long unread count can drag the chevron past the edge.
+  assert.match(css, /details\.compact-disclosure > summary > \.row[\s\S]*?min-width:\s*0/);
+});
+
 test("Narrow popups tighten padding instead of overflowing", () => {
   assert.match(css, /@media \(max-width: 700px\) \{\s*:root \{\s*--pad-pop-x: 14px;/);
   assert.match(rule(".popup-columns > .popup-section"), /min-width:\s*0/);

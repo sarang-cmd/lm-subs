@@ -192,7 +192,14 @@ body.popup-body .stats-num {
 }
 
 /* Summary text inside a disclosure row shrinks instead of pushing its
-   chevron out of the popup. */
+   chevron out of the popup. The row itself needs min-width: 0 as well,
+   because it is the flex item of the summary and keeps its min-content
+   width otherwise, which drags the chevron past the edge of the popup. */
+details.compact-disclosure > summary > .row,
+details.compact-disclosure > summary > span:not(.disclosure-chevron) {
+  min-width: 0;
+}
+
 .disclosure-summary {
   min-width: 0;
   font-size: 11.5px;
