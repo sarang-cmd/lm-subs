@@ -552,7 +552,7 @@ async function initPopup() {
     const curVer =
       chrome.runtime?.getManifest?.()?.version ||
       updateStatus?.currentVersion ||
-      "0.2.8";
+      "0.2.9";
 
     if (popupUpdateStatusHint) {
       const folderPart = dirInfo.linked

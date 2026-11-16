@@ -874,7 +874,7 @@ export function createRuntimeDispatcher({
   }
 
   async function resolveLocalExtensionBuildMeta() {
-    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.8";
+    const manifestVersion = runtimeApi?.getManifest?.()?.version || "0.2.9";
     let buildId = "";
     try {
       if (runtimeApi?.getURL) {
@@ -2767,7 +2767,7 @@ export function createRuntimeDispatcher({
           .filter(([, has]) => Boolean(has))
           .map(([id]) => id);
         const manifestVersion =
-          runtimeApi?.getManifest?.()?.version || "0.2.8";
+          runtimeApi?.getManifest?.()?.version || "0.2.9";
 
         const reportObj = {
           generatedAt: new Date().toISOString(),
@@ -2929,7 +2929,7 @@ export function createExternalMessageDispatcher(
     return {
       ok: true,
       extensionId: runtimeApi?.id || "",
-      version: runtimeApi?.getManifest?.()?.version || "0.2.8",
+      version: runtimeApi?.getManifest?.()?.version || "0.2.9",
       configuredProviders,
       primaryProvider: settings.primaryProvider,
       settings: {
@@ -3125,7 +3125,7 @@ export function installBackgroundAutomation(
     if (details?.reason === "install") {
       const nowIso = new Date().toISOString();
       const extId = runtimeApi?.id || "";
-      const ver = runtimeApi?.getManifest?.()?.version || "0.2.8";
+      const ver = runtimeApi?.getManifest?.()?.version || "0.2.9";
       const base = normalizeSyncServerUrl(welcomeBaseUrl || HOSTED_CLOUD_URL);
       const qs = new URLSearchParams({ installed: "1", v: ver });
       if (extId) qs.set("extId", extId);

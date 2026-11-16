@@ -23,7 +23,7 @@ const SITE = "https://lm-subs.vercel.app";
 const AUTHOR_NAME = "Sarang";
 const AUTHOR_HANDLE = "@sarang-cmd";
 const AUTHOR_URL = "https://github.com/sarang-cmd";
-const VERSION = "0.2.8";
+const VERSION = "0.2.9";
 const BANNER = `${SITE}/assets/banner-social-1280x640.png?v=8`;
 
 function nav(current) {

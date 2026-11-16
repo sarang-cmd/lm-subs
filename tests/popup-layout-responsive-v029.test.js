@@ -93,3 +93,43 @@ test("Narrow popups tighten padding instead of overflowing", () => {
   assert.match(rule(".popup-columns > .popup-section"), /min-width:\s*0/);
   assert.match(rule(".local-code-box .mono-input"), /min-width:\s*0/);
 });
+
+test("The popup holds its width instead of collapsing to its content", () => {
+  // Chrome sizes a toolbar popup from the content's intrinsic width, so width
+  // on its own is a suggestion the content can talk it out of. The truncation
+  // rules that stop long filenames and addresses overflowing did exactly that
+  // and pulled the popup down to about 266px. min-width is part of the same
+  // measurement, so it pins the floor.
+  const body = css.match(/body\.popup-body\s*\{([^}]*)\}/);
+  assert.ok(body, "ui.css should style body.popup-body");
+  assert.match(body[1], /width:\s*720px/);
+  assert.match(body[1], /min-width:\s*720px/, "without a floor the content sets the width");
+
+  // max-width has to be a real number. 100vw resolves against the popup's own
+  // viewport, which is the width being decided, so it feeds the collapse back
+  // in instead of capping anything.
+  const cap = body[1].match(/max-width:\s*([^;]+);/);
+  assert.ok(cap, "the popup needs an upper bound");
+  assert.match(cap[1], /^\d+px$/, "the cap cannot depend on the viewport");
+  assert.ok(Number.parseInt(cap[1], 10) >= 720, "the cap must not fight the width");
+});
+
+test("The header row keeps the toggle clear of the logo and title", () => {
+  // The brand takes the room that is left and ellipsises if there is none; the
+  // toggle and Settings keep their size, so nothing rides over the title.
+  assert.match(rule(".popup-topbar"), /display:\s*flex/);
+  assert.match(rule(".popup-topbar"), /justify-content:\s*space-between/);
+  assert.match(rule(".popup-topbar"), /align-items:\s*center/);
+  assert.match(rule(".popup-topbar"), /gap:\s*8px/);
+
+  assert.match(rule(".popup-topbar .brand"), /flex:\s*1 1 auto/, "the brand absorbs the slack");
+  assert.match(rule(".popup-topbar .brand"), /min-width:\s*0/, "and gives it back when short");
+  assert.match(rule(".popup-topbar > .row"), /flex:\s*0 0 auto/, "the controls never shrink");
+  assert.match(rule(".popup-topbar .switch"), /flex:\s*none/);
+  assert.match(rule(".popup-topbar .switch"), /white-space:\s*nowrap/, "the label must not wrap");
+
+  const title = rule(".popup-topbar .brand-title");
+  assert.match(title, /overflow:\s*hidden/);
+  assert.match(title, /text-overflow:\s*ellipsis/);
+  assert.match(title, /white-space:\s*nowrap/);
+});

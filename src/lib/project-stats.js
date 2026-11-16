@@ -3,11 +3,11 @@
  * Contains real, machine-counted repository metrics for `/about`.
  */
 export const PROJECT_STATS = Object.freeze({
-  "version": "0.2.8",
-  "totalLoc": 53704,
-  "nonBlankLoc": 49196,
+  "version": "0.2.9",
+  "totalLoc": 53829,
+  "nonBlankLoc": 49306,
   "sourceFiles": 130,
-  "automatedTests": 141,
+  "automatedTests": 143,
   "testSuites": 20,
   "sttProviders": 12,
   "exportFormats": 6,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 28,
   "postgresTables": 10,
-  "releaseZipKb": 234.5,
+  "releaseZipKb": 235,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -36,14 +36,14 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14641,
-      "sharePct": 27.3
+      "sharePct": 27.2
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8865,
+      "loc": 8902,
       "sharePct": 16.5
     },
     {
@@ -51,7 +51,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Subtitle, Audio & 12-Provider STT Engine",
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
       "files": 18,
-      "loc": 7845,
+      "loc": 7856,
       "sharePct": 14.6
     },
     {
@@ -59,8 +59,8 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 20,
-      "loc": 7313,
-      "sharePct": 13.6
+      "loc": 7374,
+      "sharePct": 13.7
     },
     {
       "id": "web_app",
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5037,
+      "loc": 5053,
       "sharePct": 9.4
     },
     {
@@ -91,7 +91,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
-      "loc": 35926,
+      "loc": 35998,
       "sharePct": 66.9
     },
     {
@@ -104,19 +104,19 @@ export const PROJECT_STATS = Object.freeze({
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
       "loc": 4919,
-      "sharePct": 9.2
+      "sharePct": 9.1
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3838,
-      "sharePct": 7.1
+      "loc": 3875,
+      "sharePct": 7.2
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 1043,
-      "sharePct": 1.9
+      "loc": 1059,
+      "sharePct": 2
     },
     {
       "label": "Config & Manifest (.json)",

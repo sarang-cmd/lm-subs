@@ -9,6 +9,17 @@
  */
 
 export const RELEASE_NOTES = Object.freeze({
+  "0.2.9": Object.freeze({
+    headline: "A popup that fits what is in it",
+    highlights: Object.freeze([
+      "The current tab section and the account section sit side by side, so the popup uses its full width instead of one long column",
+      "The popup opens at its full width instead of collapsing to a narrow column that truncated headings and transcript titles",
+      "The account heading, the address and the key counts each keep their own line instead of breaking mid phrase",
+      "Export buttons share three equal columns with Copy on its own row, and long filenames and transcript titles keep their tooltip",
+      "The enable toggle, the extension icon and the title share one row that keeps its spacing at any width",
+      "Nothing scrolls sideways, and narrow popups tighten their padding rather than overflow",
+    ]),
+  }),
   "0.2.8": Object.freeze({
     headline: "A lighter site, a deeper blog, and pages Google can read",
     highlights: Object.freeze([
@@ -41,7 +52,7 @@ export const RELEASE_NOTES = Object.freeze({
   }),
 });
 
-export const LATEST_NOTES_VERSION = "0.2.8";
+export const LATEST_NOTES_VERSION = "0.2.9";
 
 /** Returns `{ version, headline, highlights }` for a version, or null. */
 export function getReleaseNotes(version) {

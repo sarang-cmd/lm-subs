@@ -227,6 +227,17 @@
 
   // src/lib/release-notes.js
   var RELEASE_NOTES = Object.freeze({
+    "0.2.9": Object.freeze({
+      headline: "A popup that fits what is in it",
+      highlights: Object.freeze([
+        "The current tab section and the account section sit side by side, so the popup uses its full width instead of one long column",
+        "The popup opens at its full width instead of collapsing to a narrow column that truncated headings and transcript titles",
+        "The account heading, the address and the key counts each keep their own line instead of breaking mid phrase",
+        "Export buttons share three equal columns with Copy on its own row, and long filenames and transcript titles keep their tooltip",
+        "The enable toggle, the extension icon and the title share one row that keeps its spacing at any width",
+        "Nothing scrolls sideways, and narrow popups tighten their padding rather than overflow"
+      ])
+    }),
     "0.2.8": Object.freeze({
       headline: "A lighter site, a deeper blog, and pages Google can read",
       highlights: Object.freeze([
@@ -1631,9 +1642,9 @@
       if (!saved || typeof saved !== "object") {
         return {
           updateAvailable: false,
-          currentVersion: "0.2.8",
+          currentVersion: "0.2.9",
           currentBuildId: "",
-          latestVersion: "0.2.8",
+          latestVersion: "0.2.9",
           latestBuildId: "",
           zipUrl: "/releases/lm-subs-latest.zip",
           zipSha256: "",
@@ -1646,9 +1657,9 @@
       }
       return {
         updateAvailable: Boolean(saved.updateAvailable),
-        currentVersion: String(saved.currentVersion || "0.2.8"),
+        currentVersion: String(saved.currentVersion || "0.2.9"),
         currentBuildId: String(saved.currentBuildId || ""),
-        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.8"),
+        latestVersion: String(saved.latestVersion || saved.currentVersion || "0.2.9"),
         latestBuildId: String(saved.latestBuildId || ""),
         zipUrl: String(saved.zipUrl || "/releases/lm-subs-latest.zip"),
         zipSha256: String(saved.zipSha256 || ""),
@@ -1661,9 +1672,9 @@
     } catch {
       return {
         updateAvailable: false,
-        currentVersion: "0.2.8",
+        currentVersion: "0.2.9",
         currentBuildId: "",
-        latestVersion: "0.2.8",
+        latestVersion: "0.2.9",
         latestBuildId: "",
         zipUrl: "/releases/lm-subs-latest.zip",
         zipSha256: "",
@@ -2793,7 +2804,7 @@ ${rows.join("\n")}
       if (!optUpdateCard) return;
       const dirHandle = await loadLinkedExtensionDirHandle();
       const dirInfo = await inspectLinkedDirPermission(dirHandle);
-      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.8";
+      const curVer = chrome.runtime?.getManifest?.()?.version || updateStatus?.currentVersion || "0.2.9";
       const avail = Boolean(updateStatus?.updateAvailable);
       optUpdateCard.dataset.available = avail ? "true" : "false";
       if (optUpdateBadge) {
