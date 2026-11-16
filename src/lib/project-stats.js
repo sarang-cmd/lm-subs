@@ -4,11 +4,11 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.8",
-  "totalLoc": 53439,
-  "nonBlankLoc": 48968,
-  "sourceFiles": 129,
-  "automatedTests": 132,
-  "testSuites": 19,
+  "totalLoc": 53704,
+  "nonBlankLoc": 49196,
+  "sourceFiles": 130,
+  "automatedTests": 141,
+  "testSuites": 20,
   "sttProviders": 12,
   "exportFormats": 6,
   "captionThemes": 6,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 28,
   "postgresTables": 10,
-  "releaseZipKb": 233.1,
+  "releaseZipKb": 234.5,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -35,16 +35,16 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Chrome MV3 Extension & Player Overlay",
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
-      "loc": 14622,
-      "sharePct": 27.4
+      "loc": 14641,
+      "sharePct": 27.3
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8718,
-      "sharePct": 16.3
+      "loc": 8865,
+      "sharePct": 16.5
     },
     {
       "id": "core_engine",
@@ -52,7 +52,15 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
       "files": 18,
       "loc": 7845,
-      "sharePct": 14.7
+      "sharePct": 14.6
+    },
+    {
+      "id": "test_suite",
+      "label": "Automated E2E, Crypto & Guardrail Tests",
+      "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
+      "files": 20,
+      "loc": 7313,
+      "sharePct": 13.6
     },
     {
       "id": "web_app",
@@ -60,14 +68,6 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
       "files": 16,
       "loc": 7270,
-      "sharePct": 13.6
-    },
-    {
-      "id": "test_suite",
-      "label": "Automated E2E, Crypto & Guardrail Tests",
-      "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
-      "files": 19,
-      "loc": 7217,
       "sharePct": 13.5
     },
     {
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5034,
+      "loc": 5037,
       "sharePct": 9.4
     },
     {
@@ -90,32 +90,32 @@ export const PROJECT_STATS = Object.freeze({
   "languages": [
     {
       "label": "JavaScript / ESM (.js, .mjs)",
-      "files": 62,
-      "loc": 35811,
-      "sharePct": 67
+      "files": 63,
+      "loc": 35926,
+      "sharePct": 66.9
     },
     {
       "label": "React JSX (.jsx)",
       "files": 16,
       "loc": 7270,
-      "sharePct": 13.6
+      "sharePct": 13.5
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
-      "loc": 4925,
+      "loc": 4919,
       "sharePct": 9.2
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3685,
-      "sharePct": 6.9
+      "loc": 3838,
+      "sharePct": 7.1
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 1040,
+      "loc": 1043,
       "sharePct": 1.9
     },
     {

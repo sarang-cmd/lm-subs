@@ -231,7 +231,10 @@ async function initPopup() {
     }
     popupExportBar.style.display = "block";
     if (popupExportSource) {
-      popupExportSource.textContent = `${target.title || "Video Overview"} (${target.cues.length})`;
+      const sourceLabel = `${target.title || "Video Overview"} (${target.cues.length} cues)`;
+      popupExportSource.textContent = sourceLabel;
+      // The label truncates to fit the row, so the full name stays reachable.
+      popupExportSource.title = sourceLabel;
     }
   }
 
@@ -314,9 +317,22 @@ async function initPopup() {
       popupSyncBadge.textContent = "Synced";
       popupSyncBadge.className = "badge badge-saved";
       const keyCount = Object.keys(syncProfile.keyHints || {}).length;
-      popupSyncSummary.textContent = `${syncProfile.user.email} (${keyCount} key(s), ${
-        syncProfile.subtitleCount || 0
-      } transcript(s))`;
+      const transcriptCount = syncProfile.subtitleCount || 0;
+      // Two lines instead of one run-on string: the address truncates on its
+      // own line with the full value in a tooltip, and the counts stay together
+      // underneath rather than breaking at whatever point the column ends.
+      const email = syncProfile.user.email;
+      popupSyncSummary.textContent = "";
+      const emailLine = document.createElement("div");
+      emailLine.className = "sync-email";
+      emailLine.textContent = email;
+      emailLine.title = email;
+      const countsLine = document.createElement("div");
+      countsLine.className = "sync-meta";
+      countsLine.textContent = `${keyCount} ${keyCount === 1 ? "key" : "keys"}, ${transcriptCount} ${
+        transcriptCount === 1 ? "transcript" : "transcripts"
+      }`;
+      popupSyncSummary.append(emailLine, countsLine);
       if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
       if (popupGetCodeBtn) popupGetCodeBtn.style.display = "none";
       if (popupLocalCodeRow) popupLocalCodeRow.style.display = "none";
@@ -396,7 +412,10 @@ async function initPopup() {
       return;
     }
     lastStatusCard.style.display = "block";
-    lastStatusTitle.textContent = lastStatus.title || "Video Overview";
+    const statusTitle = lastStatus.title || "Video Overview";
+    lastStatusTitle.textContent = statusTitle;
+    // Long notebook titles truncate in the row, so keep the whole one on hover.
+    lastStatusTitle.title = statusTitle;
 
     if (lastStatus.state === "success") {
       lastStatusBadge.textContent = lastStatus.failoverUsed
