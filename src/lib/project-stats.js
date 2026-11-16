@@ -3,9 +3,9 @@
  * Contains real, machine-counted repository metrics for `/about`.
  */
 export const PROJECT_STATS = Object.freeze({
-  "version": "0.2.8",
-  "totalLoc": 53814,
-  "nonBlankLoc": 49292,
+  "version": "0.2.9",
+  "totalLoc": 53829,
+  "nonBlankLoc": 49306,
   "sourceFiles": 130,
   "automatedTests": 143,
   "testSuites": 20,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 28,
   "postgresTables": 10,
-  "releaseZipKb": 234.6,
+  "releaseZipKb": 235,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -51,7 +51,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Subtitle, Audio & 12-Provider STT Engine",
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
       "files": 18,
-      "loc": 7845,
+      "loc": 7856,
       "sharePct": 14.6
     },
     {
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5049,
+      "loc": 5053,
       "sharePct": 9.4
     },
     {
@@ -91,7 +91,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
-      "loc": 35987,
+      "loc": 35998,
       "sharePct": 66.9
     },
     {
@@ -115,7 +115,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 1055,
+      "loc": 1059,
       "sharePct": 2
     },
     {

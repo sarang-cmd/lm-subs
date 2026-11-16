@@ -202,7 +202,7 @@ What is recorded per download:
 
 | Field | Example | Notes |
 | :--- | :--- | :--- |
-| Version | `0.2.8` | Taken from the release the visitor clicked |
+| Version | `0.2.9` | Taken from the release the visitor clicked |
 | Channel | `site` | `site`, `github` or `update` |
 | Source | `hero` | Which page offered the file |
 | Browser | `chrome` | Family only, never the full user agent string |
@@ -219,7 +219,7 @@ Bash check once deployed:
 # Anonymous beacon, no session required
 curl -sS -X POST https://<your-vercel-domain>/api/downloads \
   -H 'Content-Type: application/json' \
-  -d '{"version":"0.2.8","channel":"site","source":"curl-test"}'
+  -d '{"version":"0.2.9","channel":"site","source":"curl-test"}'
 # -> {"ok":true,"recorded":true}
 ```
 
@@ -347,7 +347,7 @@ means the function has not served traffic since the deploy, so open
 # Fire a test event, no session needed
 curl -sS -X POST https://lm-subs.vercel.app/api/downloads \
   -H 'Content-Type: application/json' \
-  -d '{"version":"0.2.8","channel":"site","source":"manual-check"}'
+  -d '{"version":"0.2.9","channel":"site","source":"manual-check"}'
 # -> {"ok":true,"recorded":true}
 ```
 
@@ -404,7 +404,7 @@ grep -rIn "unpacked" src scripts
 
 `docs/CHROME_WEB_STORE_GUIDE.md` still says `v0.2.1` and points at
 `docs/releases/lm-subs-v0.2.1.zip`, which no longer exists. The current build is
-`0.2.8`. Two of the four screenshots it recommends (`02-audio-extraction-failover.png`
+`0.2.9`. Two of the four screenshots it recommends (`02-audio-extraction-failover.png`
 and `04-settings-queue.png`) no longer match the UI, so capture fresh ones or
 drop them from the list.
 

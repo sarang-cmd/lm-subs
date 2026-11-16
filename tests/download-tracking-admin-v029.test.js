@@ -83,7 +83,7 @@ test("Download beacon records events without a session", async () => {
     { version: "0.2.9", channel: "site", source: "guide" },
     { "user-agent": "Mozilla/5.0 Firefox/133.0" }
   );
-  await postDownload(app, { version: "0.2.8", channel: "update", source: "extension" });
+  await postDownload(app, { version: "0.2.9", channel: "update", source: "extension" });
 
   // Columns that could identify a visitor simply do not exist in the table
   const db = await dbPromise;

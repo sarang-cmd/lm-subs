@@ -1,20 +1,20 @@
 {
-  "version": "0.2.8",
-  "buildId": "f2c10b825f0a",
+  "version": "0.2.9",
+  "buildId": "7d46e91cb965",
   "zipUrl": "/releases/lm-subs-latest.zip",
-  "versionedZipUrl": "/releases/lm-subs-v0.2.8.zip",
-  "zipSha256": "7efb75a7b84cc3fb131298c84f340bd4b6d148ee9a87feb7ee8335ccb4eb4c54",
+  "versionedZipUrl": "/releases/lm-subs-v0.2.9.zip",
+  "zipSha256": "4eb889d0454b01574baccfafd6149cc43337333fdc2ef98a14c9c8647b406336",
   "fileCount": 14,
   "notes": {
-    "version": "0.2.8",
-    "headline": "A lighter site, a deeper blog, and pages Google can read",
+    "version": "0.2.9",
+    "headline": "A popup that fits what is in it",
     "highlights": [
-      "Product screenshots load as WebP with a PNG fallback, cutting image weight by roughly two thirds",
-      "The home page shows a two by two gallery of the player, the docked controls, statistics, and the install page",
-      "Four new guides join the blog, and every article carries an on page index, a reading time, and next and previous links",
-      "The setup guide, statistics, library, about, and welcome pages now ship real HTML, so search engines read them without running JavaScript",
-      "Statistics labels match the extension exactly, including caption cues and median speed",
-      "Caption buttons dock as one group in front of NotebookLM’s right-hand cluster, a narrow play bar trims the extras instead of crowding the native controls, and the duplicate playback speed button is gone"
+      "The current tab section and the account section sit side by side, so the popup uses its full width instead of one long column",
+      "The popup opens at its full width instead of collapsing to a narrow column that truncated headings and transcript titles",
+      "The account heading, the address and the key counts each keep their own line instead of breaking mid phrase",
+      "Export buttons share three equal columns with Copy on its own row, and long filenames and transcript titles keep their tooltip",
+      "The enable toggle, the extension icon and the title share one row that keeps its spacing at any width",
+      "Nothing scrolls sideways, and narrow popups tighten their padding rather than overflow"
     ]
   }
 }

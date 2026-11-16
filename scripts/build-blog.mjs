@@ -516,7 +516,7 @@ function renderIndex(posts) {
         <p class="section-prose" style="font-size: 17px; max-width: 720px">
           Practical, tested guides about captions, subtitles, and transcript export for Google NotebookLM Video Overviews and Audio Overview podcasts. Written and maintained by ${AUTHOR_NAME} (${AUTHOR_HANDLE}), the creator of LM Subs.
         </p>
-        <p class="hint" style="margin-top: 10px">${posts.length} guides, updated for LM Subs v0.2.8.</p>
+        <p class="hint" style="margin-top: 10px">${posts.length} guides, updated for LM Subs v0.2.9.</p>
 
         <a class="blog-lead" href="/blog/${lead.slug}">
           <span class="blog-lead-kicker">${escapeHtml(lead.category || "NotebookLM captions")}<span class="post-kicker-dot" aria-hidden="true">.</span>${readingTime(lead).minutes} min read</span>
