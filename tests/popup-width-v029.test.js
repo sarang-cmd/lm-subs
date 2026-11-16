@@ -13,10 +13,14 @@ const html = fs.readFileSync(path.join(repoRoot, "extension/popup.html"), "utf8"
 /** Chrome refuses to render a toolbar popup larger than 800 by 600 CSS pixels. */
 const CHROME_MAX_POPUP_WIDTH = 800;
 
-function popupWidth() {
+function popupBlock() {
   const block = css.match(/body\.popup-body\s*\{[^}]*\}/);
   assert.ok(block, "ui.css should style body.popup-body");
-  const width = block[0].match(/width:\s*(\d+)px/);
+  return block[0];
+}
+
+function popupWidth() {
+  const width = popupBlock().match(/width:\s*(\d+)px/);
   assert.ok(width, "body.popup-body needs an explicit pixel width");
   return Number(width[1]);
 }
@@ -28,10 +32,27 @@ test("The popup is much wider than before but still inside Chrome's cap", () => 
     width <= CHROME_MAX_POPUP_WIDTH - 40,
     `${width}px leaves too little room under Chrome's ${CHROME_MAX_POPUP_WIDTH}px cap`
   );
+  // The cap has to be a plain pixel number. 100vw resolves against the popup's
+  // own viewport, which is the width Chrome is in the middle of deciding, so it
+  // feeds whatever provisional width it landed on straight back into the
+  // result: the popup settled at 266px and stayed there. Chrome clamps the
+  // popup to the screen itself, so the stylesheet does not have to.
+  const cap = popupBlock().match(/max-width:\s*(\d+)px/);
+  assert.ok(cap, "body.popup-body needs a pixel cap");
   assert.ok(
-    css.includes("max-width: 100vw"),
-    "the popup must still clamp to the viewport on a narrow screen"
+    Number(cap[1]) <= CHROME_MAX_POPUP_WIDTH,
+    `the cap should not ask for more than Chrome's ${CHROME_MAX_POPUP_WIDTH}px`
   );
+  assert.ok(
+    !/max-width:\s*100vw/.test(css),
+    "a viewport relative cap is circular for a popup sized from its content"
+  );
+
+  // Overflowing has to be impossible even where the screen really is narrower
+  // than the design width, and a scrollbar is not an acceptable answer.
+  // clip rather than hidden: hidden would make the body a scroll container and
+  // hand the other axis an auto scrollbar, which is the thing being avoided.
+  assert.match(css, /body\.popup-body\s*\{[^}]*overflow-x:\s*clip/);
 });
 
 test("The extra width buys a two column row instead of empty space", () => {

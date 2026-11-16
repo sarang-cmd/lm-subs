@@ -82,12 +82,22 @@ body {
 }
 
 body.popup-body {
-  /* Chrome caps toolbar popups at 800px. 720px is the widest surface that
-     still leaves headroom for it, and it lets the two things you reach for
-     most, captioning the current tab and the account it syncs to, sit side by
-     side instead of stacked. */
+  /* Chrome sizes a toolbar popup from the content's intrinsic width and caps
+     it at 800px, which makes `width` alone only a suggestion. Anything that
+     lowers that measurement drags the popup narrower with it, and the
+     min-width: 0 plus truncation rules that stop long filenames and addresses
+     overflowing lowered it far enough to collapse the popup to about 266px.
+     min-width is part of the intrinsic measurement, so the popup holds its
+     width, and the cap matches Chrome's own instead of the viewport, which
+     would otherwise feed the popup's current width back into the result.
+     Chrome clamps a popup to the screen on its own, so where the screen really
+     is narrower than the design width the overflow is clipped rather than
+     handed a horizontal scrollbar. clip and not hidden, because hidden would
+     turn the body into a scroll container and give the vertical axis a bar. */
   width: 720px;
-  max-width: 100vw;
+  min-width: 720px;
+  max-width: 800px;
+  overflow-x: clip;
   font-size: 13px;
   padding: 0;
 }
@@ -267,10 +277,37 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   padding: 12px 16px;
   background: var(--bg-sheet);
   border-bottom: 1px solid var(--border-hairline);
+}
+
+/* The brand takes the room that is left and truncates if it runs out. The
+   toggle and the Settings button never shrink, so they cannot ride over the
+   logo or the title when the popup is narrower than the design width. */
+.popup-topbar .brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.popup-topbar .brand > div {
+  min-width: 0;
+}
+
+.popup-topbar .brand-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popup-topbar > .row {
+  flex: 0 0 auto;
+}
+
+.popup-topbar .switch {
+  flex: none;
+  white-space: nowrap;
 }
 
 .brand {
