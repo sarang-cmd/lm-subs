@@ -92,21 +92,46 @@ body.popup-body {
   padding: 0;
 }
 
-/* The wide popup puts the current-tab action and the account it syncs to on
-   one row, so the collapsed popup fits without scrolling. Everything below
-   still runs the full width. */
+/* Chrome clamps the popup on smaller screens and at higher zoom, so the
+   columns tighten their padding before they start dropping badges onto a line
+   of their own. */
+@media (max-width: 700px) {
+  :root {
+    --pad-pop-x: 14px;
+  }
+}
+
+/* The popup puts the current-tab action and the account it syncs to side by
+   side, but only when both columns can hold a heading, its badge and a row of
+   buttons on one line. Chrome clamps popup width on small screens and at high
+   zoom, so below that the two stack and each takes the full width instead of
+   two columns of squeezed text. */
 .popup-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   border-bottom: 1px solid var(--border-hairline);
 }
 
 .popup-columns > .popup-section {
   border-bottom: 0;
+  min-width: 0;
 }
 
 .popup-columns > .popup-section + .popup-section {
-  border-left: 1px solid var(--border-hairline);
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* The account column carries an address and three buttons, so it takes the
+   larger share of the row. */
+@media (min-width: 640px) {
+  .popup-columns {
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  }
+
+  .popup-columns > .popup-section + .popup-section {
+    border-top: 0;
+    border-left: 1px solid var(--border-hairline);
+  }
 }
 
 /* A column is roughly 350px, so hint copy stays inside a comfortable measure
@@ -125,6 +150,71 @@ body.popup-body .stats-strip {
    so without this the numbers would change size as the popup is resized. */
 body.popup-body .stats-num {
   font-size: 24px;
+}
+
+/* The transcript title truncates on its own line, the badge beside it keeps
+   its width, and the cue count, speed and data avoided stay underneath. */
+.last-status-head {
+  min-width: 0;
+  gap: 10px;
+}
+
+.last-status-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.last-status-head .badge {
+  flex: none;
+}
+
+/* The address gets a truncatable line of its own with the full value in a
+   tooltip, and the counts sit beneath it instead of breaking mid phrase. */
+.sync-email {
+  font-weight: 500;
+  color: var(--ink-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-meta {
+  color: var(--ink-tertiary);
+}
+
+.sync-email + .sync-meta {
+  margin-top: 2px;
+}
+
+/* Summary text inside a disclosure row shrinks instead of pushing its
+   chevron out of the popup. */
+.disclosure-summary {
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The code field takes the room the Connect button leaves. */
+.local-code-box .row {
+  min-width: 0;
+}
+
+.local-code-box .mono-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.local-code-box .btn {
+  flex: none;
 }
 
 body.options-body {
@@ -321,16 +411,41 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
 }
 
 .section-title {
   margin: 0;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--ink-primary);
+  /* A heading truncates rather than breaking across three lines, and the
+     badge beside it always keeps its own width. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The row holding a heading and its badge shrinks; the row of actions beside
+   it never does, so the buttons keep their size and drop below when the
+   column is too narrow for both. */
+.section-head > .row {
+  min-width: 0;
+}
+
+.section-head > .row:last-child {
+  flex: 0 0 auto;
+}
+
+.section-head .badge {
+  flex: none;
+  /* If a badge has to drop below its heading, it stays right aligned instead
+     of sitting stranded on the left. */
+  margin-left: auto;
 }
 
 /* Buttons (matches website `.btn`) */
@@ -869,19 +984,50 @@ details.compact-disclosure[open] .disclosure-chevron {
 }
 
 /* Export Strip */
+/* The filename shares the row with the label and takes whatever room is left,
+   truncating with a tooltip rather than at a hard coded pixel width. */
+.export-bar-head {
+  min-width: 0;
+  gap: 10px;
+}
+
+.export-bar-label {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.export-source {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: 11px;
+  color: var(--ink-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Three equal columns, so the six formats sit as two clean rows of three and
+   Copy gets a full width row beneath them. */
 .export-strip {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
   margin-top: 8px;
 }
 
 .export-strip .btn-sm {
-  flex: 1 1 auto;
+  min-width: 0;
   justify-content: center;
   font-family: var(--font-mono);
   font-size: 11.5px;
-  padding: 5px 7px;
+  padding: 5px 4px;
+}
+
+.export-strip .btn-ink {
+  grid-column: 1 / -1;
 }
 
 /* Extension Notification Feed & Inline Cue Editor */

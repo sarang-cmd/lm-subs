@@ -91,12 +91,9 @@
         id="popup-export-bar"
         style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-hairline)"
       >
-        <div class="row" style="justify-content: space-between">
-          <span style="font-size: 11.5px; font-weight: 600; color: var(--ink-secondary)">Export transcript</span>
-          <span
-            id="popup-export-source"
-            style="font-size: 11px; color: var(--ink-tertiary); max-width: 215px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
-          ></span>
+        <div class="row export-bar-head">
+          <span class="export-bar-label">Export transcript</span>
+          <span id="popup-export-source" class="export-source"></span>
         </div>
         <div class="export-strip">
           <button id="download-latest-srt-btn" type="button" class="btn btn-sm">.SRT</button>
@@ -113,11 +110,8 @@
         id="last-status-card"
         style="display: none; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-hairline)"
       >
-        <div class="row" style="justify-content: space-between">
-          <span
-            id="last-status-title"
-            style="font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px"
-          ></span>
+        <div class="row last-status-head">
+          <span id="last-status-title" class="last-status-title"></span>
           <span id="last-status-badge" class="badge"></span>
         </div>
         <div id="last-status-meta" class="hint" style="margin-top: 2px"></div>
@@ -183,7 +177,7 @@
           <div class="row">
             <span
               id="queue-summary-text"
-              style="font-size: 11.5px; font-weight: 500; color: var(--ink-secondary); max-width: 175px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+              class="disclosure-summary"
             >
               Add Groq or Mistral key
             </span>

@@ -2347,7 +2347,9 @@ ${rows.join("\n")}
       }
       popupExportBar.style.display = "block";
       if (popupExportSource) {
-        popupExportSource.textContent = `${target.title || "Video Overview"} (${target.cues.length})`;
+        const sourceLabel = `${target.title || "Video Overview"} (${target.cues.length} cues)`;
+        popupExportSource.textContent = sourceLabel;
+        popupExportSource.title = sourceLabel;
       }
     }
     async function inspectGoogleHostPermissions() {
@@ -2418,7 +2420,17 @@ ${rows.join("\n")}
         popupSyncBadge.textContent = "Synced";
         popupSyncBadge.className = "badge badge-saved";
         const keyCount = Object.keys(syncProfile.keyHints || {}).length;
-        popupSyncSummary.textContent = `${syncProfile.user.email} (${keyCount} key(s), ${syncProfile.subtitleCount || 0} transcript(s))`;
+        const transcriptCount = syncProfile.subtitleCount || 0;
+        const email = syncProfile.user.email;
+        popupSyncSummary.textContent = "";
+        const emailLine = document.createElement("div");
+        emailLine.className = "sync-email";
+        emailLine.textContent = email;
+        emailLine.title = email;
+        const countsLine = document.createElement("div");
+        countsLine.className = "sync-meta";
+        countsLine.textContent = `${keyCount} ${keyCount === 1 ? "key" : "keys"}, ${transcriptCount} ${transcriptCount === 1 ? "transcript" : "transcripts"}`;
+        popupSyncSummary.append(emailLine, countsLine);
         if (popupSyncNowBtn) popupSyncNowBtn.style.display = "inline-flex";
         if (popupGetCodeBtn) popupGetCodeBtn.style.display = "none";
         if (popupLocalCodeRow) popupLocalCodeRow.style.display = "none";
@@ -2481,7 +2493,9 @@ ${rows.join("\n")}
         return;
       }
       lastStatusCard.style.display = "block";
-      lastStatusTitle.textContent = lastStatus.title || "Video Overview";
+      const statusTitle = lastStatus.title || "Video Overview";
+      lastStatusTitle.textContent = statusTitle;
+      lastStatusTitle.title = statusTitle;
       if (lastStatus.state === "success") {
         lastStatusBadge.textContent = lastStatus.failoverUsed ? `${lastStatus.provider} (failover)` : lastStatus.provider || "Ready";
         lastStatusBadge.className = "badge badge-saved";
