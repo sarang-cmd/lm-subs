@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 53829,
-  "nonBlankLoc": 49306,
+  "totalLoc": 54004,
+  "nonBlankLoc": 49462,
   "sourceFiles": 130,
   "automatedTests": 143,
   "testSuites": 20,
@@ -20,7 +20,7 @@ export const PROJECT_STATS = Object.freeze({
   "keyboardShortcuts": 12,
   "apiEndpoints": 28,
   "postgresTables": 10,
-  "releaseZipKb": 235,
+  "releaseZipKb": 235.8,
   "mv3RuntimeDependencies": 0,
   "commitsShipped": 42,
   "mergedPullRequests": 17,
@@ -36,14 +36,14 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14641,
-      "sharePct": 27.2
+      "sharePct": 27.1
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8902,
+      "loc": 8911,
       "sharePct": 16.5
     },
     {
@@ -52,7 +52,7 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
       "files": 18,
       "loc": 7856,
-      "sharePct": 14.6
+      "sharePct": 14.5
     },
     {
       "id": "test_suite",
@@ -67,16 +67,16 @@ export const PROJECT_STATS = Object.freeze({
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
       "files": 16,
-      "loc": 7270,
-      "sharePct": 13.5
+      "loc": 7359,
+      "sharePct": 13.6
     },
     {
       "id": "docs_schema_tooling",
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5053,
-      "sharePct": 9.4
+      "loc": 5130,
+      "sharePct": 9.5
     },
     {
       "id": "cloud_api",
@@ -91,19 +91,19 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
-      "loc": 35998,
-      "sharePct": 66.9
+      "loc": 36013,
+      "sharePct": 66.7
     },
     {
       "label": "React JSX (.jsx)",
       "files": 16,
-      "loc": 7270,
-      "sharePct": 13.5
+      "loc": 7359,
+      "sharePct": 13.6
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
-      "loc": 4919,
+      "loc": 4928,
       "sharePct": 9.1
     },
     {
@@ -115,8 +115,8 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 1059,
-      "sharePct": 2
+      "loc": 1121,
+      "sharePct": 2.1
     },
     {
       "label": "Config & Manifest (.json)",
