@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 54004,
-  "nonBlankLoc": 49462,
+  "totalLoc": 54114,
+  "nonBlankLoc": 49568,
   "sourceFiles": 130,
   "automatedTests": 143,
   "testSuites": 20,
@@ -43,7 +43,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8911,
+      "loc": 8921,
       "sharePct": 16.5
     },
     {
@@ -55,19 +55,19 @@ export const PROJECT_STATS = Object.freeze({
       "sharePct": 14.5
     },
     {
+      "id": "web_app",
+      "label": "React Web App & Cloud Library",
+      "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
+      "files": 16,
+      "loc": 7456,
+      "sharePct": 13.8
+    },
+    {
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 20,
       "loc": 7374,
-      "sharePct": 13.7
-    },
-    {
-      "id": "web_app",
-      "label": "React Web App & Cloud Library",
-      "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
-      "files": 16,
-      "loc": 7359,
       "sharePct": 13.6
     },
     {
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5130,
+      "loc": 5133,
       "sharePct": 9.5
     },
     {
@@ -91,14 +91,14 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
-      "loc": 36013,
-      "sharePct": 66.7
+      "loc": 36016,
+      "sharePct": 66.6
     },
     {
       "label": "React JSX (.jsx)",
       "files": 16,
-      "loc": 7359,
-      "sharePct": 13.6
+      "loc": 7456,
+      "sharePct": 13.8
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
@@ -109,7 +109,7 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3875,
+      "loc": 3885,
       "sharePct": 7.2
     },
     {

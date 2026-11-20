@@ -106,6 +106,50 @@ function resolveInitialView() {
   return "overview";
 }
 
+const GITHUB_REPO_URL = "https://github.com/sarang-cmd/lm-subs";
+const GITHUB_API_URL = "https://api.github.com/repos/sarang-cmd/lm-subs";
+
+/**
+ * Live GitHub star count for the repository, fetched once per page load.
+ * Returns null while loading or if the request fails, so the button simply
+ * renders without a count rather than showing a stale or broken number.
+ */
+function useGithubStars() {
+  const [stars, setStars] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(GITHUB_API_URL, {
+      headers: { Accept: "application/vnd.github+json" },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.stargazers_count === "number") {
+          setStars(data.stargazers_count);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return stars;
+}
+
+function StarMark({ size = 14 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 2.25c.16 0 .31.08.4.21l2.6 3.95 4.72.62c.42.06.59.58.29.88l-3.42 3.33.81 4.7c.07.42-.37.74-.75.53L12.4 14.1l-4.25 2.37c-.38.21-.82-.11-.75-.53l.81-4.7L4.79 7.91c-.3-.3-.13-.82.29-.88l4.72-.62 2.6-3.95c.09-.13.24-.21.4-.21h.2z" />
+    </svg>
+  );
+}
+
 export function GithubMark({ size = 18 }) {
   return (
     <svg
@@ -161,6 +205,7 @@ const VIEW_URL_MAP = {
 };
 
 export function App() {
+  const githubStars = useGithubStars();
   const [view, setView] = useState(resolveInitialView);
   const [token, setToken] = useState(() => {
     try {
@@ -577,13 +622,30 @@ export function App() {
             )}
             <a
               className="btn btn-sm"
-              href="https://github.com/sarang-cmd/lm-subs"
+              href={GITHUB_REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="View LM Subs on GitHub"
-              title="View on GitHub"
+              aria-label={
+                githubStars != null
+                  ? `View LM Subs on GitHub, ${githubStars} stars`
+                  : "View LM Subs on GitHub"
+              }
+              title={
+                githubStars != null
+                  ? `View on GitHub (${githubStars} stars)`
+                  : "View on GitHub"
+              }
             >
               <GithubMark size={16} />
+              {githubStars != null ? (
+                <span
+                  className="tabular"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                >
+                  <StarMark size={12} />
+                  {githubStars}
+                </span>
+              ) : null}
             </a>
             <a
               className="btn btn-sm btn-primary"
@@ -636,12 +698,31 @@ export function App() {
                   </button>
                   <a
                     className="btn"
-                    href="https://github.com/sarang-cmd/lm-subs"
+                    href={GITHUB_REPO_URL}
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label={
+                      githubStars != null
+                        ? `View LM Subs on GitHub, ${githubStars} stars`
+                        : "View LM Subs on GitHub"
+                    }
                   >
                     <GithubMark size={16} />
                     View on GitHub
+                    {githubStars != null ? (
+                      <span
+                        className="tabular"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          color: "var(--ink-secondary)",
+                        }}
+                      >
+                        <StarMark size={13} />
+                        {githubStars}
+                      </span>
+                    ) : null}
                   </a>
                 </div>
                 <div className="hero-footnote">
