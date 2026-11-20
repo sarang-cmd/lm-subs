@@ -323,6 +323,7 @@ ${newer ? `    <link rel="next" href="${SITE}/blog/${newer.slug}" />` : ""}
     <header class="site-header">
       <div class="site-header-inner">
         <a href="/" class="brand-link">
+          <img src="/favicon.svg?v=5" alt="" width="26" height="26" />
           <span class="brand-mark-text">LM Subs</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
@@ -333,6 +334,9 @@ ${newer ? `    <link rel="next" href="${SITE}/blog/${newer.slug}" />` : ""}
           <a class="nav-tab" href="/stats">Statistics</a>
           <a class="nav-tab" href="/about">About</a>
         </nav>
+        <div class="nav-actions">
+          <a class="btn btn-sm btn-primary" href="/releases/lm-subs-v0.2.9.zip" download>Download extension</a>
+        </div>
       </div>
     </header>
 
@@ -500,6 +504,7 @@ function renderIndex(posts) {
     <header class="site-header">
       <div class="site-header-inner">
         <a href="/" class="brand-link">
+          <img src="/favicon.svg?v=5" alt="" width="26" height="26" />
           <span class="brand-mark-text">LM Subs</span>
         </a>
         <nav class="nav-links" aria-label="Primary">
@@ -510,6 +515,9 @@ function renderIndex(posts) {
           <a class="nav-tab" href="/stats">Statistics</a>
           <a class="nav-tab" href="/about">About</a>
         </nav>
+        <div class="nav-actions">
+          <a class="btn btn-sm btn-primary" href="/releases/lm-subs-v0.2.9.zip" download>Download extension</a>
+        </div>
       </div>
     </header>
 

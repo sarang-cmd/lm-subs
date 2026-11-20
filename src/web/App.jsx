@@ -141,7 +141,10 @@ function StarMark({ size = 14 }) {
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill="#f5b301"
+      stroke="#d99a00"
+      strokeWidth="1"
+      strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
