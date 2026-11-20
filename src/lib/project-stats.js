@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 54114,
-  "nonBlankLoc": 49568,
+  "totalLoc": 54165,
+  "nonBlankLoc": 49619,
   "sourceFiles": 130,
   "automatedTests": 143,
   "testSuites": 20,
@@ -36,14 +36,14 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14641,
-      "sharePct": 27.1
+      "sharePct": 27
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 35,
-      "loc": 8921,
+      "loc": 8961,
       "sharePct": 16.5
     },
     {
@@ -59,7 +59,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
       "files": 16,
-      "loc": 7456,
+      "loc": 7459,
       "sharePct": 13.8
     },
     {
@@ -75,7 +75,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5133,
+      "loc": 5141,
       "sharePct": 9.5
     },
     {
@@ -84,27 +84,27 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "OAuth 2.0, passwordless 6-digit email auth, HKDF + AES-256-GCM key vault, sync, and telemetry",
       "files": 6,
       "loc": 2733,
-      "sharePct": 5.1
+      "sharePct": 5
     }
   ],
   "languages": [
     {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
-      "loc": 36016,
-      "sharePct": 66.6
+      "loc": 36024,
+      "sharePct": 66.5
     },
     {
       "label": "React JSX (.jsx)",
       "files": 16,
-      "loc": 7456,
+      "loc": 7459,
       "sharePct": 13.8
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 32,
-      "loc": 4928,
-      "sharePct": 9.1
+      "loc": 4968,
+      "sharePct": 9.2
     },
     {
       "label": "CSS Design System (.css)",

@@ -2284,7 +2284,7 @@ body.app-mounted .site-header-shell {
   gap: 12px;
   padding: 28px 0 30px;
   margin: 22px 0 30px;
-  border-top: 2px solid var(--ink-primary);
+  border-top: 1px solid var(--border-hairline);
   border-bottom: 1px solid var(--border-hairline);
   text-decoration: none;
 }
