@@ -4,8 +4,8 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 54004,
-  "nonBlankLoc": 49462,
+  "totalLoc": 54085,
+  "nonBlankLoc": 49540,
   "sourceFiles": 130,
   "automatedTests": 143,
   "testSuites": 20,
@@ -55,19 +55,19 @@ export const PROJECT_STATS = Object.freeze({
       "sharePct": 14.5
     },
     {
+      "id": "web_app",
+      "label": "React Web App & Cloud Library",
+      "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
+      "files": 16,
+      "loc": 7440,
+      "sharePct": 13.8
+    },
+    {
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 20,
       "loc": 7374,
-      "sharePct": 13.7
-    },
-    {
-      "id": "web_app",
-      "label": "React Web App & Cloud Library",
-      "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
-      "files": 16,
-      "loc": 7359,
       "sharePct": 13.6
     },
     {
@@ -92,13 +92,13 @@ export const PROJECT_STATS = Object.freeze({
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 63,
       "loc": 36013,
-      "sharePct": 66.7
+      "sharePct": 66.6
     },
     {
       "label": "React JSX (.jsx)",
       "files": 16,
-      "loc": 7359,
-      "sharePct": 13.6
+      "loc": 7440,
+      "sharePct": 13.8
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
