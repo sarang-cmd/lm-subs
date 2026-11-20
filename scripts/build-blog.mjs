@@ -21,6 +21,9 @@ const SITE = "https://lm-subs.vercel.app";
 const AUTHOR_NAME = "Sarang";
 const AUTHOR_HANDLE = "@sarang-cmd";
 const AUTHOR_URL = "https://github.com/sarang-cmd";
+// The avatar URL the GitHub API returns for this account
+// (GET https://api.github.com/users/sarang-cmd -> avatar_url).
+const AUTHOR_AVATAR_URL = "https://avatars.githubusercontent.com/u/98888521?v=4";
 
 function escapeHtml(value) {
   return String(value)
@@ -344,7 +347,7 @@ ${newer ? `    <link rel="next" href="${SITE}/blog/${newer.slug}" />` : ""}
         <p class="post-lede">${post.lede}</p>
 
         <div class="post-byline">
-          <span class="post-avatar" aria-hidden="true">SA</span>
+          <img class="post-avatar-img" src="${AUTHOR_AVATAR_URL}" alt="" width="34" height="34" loading="lazy" decoding="async" />
           <span class="post-byline-text">
             <a class="link" href="${AUTHOR_URL}" target="_blank" rel="noopener noreferrer">${AUTHOR_NAME} (${AUTHOR_HANDLE})</a>, creator of LM Subs.
             <span class="post-byline-meta">Published ${post.date}. ${read.words} words.</span>
@@ -407,7 +410,7 @@ ${related
         </div>
 
         <div class="author-box">
-          <span class="post-avatar" aria-hidden="true">SA</span>
+          <img class="post-avatar-img" src="${AUTHOR_AVATAR_URL}" alt="" width="34" height="34" loading="lazy" decoding="async" />
           <div>
             <p class="author-name">${AUTHOR_NAME} (${AUTHOR_HANDLE})</p>
             <p class="author-bio">Computer science student and agentic engineer in Germany. Builds LM Subs, an open source captioning extension for Google NotebookLM, and writes these guides from the same code base the extension ships from.</p>
