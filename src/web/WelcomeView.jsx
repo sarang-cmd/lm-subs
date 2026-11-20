@@ -891,7 +891,7 @@ export function WelcomeView({
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(135px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
                     gap: "6px",
                     padding: "10px",
                     borderRadius: "8px",
@@ -911,15 +911,31 @@ export function WelcomeView({
                           justifyContent: "space-between",
                           borderColor: isSelected ? "var(--accent)" : undefined,
                           fontWeight: isSelected ? 700 : 500,
+                          whiteSpace: "normal",
+                          textAlign: "left",
+                          lineHeight: 1.25,
+                          height: "auto",
+                          minHeight: "34px",
+                          paddingTop: "7px",
+                          paddingBottom: "7px",
                         }}
                         onClick={() => {
                           setSelectedProvider(p.id);
                           setProviderOpen(false);
                         }}
                       >
-                        <span>{p.name}</span>
+                        <span style={{ minWidth: 0 }}>{p.name}</span>
                         {isConfigured ? (
-                          <span style={{ color: "#067647", fontSize: "10.5px" }}>Saved</span>
+                          <span
+                            style={{
+                              color: "#067647",
+                              fontSize: "10.5px",
+                              flexShrink: 0,
+                              marginLeft: "6px",
+                            }}
+                          >
+                            Saved
+                          </span>
                         ) : null}
                       </button>
                     );
