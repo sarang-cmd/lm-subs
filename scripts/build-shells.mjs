@@ -91,6 +91,14 @@ function page({
   const canonical = `${SITE}${route}`;
   const graph = [
     {
+      "@type": "WebSite",
+      "@id": `${SITE}/#website`,
+      url: `${SITE}/`,
+      name: "LM Subs",
+      alternateName: "LM Subs: Captions for Google NotebookLM",
+      inLanguage: "en",
+    },
+    {
       "@type": "WebPage",
       "@id": canonical,
       url: canonical,

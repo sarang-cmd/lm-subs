@@ -372,6 +372,61 @@ export function AboutView({ onNavigate }) {
           </figcaption>
         </figure>
       </section>
+
+      <section className="section-block" aria-labelledby="star-history-heading">
+        <div style={{ maxWidth: "760px" }}>
+          <h2 id="star-history-heading" className="section-heading">
+            Star history
+          </h2>
+          <p className="section-prose">
+            LM Subs reached triple-digit GitHub stars within weeks of its first
+            public release, driven by NotebookLM users who wanted captions the
+            built-in player does not ship with. The chart below tracks stars
+            over time and updates automatically.
+          </p>
+        </div>
+
+        <figure className="product-figure">
+          <a
+            href="https://www.star-history.com/?repos=sarang-cmd%2Flm-subs&type=date&legend=top-left"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open the LM Subs star history chart on star-history.com"
+          >
+            <picture>
+              <source
+                media="(prefers-color-scheme: dark)"
+                srcSet="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&theme=dark&legend=top-left"
+              />
+              <source
+                media="(prefers-color-scheme: light)"
+                srcSet="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&legend=top-left"
+              />
+              <img
+                src="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&legend=top-left"
+                alt="GitHub star history chart for sarang-cmd/lm-subs showing stars over time"
+                width="1120"
+                height="560"
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+          </a>
+          <figcaption>
+            GitHub stars for{" "}
+            <a
+              className="link"
+              href="https://github.com/sarang-cmd/lm-subs"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              sarang-cmd/lm-subs
+            </a>
+            , rendered live by star-history.com. Star the repository if LM Subs
+            saved you a lecture review.
+          </figcaption>
+        </figure>
+      </section>
     </div>
   );
 }

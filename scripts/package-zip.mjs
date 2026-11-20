@@ -141,6 +141,11 @@ const files = collectFiles("extension", "lm-subs");
 const zipBuf = createZipBuffer(files);
 const zipSha256 = crypto.createHash("sha256").update(zipBuf).digest("hex");
 
+// The Chrome Web Store requires manifest.json at the zip root, with no
+// wrapping folder, so the store package is the same file set with no prefix.
+const storeFiles = collectFiles("extension", "");
+const storeZipBuf = createZipBuffer(storeFiles);
+
 fs.mkdirSync("docs/releases", { recursive: true });
 for (const existing of fs.readdirSync("docs/releases")) {
   if (/^lm-subs-v.*\.zip$/.test(existing)) {
@@ -149,8 +154,10 @@ for (const existing of fs.readdirSync("docs/releases")) {
 }
 const outFile = `docs/releases/lm-subs-v${version}.zip`;
 const latestZipFile = "docs/releases/lm-subs-latest.zip";
+const storeZipFile = `docs/releases/lm-subs-v${version}-store.zip`;
 fs.writeFileSync(outFile, zipBuf);
 fs.writeFileSync(latestZipFile, zipBuf);
+fs.writeFileSync(storeZipFile, storeZipBuf);
 
 const notes = getReleaseNotes(version);
 
@@ -173,7 +180,7 @@ fs.writeFileSync(
 );
 
 console.log(
-  `Packaged ${files.length} files (build ${buildId}) -> ${outFile} & ${latestZipFile} (${(
+  `Packaged ${files.length} files (build ${buildId}) -> ${outFile}, ${latestZipFile} & ${storeZipFile} (${(
     zipBuf.length / 1024
   ).toFixed(1)} KB)`
 );
