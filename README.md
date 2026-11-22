@@ -21,20 +21,13 @@
 <img src="docs/assets/banner-social-1280x640 (2).png" width="100%" alt="LM Subs: Highlighted captions inside the video and bottom play-bar CC controls for Google NotebookLM" />
 
 </div>
-
-<p align="center">
-  <a href="https://www.star-history.com/?repos=sarang-cmd%2Flm-subs&type=date&legend=top-left">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&theme=dark&legend=top-left" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&legend=top-left" />
-      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&legend=top-left" />
-    </picture>
-  </a>
-</p>
-
-</div>
-
----
+<a href="https://www.star-history.com/?repos=sarang-cmd%2Flm-subs&type=date&releases=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&releases=&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=sarang-cmd/lm-subs&type=date&releases=&legend=bottom-right" />
+ </picture>
+</a>
 
 ## Install guide (no coding or credit card needed)
 
