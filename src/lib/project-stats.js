@@ -4,10 +4,10 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 55092,
-  "nonBlankLoc": 50460,
-  "sourceFiles": 134,
-  "automatedTests": 147,
+  "totalLoc": 175054,
+  "nonBlankLoc": 169735,
+  "sourceFiles": 1156,
+  "automatedTests": 148,
   "testSuites": 21,
   "sttProviders": 12,
   "exportFormats": 6,
@@ -18,7 +18,7 @@ export const PROJECT_STATS = Object.freeze({
   "captionPositions": 3,
   "stylePermutations": 1800,
   "keyboardShortcuts": 12,
-  "apiEndpoints": 28,
+  "apiEndpoints": 30,
   "postgresTables": 10,
   "releaseZipKb": 235.8,
   "mv3RuntimeDependencies": 0,
@@ -31,20 +31,28 @@ export const PROJECT_STATS = Object.freeze({
   "activeBuildDays": 2,
   "subsystems": [
     {
+      "id": "docs_schema_tooling",
+      "label": "SQL Schema, Build Pipeline & Documentation",
+      "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
+      "files": 1048,
+      "loc": 124806,
+      "sharePct": 71.3
+    },
+    {
       "id": "mv3_extension",
       "label": "Chrome MV3 Extension & Player Overlay",
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14641,
-      "sharePct": 26.6
+      "sharePct": 8.4
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
       "files": 36,
-      "loc": 9421,
-      "sharePct": 17.1
+      "loc": 9514,
+      "sharePct": 5.4
     },
     {
       "id": "core_engine",
@@ -52,83 +60,75 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
       "files": 19,
       "loc": 7932,
-      "sharePct": 14.4
+      "sharePct": 4.5
     },
     {
       "id": "web_app",
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
       "files": 17,
-      "loc": 7742,
-      "sharePct": 14.1
+      "loc": 7879,
+      "sharePct": 4.5
     },
     {
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
       "files": 21,
-      "loc": 7442,
-      "sharePct": 13.5
-    },
-    {
-      "id": "docs_schema_tooling",
-      "label": "SQL Schema, Build Pipeline & Documentation",
-      "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
-      "files": 26,
-      "loc": 5181,
-      "sharePct": 9.4
+      "loc": 7497,
+      "sharePct": 4.3
     },
     {
       "id": "cloud_api",
       "label": "Hono + Neon Postgres Cloud API",
       "detail": "OAuth 2.0, passwordless 6-digit email auth, HKDF + AES-256-GCM key vault, sync, and telemetry",
       "files": 6,
-      "loc": 2733,
-      "sharePct": 5
+      "loc": 2785,
+      "sharePct": 1.6
     }
   ],
   "languages": [
     {
+      "label": "Config & Manifest (.json)",
+      "files": 1032,
+      "loc": 120179,
+      "sharePct": 68.7
+    },
+    {
       "label": "JavaScript / ESM (.js, .mjs)",
       "files": 65,
-      "loc": 36202,
-      "sharePct": 65.7
+      "loc": 36311,
+      "sharePct": 20.7
     },
     {
       "label": "React JSX (.jsx)",
       "files": 17,
-      "loc": 7742,
-      "sharePct": 14.1
+      "loc": 7879,
+      "sharePct": 4.5
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
       "files": 33,
-      "loc": 5107,
-      "sharePct": 9.3
+      "loc": 5113,
+      "sharePct": 2.9
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 4206,
-      "sharePct": 7.6
+      "loc": 4293,
+      "sharePct": 2.5
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
-      "loc": 1121,
-      "sharePct": 2
-    },
-    {
-      "label": "Config & Manifest (.json)",
-      "files": 10,
-      "loc": 560,
-      "sharePct": 1
+      "loc": 1125,
+      "sharePct": 0.6
     },
     {
       "label": "PostgreSQL Schema (.sql)",
       "files": 1,
       "loc": 154,
-      "sharePct": 0.3
+      "sharePct": 0.1
     }
   ]
 });

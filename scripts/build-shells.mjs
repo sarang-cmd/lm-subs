@@ -411,11 +411,11 @@ results.push(
     current: "/metrics",
     title: "Public project metrics and contribution graphs | LM Subs",
     description:
-      "Explore live public GitHub metrics for LM Subs, including stars, forks, weekly commits, a year-long contribution calendar, and contributor activity.",
+      "Explore public GitHub activity and anonymous website download requests for LM Subs, with weekly commits, contribution calendars, contributors, and download requests by country.",
     heading: "LM Subs project metrics",
     kicker: "Open source activity",
     body: `          <p class="section-prose" style="font-size: 17px">
-            A public view of the LM Subs repository, with live stars, forks, weekly commits, a contribution calendar, and contributor activity. The charts use GitHub repository data only. They do not show private extension usage or anyone's personal statistics.
+            A public view of the LM Subs repository, with live stars, forks, weekly commits, a contribution calendar, and contributor activity. The page also shows anonymous aggregate website download requests and their country distribution. It does not show private extension usage or anyone's personal statistics.
           </p>
           <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Public repository activity</h2>
           <ul class="prose-list">
@@ -423,7 +423,9 @@ results.push(
             <li>Commit activity grouped by week and by day for the past year.</li>
             <li>Contributors recognized by GitHub, with a link to the full contribution graph.</li>
           </ul>
-          <p class="section-prose">The figures update from GitHub and may be temporarily unavailable if its public API is rate limited.</p>
+          <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Anonymous download requests</h2>
+          <p class="section-prose">The download chart counts clicks on website download links, not completed file transfers. It shows only aggregate totals by country. The country estimate comes from Vercel, and no IP address or account identifier is stored for these events.</p>
+          <p class="section-prose">Repository figures update from GitHub and may be temporarily unavailable if its public API is rate limited.</p>
           <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px">
             <a class="btn btn-ink" href="https://github.com/sarang-cmd/lm-subs/graphs" target="_blank" rel="noopener noreferrer">Explore all GitHub graphs</a>
             <a class="btn" href="/about">About LM Subs</a>

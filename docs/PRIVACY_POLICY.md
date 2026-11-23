@@ -19,6 +19,7 @@ Only when you explicitly sign in with Google, GitHub, or a 6-digit email verific
 * **Encrypted API Keys (`lmsubs_user_api_keys`):** When `Sync API keys` is enabled, keys are encrypted per user via `HKDF-SHA256` + `AES-256-GCM` with `${userId}:${providerId}` as authenticated AAD. Web UI pulls (`includeSecrets=0`) return masked hints (`gsk_••••9xQ2`) only.
 * **Transcriptions & Settings (`lmsubs_subtitles`, `lmsubs_user_settings`):** Stored per `user_id` according to your opt-in switches (`Sync transcriptions`, `Sync preferences`). Turning off any switch lets you immediately purge stored cloud rows for that category.
 * **Web App Diagnostics:** The public web app at `lm-subs.vercel.app` uses Vercel Web Analytics and Vercel Speed Insights for aggregated page performance metrics. The Chrome extension itself bundles zero analytics or tracking scripts.
+* **Anonymous download requests:** When someone clicks a website download link, LM Subs records the release version, page source, coarse browser family, and country estimate supplied by Vercel. The event does not store an IP address, full user-agent string, or account identifier. Public metrics show only aggregate totals and country counts. These are download requests, not confirmed completed transfers.
 
 ## 3. Media & Audio Flow
 

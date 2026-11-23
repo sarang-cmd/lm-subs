@@ -63,6 +63,54 @@ function postDownload(app, body, headers = {}) {
   });
 }
 
+test("Public download metrics expose only aggregate totals and country counts", async () => {
+  const dbPromise = createDatabaseClient({ pgliteDataDir: "memory://" });
+  const app = createSyncApp({
+    dbPromise,
+    encryptionSecret: "test-secret-32-chars-minimum-123456",
+  });
+
+  await postDownload(app, { version: "0.2.9", source: "hero" }, {
+    "user-agent": "Mozilla/5.0 Chrome/131.0.0.0",
+    "x-vercel-ip-country": "DE",
+  });
+  await postDownload(app, { version: "0.2.9", source: "guide" }, {
+    "user-agent": "Mozilla/5.0 Firefox/133.0",
+    "x-vercel-ip-country": "US",
+  });
+  await postDownload(app, { version: "0.2.9", source: "welcome" }, {
+    "user-agent": "Mozilla/5.0 Safari/605.1.15",
+  });
+
+  const metricsRes = await app.request(
+    "http://localhost/api/public/metrics/downloads"
+  );
+  assert.equal(metricsRes.status, 200);
+  const metrics = await metricsRes.json();
+  assert.equal(metrics.ok, true);
+  assert.equal(metrics.total, 3);
+  assert.equal(metrics.last30, 3);
+  assert.equal(metrics.countryTotal, 2);
+  assert.deepEqual(metrics.countries, [
+    { code: "DE", count: 1 },
+    { code: "US", count: 1 },
+  ]);
+  assert.equal("recent" in metrics, false);
+  assert.equal("accounts" in metrics, false);
+  assert.equal("browser" in metrics, false);
+
+  const badgeRes = await app.request(
+    "http://localhost/api/public/metrics/downloads/badge"
+  );
+  assert.equal(badgeRes.status, 200);
+  assert.deepEqual(await badgeRes.json(), {
+    schemaVersion: 1,
+    label: "downloads",
+    message: "3",
+    color: "blue",
+  });
+});
+
 test("Download beacon records events without a session", async () => {
   const dbPromise = createDatabaseClient({ pgliteDataDir: "memory://" });
   const app = createSyncApp({
