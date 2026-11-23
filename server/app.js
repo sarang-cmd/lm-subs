@@ -2138,6 +2138,58 @@ export function createSyncApp({
   });
 
   /**
+   * Public download totals for the site metrics page and README badge.
+   * Only aggregate counts and two-letter country codes leave the database.
+   * Account totals, recent events, source labels, and browser families remain
+   * available only to an authenticated admin.
+   */
+  app.get("/api/public/metrics/downloads", async (c) => {
+    const db = await resolveDb();
+    const [totalsRes, countryRes] = await Promise.all([
+      db.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE occurred_at >= NOW() - INTERVAL '30 days')::int AS last30
+         FROM lmsubs_downloads`
+      ),
+      db.query(
+        `SELECT country AS code, COUNT(*)::int AS count
+         FROM lmsubs_downloads
+         WHERE country <> ''
+         GROUP BY country
+         ORDER BY count DESC, country ASC`
+      ),
+    ]);
+    const totals = totalsRes.rows[0] || {};
+    const countries = countryRes.rows.map((row) => ({
+      code: cleanCountry(row.code),
+      count: Number(row.count) || 0,
+    })).filter((row) => row.code && row.count > 0);
+    c.header("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+    return c.json({
+      ok: true,
+      total: Number(totals.total) || 0,
+      last30: Number(totals.last30) || 0,
+      countries,
+      countryTotal: countries.reduce((sum, row) => sum + row.count, 0),
+    });
+  });
+
+  app.get("/api/public/metrics/downloads/badge", async (c) => {
+    const db = await resolveDb();
+    const totalsRes = await db.query(
+      "SELECT COUNT(*)::int AS total FROM lmsubs_downloads"
+    );
+    const total = Number(totalsRes.rows[0]?.total) || 0;
+    c.header("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+    return c.json({
+      schemaVersion: 1,
+      label: "downloads",
+      message: total.toLocaleString("en-US"),
+      color: "blue",
+    });
+  });
+
+  /**
    * Admin dashboard counters.
    *
    * Download totals over time plus the account and transcript counts worth

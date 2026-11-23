@@ -55,6 +55,9 @@ test("public metrics route uses public repository data, not private account tele
   const view = read("src/web/ProjectMetricsView.jsx");
   const shell = read("docs/metrics.html");
   const sitemap = read("docs/sitemap.xml");
+  const readme = read("README.md");
+  const server = read("server/app.js");
+  const privacy = read("src/web/LegalViews.jsx");
   assert.ok(app.includes('path === "/metrics"'));
   assert.ok(app.includes('view === "metrics" ? <ProjectMetricsView /> : null'));
   assert.match(view, /https:\/\/api\.github\.com\/repos\/sarang-cmd\/lm-subs/);
@@ -63,5 +66,9 @@ test("public metrics route uses public repository data, not private account tele
   assert.match(view, /Contributors/);
   assert.doesNotMatch(view, /\/api\/stats|Authorization:/);
   assert.match(shell, /canonical" href="https:\/\/lm-subs\.vercel\.app\/metrics/);
+  assert.match(shell, /Anonymous download requests/);
+  assert.match(server, /\/api\/public\/metrics\/downloads\/badge/);
   assert.match(sitemap, /<loc>https:\/\/lm-subs\.vercel\.app\/metrics<\/loc>/);
+  assert.match(readme, /img\.shields\.io\/endpoint/);
+  assert.match(privacy, /country estimate supplied by Vercel/);
 });

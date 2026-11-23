@@ -4,6 +4,7 @@ import {
   contributionLevel,
   weeklyFromCommits,
 } from "../lib/public-project-metrics.js";
+import { trackDownload } from "../lib/downloads.js";
 
 const API = "https://api.github.com/repos/sarang-cmd/lm-subs";
 const REPO_URL = "https://github.com/sarang-cmd/lm-subs";
@@ -162,6 +163,138 @@ function WeeklyChart({ weeks }) {
   );
 }
 
+const DOWNLOAD_CACHE_KEY = "lm-subs-public-download-metrics-v1";
+const DOWNLOAD_CACHE_TTL = 5 * 60 * 1000;
+const PIE_COLORS = ["#0055d4", "#2f81f7", "#40a75a", "#d29922", "#8250df", "#bf3989"];
+const countryNames = typeof Intl.DisplayNames === "function"
+  ? new Intl.DisplayNames(["en"], { type: "region" })
+  : null;
+
+function readDownloadCache() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(DOWNLOAD_CACHE_KEY) || "null");
+    return value && Date.now() - value.fetchedAt < DOWNLOAD_CACHE_TTL ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function countryName(code) {
+  try {
+    return countryNames?.of(code) || code;
+  } catch {
+    return code;
+  }
+}
+
+function pieSlicePath(startAngle, endAngle, radius = 92) {
+  const center = 110;
+  const point = (angle) => {
+    const radians = ((angle - 90) * Math.PI) / 180;
+    return [center + radius * Math.cos(radians), center + radius * Math.sin(radians)];
+  };
+  const start = point(startAngle);
+  const end = point(endAngle);
+  const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+  return `M ${center} ${center} L ${start[0]} ${start[1]} A ${radius} ${radius} 0 ${largeArc} 1 ${end[0]} ${end[1]} Z`;
+}
+
+function DownloadsByCountry() {
+  const [data, setData] = useState(() => readDownloadCache());
+  const [loading, setLoading] = useState(() => !readDownloadCache());
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const response = await fetch("/api/public/metrics/downloads", {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("Could not load download metrics.");
+        const fresh = await response.json();
+        if (!fresh?.ok) throw new Error("Could not load download metrics.");
+        fresh.fetchedAt = Date.now();
+        if (cancelled) return;
+        setData(fresh);
+        setError("");
+        try {
+          window.localStorage.setItem(DOWNLOAD_CACHE_KEY, JSON.stringify(fresh));
+        } catch {
+          // Aggregate metrics remain available without browser storage.
+        }
+      } catch {
+        if (!cancelled) setError("Download metrics are temporarily unavailable.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const slices = useMemo(() => {
+    const countries = Array.isArray(data?.countries) ? data.countries : [];
+    if (countries.length <= 6) return countries.map((row) => ({ ...row, label: countryName(row.code) }));
+    const top = countries.slice(0, 5).map((row) => ({ ...row, label: countryName(row.code) }));
+    const other = countries.slice(5).reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+    return [...top, { code: "OTHER", label: "Other countries", count: other }];
+  }, [data?.countries]);
+  const knownTotal = slices.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+  const totalDownloads = Number(data?.total) || 0;
+  let angle = 0;
+
+  return (
+    <section className="project-metric-section" aria-labelledby="download-title">
+      <div className="project-metric-heading">
+        <div>
+          <h2 id="download-title" className="section-heading">Downloads by country</h2>
+          <p className="section-prose">{number.format(totalDownloads)} tracked download requests total, {number.format(Number(data?.last30) || 0)} in the last 30 days</p>
+        </div>
+        <a className="link" href="/releases/lm-subs-latest.zip" download onClick={() => trackDownload({ source: "metrics" })}>Get LM Subs</a>
+      </div>
+      {loading && !data ? <p className="project-metrics-loading" role="status">Loading download metrics…</p> : null}
+      {error ? <p className="project-metric-footnote" role="status">{error}</p> : null}
+      {data && knownTotal > 0 ? (
+        <div className="project-country-layout">
+          <div className="project-country-pie-wrap">
+            <svg className="project-country-pie" viewBox="0 0 220 220" role="img" aria-label={`Pie chart showing ${number.format(knownTotal)} tracked download requests from ${slices.length} country groups`}>
+              {slices.map((slice, index) => {
+                const portion = (Number(slice.count) || 0) / knownTotal;
+                const nextAngle = angle + portion * 360;
+                const path = pieSlicePath(angle, nextAngle);
+                angle = nextAngle;
+                return slices.length === 1 ? (
+                  <circle key={slice.code} cx="110" cy="110" r="92" fill={PIE_COLORS[index % PIE_COLORS.length]}>
+                    <title>{slice.label}: {number.format(slice.count)} requests, 100%</title>
+                  </circle>
+                ) : (
+                  <path key={slice.code} d={path} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke="var(--bg-canvas)" strokeWidth="2">
+                    <title>{slice.label}: {number.format(slice.count)} requests, {Math.round(portion * 100)}%</title>
+                  </path>
+                );
+              })}
+              <circle cx="110" cy="110" r="48" fill="var(--bg-canvas)" />
+              <text x="110" y="106" textAnchor="middle" className="project-country-pie-total">{number.format(knownTotal)}</text>
+              <text x="110" y="124" textAnchor="middle" className="project-country-pie-label">located requests</text>
+            </svg>
+          </div>
+          <ul className="project-country-legend" aria-label="Downloads by country">
+            {slices.map((slice, index) => (
+              <li key={slice.code}>
+                <span className="project-country-swatch" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} aria-hidden="true" />
+                <span className="project-country-name">{slice.label}</span>
+                <span className="project-country-value">{number.format(slice.count)} <small>{knownTotal ? `${Math.round((slice.count / knownTotal) * 100)}%` : ""}</small></span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : data ? <p className="project-metrics-loading">Country distribution will appear as download requests arrive with an available country estimate.</p> : null}
+      <p className="project-metric-footnote">Counts are anonymous download requests, not verified completed transfers. Country comes from Vercel's coarse edge estimate; requests without a country estimate are included in the total but not in the pie chart. No IP address or account identifier is stored.</p>
+    </section>
+  );
+}
+
 function ContributorList({ contributors }) {
   const people = contributors.filter((person) => person?.login && Number.isFinite(person.contributions)).slice(0, 8);
   const maximum = Math.max(...people.map((person) => person.contributions), 1);
@@ -218,7 +351,6 @@ export function ProjectMetricsView() {
   }, []);
 
   const weeklyTotal = data?.weekly?.reduce((sum, week) => sum + (week.total || 0), 0) || 0;
-  const commitTotal = data?.commits?.length || 0;
   const contributorCount = data?.contributors?.length || 0;
   const lastUpdated = data?.fetchedAt ? new Date(data.fetchedAt) : null;
 
@@ -227,11 +359,12 @@ export function ProjectMetricsView() {
       <section className="section-block">
         <p className="project-metrics-kicker">Open source, in the open</p>
         <h1 className="section-heading project-metrics-title">LM Subs project metrics</h1>
-        <p className="section-prose project-metrics-intro">A live view of the public repository: stars, commit activity, and the people building LM Subs. These charts use GitHub repository data only. They do not show private extension usage or anyone's personal statistics.</p>
-        <p className="project-metrics-source"><span className="project-metrics-live" aria-hidden="true" /> Public data from <a className="link" href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>{lastUpdated ? `, updated ${dateLabel.format(lastUpdated)}` : ""}</p>
+        <p className="section-prose project-metrics-intro">A live view of the public repository: stars, commit activity, and the people building LM Subs. Download totals and country breakdowns are anonymous aggregates from download requests to this site. This page does not show private extension usage or personal account statistics.</p>
+        <p className="project-metrics-source"><span className="project-metrics-live" aria-hidden="true" /> Repository data from <a className="link" href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>{lastUpdated ? `, updated ${dateLabel.format(lastUpdated)}` : ""}</p>
 
         {error ? <div className="project-metrics-error" role="status">{error} <button className="btn btn-sm" type="button" onClick={refresh}>Retry</button></div> : null}
         {loading && !data ? <p className="project-metrics-loading" role="status">Loading public repository metrics…</p> : null}
+        <DownloadsByCountry />
         {data?.repo ? (
           <>
             <div className="project-metrics-kpis" aria-label="Repository summary">

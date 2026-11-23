@@ -11,8 +11,11 @@
 [![12 BYOK Providers](docs/assets/badges/providers.svg)](#supported-speech-to-text-providers)
 [![Neon Sync](docs/assets/badges/neon-sync.svg)](#hosted-account-and-opt-in-cloud-sync)
 [![Granular Opt-In](docs/assets/badges/telemetry.svg)](#hosted-account-and-opt-in-cloud-sync)
+[![Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Flm-subs.vercel.app%2Fapi%2Fpublic%2Fmetrics%2Fdownloads%2Fbadge)](https://lm-subs.vercel.app/metrics)
 [![Tests](docs/assets/badges/tests.svg)](#development-and-testing)
 [![License: MIT](docs/assets/badges/license.svg)](LICENSE)
+
+The downloads badge counts anonymous website download requests. It does not verify that each transfer completed, and it excludes direct downloads from other sources.
 
 [**Download `lm-subs-v0.2.9.zip`**](docs/releases/lm-subs-v0.2.9.zip) | [**Beginner Setup Guide**](#install-guide-no-coding-or-credit-card-needed) | [**Neon vs Supabase & Firebase Guide (`DEPLOYMENT_GUIDE.md`)**](DEPLOYMENT_GUIDE.md) | [**About (`@sarang-cmd`)**](#about-the-creator)
 

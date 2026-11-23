@@ -32,6 +32,10 @@ export function PrivacyView({ onNavigate }) {
           If you choose to sign in to the hosted LM Subs cloud library, you may authenticate with Google OAuth, GitHub OAuth, or a 6-digit one-time verification code sent to your email address. We store your account identifier, email address, display name, optional profile image URL, and SHA-256-hashed session tokens in Neon Postgres.
         </p>
 
+        <p>
+          The website also records anonymous download requests for aggregate metrics. The event stores the release version, the page source, a coarse browser family, and the country estimate supplied by Vercel. It does not store an IP address, full user-agent string, or account identifier. Country totals are shown publicly on the project metrics page. A request records a download click, not confirmation that a file transfer completed.
+        </p>
+
         <h2>4. Granular opt-in sync and encryption</h2>
         <p>
           Signed-in users control three independent sync switches in both the web library and Chrome extension settings:
