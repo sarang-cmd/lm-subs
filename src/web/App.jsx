@@ -26,6 +26,7 @@ import { ProfileMenu } from "./ProfileMenu.jsx";
 import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
 import { StatsView } from "./StatsView.jsx";
+import { ProjectMetricsView } from "./ProjectMetricsView.jsx";
 import { WelcomeView } from "./WelcomeView.jsx";
 
 const TOKEN_STORAGE_KEY = "lmsubs_web_session_token";
@@ -83,6 +84,7 @@ function resolveInitialView() {
   if (path === "/about" || path === "/about.html") return "about";
   if (path === "/library" || path === "/workspace") return "library";
   if (path === "/stats" || path === "/stats.html") return "stats";
+  if (path === "/metrics" || path === "/metrics.html") return "metrics";
   if (path === "/admin" || path === "/admin.html") return "admin";
   if (
     path === "/privacy" ||
@@ -100,6 +102,7 @@ function resolveInitialView() {
   if (v === "about") return "about";
   if (v === "library" || v === "workspace") return "library";
   if (v === "stats") return "stats";
+  if (v === "metrics") return "metrics";
   if (v === "admin") return "admin";
   if (v === "privacy") return "privacy";
   if (v === "terms") return "terms";
@@ -201,6 +204,7 @@ const VIEW_URL_MAP = {
   guide: "/guide",
   library: "/library",
   stats: "/stats",
+  metrics: "/metrics",
   admin: "/admin",
   about: "/about",
   privacy: "/privacy",
@@ -557,7 +561,18 @@ export function App() {
                 navigate("stats");
               }}
             >
-              Statistics
+              My statistics
+            </a>
+            <a
+              href="/metrics"
+              className="nav-tab"
+              aria-current={view === "metrics" ? "page" : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("metrics");
+              }}
+            >
+              Metrics
             </a>
             <a className="nav-tab" href="/blog">
               Blog
@@ -1081,6 +1096,8 @@ export function App() {
           />
         ) : null}
 
+        {view === "metrics" ? <ProjectMetricsView /> : null}
+
         {view === "admin" ? (
           <AdminView
             token={token}
@@ -1145,7 +1162,16 @@ export function App() {
                 navigate("stats");
               }}
             >
-              Statistics
+              My statistics
+            </a>
+            <a
+              href="/metrics"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("metrics");
+              }}
+            >
+              Public project metrics
             </a>
             <a href="/blog">Blog</a>
             <a

@@ -331,7 +331,8 @@ ${newer ? `    <link rel="next" href="${SITE}/blog/${newer.slug}" />` : ""}
           <a class="nav-tab" href="/guide">Setup guide</a>
           <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
           <a class="nav-tab" href="/library">Library</a>
-          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/stats">My statistics</a>
+          <a class="nav-tab" href="/metrics">Metrics</a>
           <a class="nav-tab" href="/about">About</a>
         </nav>
         <div class="nav-actions">
@@ -437,7 +438,8 @@ ${related
           <a href="/guide">Setup guide</a>
           <a href="/blog">Blog</a>
           <a href="/library">Cloud library</a>
-          <a href="/stats">Statistics</a>
+          <a href="/stats">My statistics</a>
+          <a href="/metrics">Public metrics</a>
           <a href="/about">About</a>
           <a href="/privacy.html">Privacy policy</a>
           <a href="/terms.html">Terms of service</a>
@@ -512,7 +514,8 @@ function renderIndex(posts) {
           <a class="nav-tab" href="/guide">Setup guide</a>
           <a class="nav-tab" href="/blog" aria-current="page">Blog</a>
           <a class="nav-tab" href="/library">Library</a>
-          <a class="nav-tab" href="/stats">Statistics</a>
+          <a class="nav-tab" href="/stats">My statistics</a>
+          <a class="nav-tab" href="/metrics">Metrics</a>
           <a class="nav-tab" href="/about">About</a>
         </nav>
         <div class="nav-actions">
@@ -566,7 +569,8 @@ ${rest
           <a href="/guide">Setup guide</a>
           <a href="/blog">Blog</a>
           <a href="/library">Cloud library</a>
-          <a href="/stats">Statistics</a>
+          <a href="/stats">My statistics</a>
+          <a href="/metrics">Public metrics</a>
           <a href="/about">About</a>
           <a href="/privacy.html">Privacy policy</a>
           <a href="/terms.html">Terms of service</a>

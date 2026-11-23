@@ -32,7 +32,8 @@ function nav(current) {
     ["/guide", "Setup guide"],
     ["/blog", "Blog"],
     ["/library", "Library"],
-    ["/stats", "Statistics"],
+    ["/stats", "My statistics"],
+    ["/metrics", "Metrics"],
     ["/about", "About"],
   ];
   return `      <nav class="nav-links" aria-label="Primary">
@@ -68,7 +69,8 @@ const FOOTER = `    <footer class="site-footer">
           <a href="/guide">Setup guide</a>
           <a href="/blog">Blog</a>
           <a href="/library">Cloud library</a>
-          <a href="/stats">Statistics</a>
+          <a href="/stats">My statistics</a>
+          <a href="/metrics">Public metrics</a>
           <a href="/about">About</a>
           <a href="/privacy.html">Privacy policy</a>
           <a href="/terms.html">Terms of service</a>
@@ -404,6 +406,33 @@ results.push(
 
 results.push(
   page({
+    file: "metrics.html",
+    route: "/metrics",
+    current: "/metrics",
+    title: "Public project metrics and contribution graphs | LM Subs",
+    description:
+      "Explore live public GitHub metrics for LM Subs, including stars, forks, weekly commits, a year-long contribution calendar, and contributor activity.",
+    heading: "LM Subs project metrics",
+    kicker: "Open source activity",
+    body: `          <p class="section-prose" style="font-size: 17px">
+            A public view of the LM Subs repository, with live stars, forks, weekly commits, a contribution calendar, and contributor activity. The charts use GitHub repository data only. They do not show private extension usage or anyone's personal statistics.
+          </p>
+          <h2 class="section-heading" style="font-size: 1.35rem; margin-top: 30px">Public repository activity</h2>
+          <ul class="prose-list">
+            <li>Repository stars and forks, loaded from the public GitHub API.</li>
+            <li>Commit activity grouped by week and by day for the past year.</li>
+            <li>Contributors recognized by GitHub, with a link to the full contribution graph.</li>
+          </ul>
+          <p class="section-prose">The figures update from GitHub and may be temporarily unavailable if its public API is rate limited.</p>
+          <div class="row" style="margin-top: 22px; flex-wrap: wrap; gap: 10px">
+            <a class="btn btn-ink" href="https://github.com/sarang-cmd/lm-subs/graphs" target="_blank" rel="noopener noreferrer">Explore all GitHub graphs</a>
+            <a class="btn" href="/about">About LM Subs</a>
+          </div>`,
+  })
+);
+
+results.push(
+  page({
     file: "library.html",
     route: "/library",
     current: "/library",
@@ -499,6 +528,7 @@ function writeSitemap() {
     { path: "/blog", changefreq: "weekly", priority: "0.8" },
     { path: "/library", changefreq: "monthly", priority: "0.7" },
     { path: "/stats", changefreq: "monthly", priority: "0.7" },
+    { path: "/metrics", changefreq: "daily", priority: "0.8" },
     { path: "/about", changefreq: "monthly", priority: "0.6" },
     { path: "/privacy.html", changefreq: "yearly", priority: "0.3" },
     { path: "/terms.html", changefreq: "yearly", priority: "0.3" },

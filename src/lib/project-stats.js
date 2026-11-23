@@ -4,11 +4,11 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 54165,
-  "nonBlankLoc": 49619,
-  "sourceFiles": 130,
-  "automatedTests": 143,
-  "testSuites": 20,
+  "totalLoc": 55092,
+  "nonBlankLoc": 50460,
+  "sourceFiles": 134,
+  "automatedTests": 147,
+  "testSuites": 21,
   "sttProviders": 12,
   "exportFormats": 6,
   "captionThemes": 6,
@@ -36,47 +36,47 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14641,
-      "sharePct": 27
+      "sharePct": 26.6
     },
     {
       "id": "ui_markup_styles",
       "label": "Editorial Stylesheets, HTML & Vectors",
       "detail": "Shared alabaster/graphite/cobalt token system, responsive split layouts, and brand SVG assets",
-      "files": 35,
-      "loc": 8961,
-      "sharePct": 16.5
+      "files": 36,
+      "loc": 9421,
+      "sharePct": 17.1
     },
     {
       "id": "core_engine",
       "label": "Subtitle, Audio & 12-Provider STT Engine",
       "detail": "MP4 audio demuxer, cue reflow, smart chapters, 12 BYOK speech adapters, and SHA-256 updater",
-      "files": 18,
-      "loc": 7856,
-      "sharePct": 14.5
+      "files": 19,
+      "loc": 7932,
+      "sharePct": 14.4
     },
     {
       "id": "web_app",
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
-      "files": 16,
-      "loc": 7459,
-      "sharePct": 13.8
+      "files": 17,
+      "loc": 7742,
+      "sharePct": 14.1
     },
     {
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
-      "files": 20,
-      "loc": 7374,
-      "sharePct": 13.6
+      "files": 21,
+      "loc": 7442,
+      "sharePct": 13.5
     },
     {
       "id": "docs_schema_tooling",
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 26,
-      "loc": 5141,
-      "sharePct": 9.5
+      "loc": 5181,
+      "sharePct": 9.4
     },
     {
       "id": "cloud_api",
@@ -90,38 +90,38 @@ export const PROJECT_STATS = Object.freeze({
   "languages": [
     {
       "label": "JavaScript / ESM (.js, .mjs)",
-      "files": 63,
-      "loc": 36024,
-      "sharePct": 66.5
+      "files": 65,
+      "loc": 36202,
+      "sharePct": 65.7
     },
     {
       "label": "React JSX (.jsx)",
-      "files": 16,
-      "loc": 7459,
-      "sharePct": 13.8
+      "files": 17,
+      "loc": 7742,
+      "sharePct": 14.1
     },
     {
       "label": "HTML & Vector SVG (.html, .svg)",
-      "files": 32,
-      "loc": 4968,
-      "sharePct": 9.2
+      "files": 33,
+      "loc": 5107,
+      "sharePct": 9.3
     },
     {
       "label": "CSS Design System (.css)",
       "files": 2,
-      "loc": 3885,
-      "sharePct": 7.2
+      "loc": 4206,
+      "sharePct": 7.6
     },
     {
       "label": "Documentation (.md)",
       "files": 6,
       "loc": 1121,
-      "sharePct": 2.1
+      "sharePct": 2
     },
     {
       "label": "Config & Manifest (.json)",
       "files": 10,
-      "loc": 554,
+      "loc": 560,
       "sharePct": 1
     },
     {
