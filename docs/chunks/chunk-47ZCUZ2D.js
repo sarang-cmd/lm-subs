@@ -1,0 +1,1 @@
+import{c,e as i}from"./chunk-WHMDUVOL.js";var e=c(i(),1);function p({src:t,alt:o,width:S=1280,height:g=800,eager:n=!1}){return(0,e.jsxs)("picture",{children:[(0,e.jsx)("source",{srcSet:`${t}.webp?v=10`,type:"image/webp"}),(0,e.jsx)("img",{src:`${t}.png?v=10`,alt:o,width:S,height:g,loading:n?"eager":"lazy",decoding:"async"})]})}export{p as a};

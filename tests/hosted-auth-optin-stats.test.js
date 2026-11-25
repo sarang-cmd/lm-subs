@@ -408,7 +408,11 @@ test("Assets, Favicons, Vercel Analytics + Speed Insights, About & Guide Verific
   assert.ok(mainJsx.includes("@vercel/analytics/react"), "Vercel Analytics missing in main.jsx");
   assert.ok(mainJsx.includes("@vercel/speed-insights/react"), "Vercel Speed Insights missing in main.jsx");
 
-  const appBundle = fs.readFileSync(path.resolve("docs/app.js"), "utf8");
+  const chunkDir = path.resolve("docs/chunks");
+  const appBundle = [
+    fs.readFileSync(path.resolve("docs/app.js"), "utf8"),
+    ...fs.readdirSync(chunkDir).map((file) => fs.readFileSync(path.join(chunkDir, file), "utf8")),
+  ].join("\n");
   // ProductShot serves WebP first with a PNG fallback, so the bundle carries
   // both extensions under one extension-less base path.
   // ProductShot builds the URL as `${src}.webp?v=10`, so the bundle carries the

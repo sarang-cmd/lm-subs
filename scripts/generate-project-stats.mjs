@@ -4,7 +4,7 @@
  * telemetry from the repository and writes `src/lib/project-stats.js`.
  *
  * Excludes `node_modules`, `.git`, `.vercel`, `.agents`, `package-lock.json`,
- * binary assets, and compiled bundle outputs so line counts reflect only
+ * generated web chunks, binary assets, and compiled bundle outputs so line counts reflect only
  * hand-authored source, stylesheets, SQL schema, tests, and documentation.
  */
 
@@ -40,7 +40,7 @@ function walkAuthoredFiles(dir, out = []) {
     const full = path.join(dir, ent.name);
     const rel = path.relative(ROOT, full).replace(/\\/g, "/");
     if (ent.isDirectory()) {
-      if (rel === "docs/releases") continue;
+      if (rel === "docs/releases" || rel === "docs/chunks") continue;
       walkAuthoredFiles(full, out);
     } else {
       if (EXCLUDED_REL_PATHS.has(rel)) continue;

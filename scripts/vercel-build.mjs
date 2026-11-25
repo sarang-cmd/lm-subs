@@ -147,6 +147,48 @@ fs.writeFileSync(
           continue: true,
         },
         {
+          src: "^/releases/lm-subs-v[0-9].*\\.zip$",
+          headers: {
+            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+          },
+          continue: true,
+        },
+        {
+          src: "^/releases/lm-subs-latest\\.zip$",
+          headers: {
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+          },
+          continue: true,
+        },
+        {
+          src: "^/releases/latest\\.json$",
+          headers: {
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+          },
+          continue: true,
+        },
+        {
+          src: "^/assets/.*$",
+          headers: {
+            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+          },
+          continue: true,
+        },
+        {
+          src: "^/app\\.js$",
+          headers: {
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          continue: true,
+        },
+        {
+          src: "^/chunks/.*$",
+          headers: {
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          continue: true,
+        },
+        {
           src: "^/(.*)$",
           headers: {
             "X-Content-Type-Options": "nosniff",

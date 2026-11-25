@@ -4,11 +4,11 @@
  */
 export const PROJECT_STATS = Object.freeze({
   "version": "0.2.9",
-  "totalLoc": 175054,
-  "nonBlankLoc": 169735,
-  "sourceFiles": 1156,
-  "automatedTests": 148,
-  "testSuites": 21,
+  "totalLoc": 175978,
+  "nonBlankLoc": 170650,
+  "sourceFiles": 1159,
+  "automatedTests": 149,
+  "testSuites": 22,
   "sttProviders": 12,
   "exportFormats": 6,
   "captionThemes": 6,
@@ -35,8 +35,8 @@ export const PROJECT_STATS = Object.freeze({
       "label": "SQL Schema, Build Pipeline & Documentation",
       "detail": "Postgres DDL, esbuild + Vercel Output v3 packagers, deterministic zip builder, and guides",
       "files": 1048,
-      "loc": 124806,
-      "sharePct": 71.3
+      "loc": 125667,
+      "sharePct": 71.4
     },
     {
       "id": "mv3_extension",
@@ -44,7 +44,7 @@ export const PROJECT_STATS = Object.freeze({
       "detail": "Service worker, closed-ShadowRoot player bar, styler, transcript drawer, popup, and settings",
       "files": 9,
       "loc": 14641,
-      "sharePct": 8.4
+      "sharePct": 8.3
     },
     {
       "id": "ui_markup_styles",
@@ -66,16 +66,16 @@ export const PROJECT_STATS = Object.freeze({
       "id": "web_app",
       "label": "React Web App & Cloud Library",
       "detail": "Interactive screening stage, cloud vault, inline cue editor, notifications, guide, and stats views",
-      "files": 17,
-      "loc": 7879,
+      "files": 19,
+      "loc": 7887,
       "sharePct": 4.5
     },
     {
       "id": "test_suite",
       "label": "Automated E2E, Crypto & Guardrail Tests",
       "detail": "End-to-end MV3 pipeline, PGlite SQL sync, AES-256-GCM isolation, SHA-256 zip, and UI guardrails",
-      "files": 21,
-      "loc": 7497,
+      "files": 22,
+      "loc": 7552,
       "sharePct": 4.3
     },
     {
@@ -91,19 +91,19 @@ export const PROJECT_STATS = Object.freeze({
     {
       "label": "Config & Manifest (.json)",
       "files": 1032,
-      "loc": 120179,
+      "loc": 120960,
       "sharePct": 68.7
     },
     {
       "label": "JavaScript / ESM (.js, .mjs)",
-      "files": 65,
-      "loc": 36311,
+      "files": 66,
+      "loc": 36446,
       "sharePct": 20.7
     },
     {
       "label": "React JSX (.jsx)",
-      "files": 17,
-      "loc": 7879,
+      "files": 19,
+      "loc": 7887,
       "sharePct": 4.5
     },
     {
@@ -116,7 +116,7 @@ export const PROJECT_STATS = Object.freeze({
       "label": "CSS Design System (.css)",
       "files": 2,
       "loc": 4293,
-      "sharePct": 2.5
+      "sharePct": 2.4
     },
     {
       "label": "Documentation (.md)",

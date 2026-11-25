@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Collapsible, Switch, Tabs } from "radix-ui";
 import { EXTERNAL_MESSAGE } from "../config/selectors.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
-import { BrandMark } from "./App.jsx";
+import { BrandMark } from "./BrandMark.jsx";
 import { maskEmail } from "../lib/avatars.js";
 import { trackDownload } from "../lib/downloads.js";
 

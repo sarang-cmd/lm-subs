@@ -1764,7 +1764,7 @@
       if (runningLen > maxLineChars || rightLen > maxLineChars) {
         penalty += 50;
       }
-      if (/[,.;:?!—-]$/.test(words[i])) {
+      if (/[,.;:?!\u2014-]$/.test(words[i])) {
         penalty -= 6;
       }
       if (penalty < bestScore) {

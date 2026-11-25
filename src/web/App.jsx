@@ -1,4 +1,6 @@
 import React, {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -15,19 +17,24 @@ import {
 } from "../lib/avatars.js";
 import { trackDownload } from "../lib/downloads.js";
 import { listProviderSpecs } from "../lib/providers/registry.js";
-import { AboutView } from "./AboutView.jsx";
-import { AdminView } from "./AdminView.jsx";
 import { AuthDialog } from "./AuthDialog.jsx";
-import { GuideView } from "./GuideView.jsx";
-import { LibraryView, SyncPreferencesSwitches } from "./LibraryView.jsx";
+import { BrandMark } from "./BrandMark.jsx";
+export { BrandMark };
+import { SyncPreferencesSwitches } from "./SyncPreferencesSwitches.jsx";
 import { NotificationCenter } from "./NotificationCenter.jsx";
 import { ProductShot } from "./ProductShot.jsx";
 import { ProfileMenu } from "./ProfileMenu.jsx";
-import { PrivacyView, TermsView } from "./LegalViews.jsx";
 import { ScreeningStage } from "./ScreeningStage.jsx";
-import { StatsView } from "./StatsView.jsx";
-import { ProjectMetricsView } from "./ProjectMetricsView.jsx";
-import { WelcomeView } from "./WelcomeView.jsx";
+
+const AboutView = lazy(() => import("./AboutView.jsx").then((module) => ({ default: module.AboutView })));
+const AdminView = lazy(() => import("./AdminView.jsx").then((module) => ({ default: module.AdminView })));
+const GuideView = lazy(() => import("./GuideView.jsx").then((module) => ({ default: module.GuideView })));
+const LibraryView = lazy(() => import("./LibraryView.jsx").then((module) => ({ default: module.LibraryView })));
+const WelcomeView = lazy(() => import("./WelcomeView.jsx").then((module) => ({ default: module.WelcomeView })));
+const PrivacyView = lazy(() => import("./LegalViews.jsx").then((module) => ({ default: module.PrivacyView })));
+const TermsView = lazy(() => import("./LegalViews.jsx").then((module) => ({ default: module.TermsView })));
+const StatsView = lazy(() => import("./StatsView.jsx").then((module) => ({ default: module.StatsView })));
+const ProjectMetricsView = lazy(() => import("./ProjectMetricsView.jsx").then((module) => ({ default: module.ProjectMetricsView })));
 
 const TOKEN_STORAGE_KEY = "lmsubs_web_session_token";
 const ALL_PROVIDERS = listProviderSpecs();
@@ -171,32 +178,6 @@ export function GithubMark({ size = 18 }) {
   );
 }
 
-export function BrandMark({ size = 26 }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 128 128"
-      fill="none"
-      aria-hidden="true"
-    >
-      <rect width="128" height="128" rx="28" fill="#111315" />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M45.8 21.5C48.2 20.4 51 22.2 51 24.9V103.5C51 106.5 47.5 108.2 45.1 106.4L22.6 89.2C20.1 87.3 18.6 84.3 18.6 81.1V41.6C18.6 37.3 21.1 33.4 25 31.6L45.8 21.5ZM24.5 81.8L42.6 95.6C43.7 96.4 45.2 95.6 45.2 94.3V83.1C45.2 81.7 44 80.5 42.6 80.5H25.1C23.8 80.5 23.4 81 24.5 81.8Z"
-        fill="#F6F7F8"
-      />
-      <rect x="56.5" y="49.5" width="8" height="29" rx="4" fill="#F6F7F8" />
-      <rect x="68.5" y="37" width="8.5" height="54" rx="4.25" fill="#F6F7F8" />
-      <rect x="81" y="49.5" width="8" height="29" rx="4" fill="#F6F7F8" />
-      <path
-        d="M84.5 27H98.5C104.851 27 110 32.1487 110 38.5V89.5C110 95.8513 104.851 101 98.5 101H84.5C81.7386 101 79.5 98.7614 79.5 96C79.5 93.2386 81.7386 91 84.5 91H97C98.3807 91 99.5 89.8807 99.5 88.5V39.5C99.5 38.1193 98.3807 37 97 37H84.5C81.7386 37 79.5 34.7614 79.5 32C79.5 29.2386 81.7386 27 84.5 27Z"
-        fill="#1D5CF6"
-      />
-    </svg>
-  );
-}
 
 const VIEW_URL_MAP = {
   overview: "/",
@@ -678,6 +659,7 @@ export function App() {
       </header>
 
       <main id="main-content">
+        <Suspense fallback={<div className="page-wrap" role="status" aria-live="polite"><p className="section-prose">Loading page…</p></div>}>
         {view === "overview" ? (
           <div className="page-wrap">
             {/* 1. Centered Product Hero + Interactive Screening Stage */}
@@ -1109,6 +1091,7 @@ export function App() {
         {view === "about" ? <AboutView onNavigate={navigate} /> : null}
         {view === "privacy" ? <PrivacyView onNavigate={navigate} /> : null}
         {view === "terms" ? <TermsView onNavigate={navigate} /> : null}
+        </Suspense>
       </main>
 
       <footer className="site-footer">
