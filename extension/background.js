@@ -1724,7 +1724,7 @@ function wrapSubtitleLines(text, maxLineChars = DEFAULT_MAX_LINE_CHARS) {
     if (runningLen > maxLineChars || rightLen > maxLineChars) {
       penalty += 50;
     }
-    if (/[,.;:?!—-]$/.test(words[i])) {
+    if (/[,.;:?!\u2014-]$/.test(words[i])) {
       penalty -= 6;
     }
     if (penalty < bestScore) {
@@ -1906,7 +1906,7 @@ function cuesFromWords(words, {
       const gap = tok.start - prev.end;
       const speakerChanged = prev.speaker && tok.speaker && prev.speaker !== tok.speaker;
       const sentenceEnded = /[.?!]["')]*$/.test(prev.word);
-      const clauseEnded = /[,;:—-]$/.test(prev.word);
+      const clauseEnded = /[,;:\u2014-]$/.test(prev.word);
       const shouldFlush = speakerChanged || nextChars > maxCueChars || nextDuration > maxDurationSec || sentenceEnded && (bucketChars >= 24 || gap >= 0.18) || clauseEnded && bucketChars >= 48 || gap >= PAUSE_SPLIT_THRESHOLD_SEC && bucketChars >= 20;
       if (shouldFlush) {
         flushBucket();
@@ -1947,7 +1947,7 @@ function splitLongSegment(startSec, endSec, text, speaker, maxCueChars = DEFAULT
   for (const w of words) {
     const nextLen = currLen + (currWords.length > 0 ? 1 : 0) + w.length;
     const prevWord = currWords[currWords.length - 1] || "";
-    const naturalBreak = /[.?!]$/.test(prevWord) && currLen >= 28 || /[,;:—]$/.test(prevWord) && currLen >= 46;
+    const naturalBreak = /[.?!]$/.test(prevWord) && currLen >= 28 || /[,;:\u2014]$/.test(prevWord) && currLen >= 46;
     if (currWords.length > 0 && (nextLen > maxCueChars || naturalBreak)) {
       chunks.push(currWords.join(" "));
       currWords = [w];

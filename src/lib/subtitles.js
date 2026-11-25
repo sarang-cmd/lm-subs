@@ -122,7 +122,7 @@ export function wrapSubtitleLines(text, maxLineChars = DEFAULT_MAX_LINE_CHARS) {
     if (runningLen > maxLineChars || rightLen > maxLineChars) {
       penalty += 50;
     }
-    if (/[,.;:?!—-]$/.test(words[i])) {
+    if (/[,.;:?!\u2014-]$/.test(words[i])) {
       penalty -= 6;
     }
     if (penalty < bestScore) {
@@ -753,7 +753,7 @@ export function cuesFromWords(
       const speakerChanged =
         prev.speaker && tok.speaker && prev.speaker !== tok.speaker;
       const sentenceEnded = /[.?!]["')]*$/.test(prev.word);
-      const clauseEnded = /[,;:—-]$/.test(prev.word);
+      const clauseEnded = /[,;:\u2014-]$/.test(prev.word);
 
       const shouldFlush =
         speakerChanged ||
@@ -818,7 +818,7 @@ function splitLongSegment(startSec, endSec, text, speaker, maxCueChars = DEFAULT
     const prevWord = currWords[currWords.length - 1] || "";
     const naturalBreak =
       (/[.?!]$/.test(prevWord) && currLen >= 28) ||
-      (/[,;:—]$/.test(prevWord) && currLen >= 46);
+      (/[,;:\u2014]$/.test(prevWord) && currLen >= 46);
 
     if (currWords.length > 0 && (nextLen > maxCueChars || naturalBreak)) {
       chunks.push(currWords.join(" "));

@@ -12,12 +12,17 @@
  */
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
 const DOCS_DIR = path.join(REPO_ROOT, "docs");
+const APP_BUNDLE_PATH = path.join(DOCS_DIR, "app.js");
+const APP_BUNDLE_VERSION = fs.existsSync(APP_BUNDLE_PATH)
+  ? createHash("sha256").update(fs.readFileSync(APP_BUNDLE_PATH)).digest("hex").slice(0, 12)
+  : "dev";
 
 const SITE = "https://lm-subs.vercel.app";
 const AUTHOR_NAME = "Sarang";
@@ -218,7 +223,7 @@ ${body}
 ${FOOTER}
     </div>
 
-    <script type="module" src="/app.js?v=5"></script>
+    <script type="module" src="/app.js?v=${APP_BUNDLE_VERSION}"></script>
   </body>
 </html>
 `;
